@@ -445,7 +445,7 @@
    "on": "steering column shroud, right side",
    "pos": [
     1.13193,
-    1.40287,
+    1.36287,
     -0.545
    ],
    "quat": [
@@ -609,7 +609,7 @@
    "column_deg": 40.0,
    "pos": [
     1.04,
-    1.48,
+    1.44,
     -0.6
    ],
    "quat": [
@@ -674,60 +674,60 @@
  "needles": {
   "N_fuel": {
    "axis": [
-    -0.84159,
-    0.54012,
+    -0.8542,
+    0.51995,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    1.20063,
-    1.49651,
+    1.20072,
+    1.59629,
     -0.764
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_rpm": {
    "axis": [
-    -0.84159,
-    0.54012,
+    -0.8542,
+    0.51995,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    1.20711,
-    1.50661,
+    1.20695,
+    1.60654,
     -0.528
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_speed": {
    "axis": [
-    -0.84159,
-    0.54012,
+    -0.8542,
+    0.51995,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    1.20711,
-    1.50661,
+    1.20695,
+    1.60654,
     -0.672
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_temp": {
    "axis": [
-    -0.84159,
-    0.54012,
+    -0.8542,
+    0.51995,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    1.20063,
-    1.49651,
+    1.20072,
+    1.59629,
     -0.436
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -820,7 +820,7 @@
   "BODY": 54818,
   "FUEL_CAP": 188,
   "GLASS": 588,
-  "INTERIOR": 6360,
+  "INTERIOR": 6480,
   "KNUCKLE_hub_FL": 652,
   "KNUCKLE_hub_FR": 652,
   "KNUCKLE_hub_RL": 520,
@@ -838,7 +838,7 @@
   "UNDER": 8668,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 87160
+  "total": 87280
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

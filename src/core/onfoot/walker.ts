@@ -471,9 +471,12 @@ export class FootWalker {
   /**
    * Where the view stands from the walker's own eye as it looks level and how much further as it looks down (m, and m
    * a radian): ahead of it and below it — a character's head carries her eyes forward of her spine and down as she bows
-   * it (the game's, measured on her: HerInGame). All nothing by default: the view is the walker's own eye.
+   * it (the game's, measured on her: HerInGame). `turn`: the view goes round a point that far behind it as it looks
+   * up and down (m) — ahead by turn·(1 − cos), down by turn·sin of how far down it looks (Nomad Drive's first-person
+   * view turns so about its neck, 0.1 m: looking down, the view comes out over the chest). All nothing by default: the
+   * view is the walker's own eye.
    */
-  readonly view = { ahead: 0, aheadDown: 0, below: 0, belowDown: 0 };
+  readonly view = { ahead: 0, aheadDown: 0, below: 0, belowDown: 0, turn: 0 };
 
   /**
    * The eye the view is from, and so the one everything is aimed from: the walker's own (eyeBase) and where the view
@@ -483,13 +486,13 @@ export class FootWalker {
   eye(out: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }): { x: number; y: number; z: number } {
     this.eyeBase(out);
     const v = this.view;
-    if (v.ahead !== 0 || v.below !== 0 || v.aheadDown !== 0 || v.belowDown !== 0) {
+    if (v.ahead !== 0 || v.below !== 0 || v.aheadDown !== 0 || v.belowDown !== 0 || v.turn !== 0) {
       // (how far down it looks, as far as a neck bows: a little up, more down)
       const u = Math.max(-0.9, Math.min(1.1, -this.pitch));
-      const a = v.ahead + v.aheadDown * u;
+      const a = v.ahead + v.aheadDown * u + v.turn * (1 - Math.cos(u));
       out.x += Math.cos(this.heading) * a;
       out.z += Math.sin(this.heading) * a;
-      out.y -= v.below + v.belowDown * u;
+      out.y -= v.below + v.belowDown * u + v.turn * Math.sin(u);
     }
     return out;
   }
@@ -507,7 +510,7 @@ export class FootWalker {
     let pitch = this.pitch;
     for (let i = 0; i < 8; i++) {
       const u = Math.max(-0.9, Math.min(1.1, -pitch));
-      pitch = Math.atan2(y - h + v.below + v.belowDown * u, d - v.ahead - v.aheadDown * u);
+      pitch = Math.atan2(y - h + v.below + v.belowDown * u + v.turn * Math.sin(u), d - v.ahead - v.aheadDown * u - v.turn * (1 - Math.cos(u)));
     }
     out.yaw = d > 1e-6 ? Math.atan2(z - this.z, x - this.x) : this.heading;
     out.pitch = pitch;

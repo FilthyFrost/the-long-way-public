@@ -14,6 +14,7 @@ from frames import _kit as K  # noqa: E402
 from frames import _preview as PV  # noqa: E402
 from frames import _turtle_ext as EX  # noqa: E402
 from frames import _turtle_inner as IN  # noqa: E402
+from frames import _stretch as ST  # noqa: E402
 from frames import turtle as S  # noqa: E402
 from frames._sedan_build import game_vec, knuckles, mount, needle, obj_with_origin  # noqa: E402
 from frames._sedan_ext import side_dir  # noqa: E402
@@ -199,6 +200,9 @@ def build(args):
     print('[turtle] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, panels)
     objs += knuckles(empties, lambda x, y, z, front: canon(IN.knuckle(x, y, z, front)))
+    # the frame lengthened (the Turtle widened too) as it is built: frames/_stretch.py
+    ST.apply('turtle', objs, empties, panels, (needles, wipers), popups)
+    dial_glass = ST.buf('turtle', dial_glass)
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())
@@ -207,7 +211,7 @@ def build(args):
         # the engine bay is baked with the lid up (one looks into it with the lid open)
         hood = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((D['xr'] - 0.05, -0.91, 0.25), (IN.FIREWALL_X + 0.06, 0.91, IN.DECK_Z + 0.02)), samples=32, distance=0.35)
+                       ST.box('turtle', (D['xr'] - 0.05, -0.91, 0.25), (IN.FIREWALL_X + 0.06, 0.91, IN.DECK_Z + 0.02)), samples=32, distance=0.35)
         print('[turtle] AO', round(time.time() - t0, 1), 's')
         # (the shell and its bellows baked shut — the bellows folded flat under the shell, the shell's underside down on
         # the lining: seen lifted they would be near black; the bellows and the underside unshaded)
@@ -218,7 +222,7 @@ def build(args):
             c = np.zeros(len(a.data) * 4, np.float32)
             a.data.foreach_get('color', c)
             c = c.reshape(-1, 4)
-            under = {i for i, m in enumerate(o.data.materials) if m and m.name == 'paint_b'}
+            under = {i for i, m in enumerate(o.data.materials) if m and m.name in ('paint_b', 'lining')}
             for p in o.data.polygons:
                 if o.name == 'POPUP_roof_bellows' or p.material_index in under:
                     for li in p.loop_indices:
@@ -231,7 +235,7 @@ def build(args):
     total = sum(tris.values())
     print('[turtle] grime masks', K.mask_frame(meshes))
     mc.export_glb(OUT_GLB, meshes + empties)
-    mc.mounts_json(OUT_JSON, 'turtle', json_extra(objs, panels, needles, wipers, tris, total, popups))
+    mc.mounts_json(OUT_JSON, 'turtle', ST.map_json('turtle', json_extra(objs, panels, needles, wipers, tris, total, popups)))
     print('[turtle] exported', round(time.time() - t0, 1), 's')
     if not no_preview:
         previews(quick)

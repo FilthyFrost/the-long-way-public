@@ -14,9 +14,9 @@
  */
 import { hash2, Rng } from '../math/rng';
 import { BIOMES } from '../world/biomes';
-import type { SiteKind } from '../world/sites';
+import type { PlaceSort } from '../world/sites';
 import type { Climate } from './loot';
-import type { PlannedFind, PlanPlace } from './schedule';
+import { takesSorts, type PlannedFind, type PlanPlace } from './schedule';
 
 /** what of a world's plan of regions is asked (core/world/spine.ts ChapterPlan) */
 export interface RoadPlan {
@@ -88,8 +88,9 @@ export const LONG_WAY_M = 4000;
 export const AHEAD_COAT = 'wear_padded';
 export const AHEAD_WATER = 'drink_water';
 
-const COAT_PLACES: readonly SiteKind[] = ['house', 'shop', 'camp', 'hide'];
-const WATER_PLACES: readonly SiteKind[] = ['shop', 'station', 'house', 'camp'];
+// (a motel before the pass or the desert: a coat left on a hook, a big bottle by a bed)
+const COAT_PLACES: readonly PlaceSort[] = ['house', 'shop', 'camp', 'hide', 'motel'];
+const WATER_PLACES: readonly PlaceSort[] = ['shop', 'station', 'house', 'camp', 'motel'];
 
 /**
  * The finds the road ahead asks for (docs/V3/plan/finish.md §二 4: 看前方), from `fromM` on (the first chapter is mild
@@ -102,13 +103,13 @@ const WATER_PLACES: readonly SiteKind[] = ['shop', 'station', 'house', 'camp'];
 export function lookAheadFinds(seed: number, regions: readonly RoadRegion[], places: readonly PlanPlace[], fromM = 12_000): PlannedFind[] {
   const out: PlannedFind[] = [];
   /** the place a border's thing is put at: the last of its sorts within BEFORE_BORDER_M of it, else the last with a box there, else the last with a box within FAR_BACK_M */
-  const before = (at: number, sorts: readonly SiteKind[]): { p: PlanPlace; sort: boolean } | null => {
+  const before = (at: number, sorts: readonly PlaceSort[]): { p: PlanPlace; sort: boolean } | null => {
     let own: PlanPlace | null = null;
     let near: PlanPlace | null = null;
     let far: PlanPlace | null = null;
     for (const p of places) {
       if (p.s >= at) break;
-      if (p.boxes <= 0) continue;
+      if (p.boxes <= 0 || !takesSorts(p.kind, sorts)) continue;
       if (p.s >= at - BEFORE_BORDER_M) {
         near = p;
         if (sorts.includes(p.kind)) own = p;
@@ -125,14 +126,14 @@ export function lookAheadFinds(seed: number, regions: readonly RoadRegion[], pla
     if (r.snow && !prev.snow && r.from - coatAt >= COAT_AGAIN_M) {
       const at = before(r.from, COAT_PLACES);
       if (at) {
-        out.push({ entry: 'ahead:coat', thing: { item: AHEAD_COAT }, s: at.p.s - 0.5, novelty: false, ...(at.sort ? { themes: COAT_PLACES } : {}) });
+        out.push({ entry: 'ahead:coat', thing: { item: AHEAD_COAT }, s: at.p.s - 0.5, novelty: false, themes: COAT_PLACES, ...(at.sort ? {} : { any: true as const }) });
         coatAt = r.from;
       }
     }
     if (r.desert && !prev.desert && r.from - waterAt >= WATER_AGAIN_M) {
       const at = before(r.from, WATER_PLACES);
       if (at) {
-        out.push({ entry: 'ahead:water', thing: { item: AHEAD_WATER }, s: at.p.s - 0.5, novelty: false, ...(at.sort ? { themes: WATER_PLACES } : {}) });
+        out.push({ entry: 'ahead:water', thing: { item: AHEAD_WATER }, s: at.p.s - 0.5, novelty: false, themes: WATER_PLACES, ...(at.sort ? {} : { any: true as const }) });
         waterAt = r.from;
       }
     }

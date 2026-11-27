@@ -31,7 +31,16 @@ BAY_Y = 0.80             # the inner face of the wings above the ledge
 SEAT_X = 0.485           # seat floor attachment x: the stock bucket's eye at (0.325, 1.42)
 DRIVER_Y = 0.41          # (the buckets stand outboard of the tunnel over the raised gearbox)
 PEDAL_Y = 0.36           # the pedals' line: inboard of the driver, clear of the front wheelhouse in the footwell
-EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.03 + 0.90)
+# the front seats' runners are let into the floor, standing 5 mm proud of the mat (they stood on it, 3 cm tall)
+SEAT_RISE = 0.005
+EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + SEAT_RISE + 0.90)
+# where the view is from: her eyes as the game seats her (0.18 ahead of and 0.08 under the seat's eye point), the
+# frame's cabView (core/modcar/frames.ts) 0.35 back and 0.145 up: a woman's sitting height, 0.73 m over the cushion,
+# her eyes about where they are leaning against the seat's back (Nomad Drive's driver's view, 2026-11-26)
+VIEW = (EYE[0] + 0.183 - 0.35, DRIVER_Y, EYE[2] - 0.079 + 0.145)
+# the binnacle and the instrument hood over it stand this much higher than they did, so that from the raised view the
+# dials are 30 deg under the level line (they would have been 37; Nomad Drive's 23-32)
+POD_RISE = 0.05
 REAR_SEAT_X = -0.50
 GEAR_X = 0.62
 HB_X = 0.22
@@ -181,6 +190,10 @@ def door_extras(ex):
     prof = K.round_profile(np.array([(0.035, -0.10), (0.032, 0.0), (0.012, 0.005), (-0.02, 0.0), (-0.025, -0.10)]), 0.008, 1)
     V, N, Tr = K.sweep(Pin + np.array([0, 0, -0.01]), (0, 0, 1), prof, closed=False)
     b.add(V, N, Tr, 'plastic_int')
+    # the door's rear face closed up to the belt seal: its rolled edge turns into the waist there and left a slot
+    # between the card's top and the seal (from the rear bench a small green corner at the door's rear frame)
+    xr = D['fd_rear'] + 0.0045
+    b.extend(K.box_buf((xr, 0.742, 1.10), (xr + 0.001, 0.82, 1.181), 'paint', 0.0, 1))
     # the pull handle and the key barrel near the rear edge, just under the waist
     xh, zh = D['fd_rear'] + 0.16, 1.10
     ph, nh = side_pt(xh, zh)
@@ -562,7 +575,9 @@ def steering_mount():
     """(the column's end, the column direction forward-down): an upright wheel close to the upright seat."""
     ang = math.radians(28.0)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([0.72, DRIVER_Y, 1.05])
+    # (4.5 cm lower than it was: from her eyes the rim's centre 40 deg under the level line, as Nomad Drive's wheels
+    # are, the instruments seen over the hub through the rim's upper half)
+    p = np.array([0.72, DRIVER_Y, 1.005])
     return p, d
 
 
@@ -630,10 +645,10 @@ def interior(ex):
     C.extend(K.cyl_buf(tip - (0, 0, 0.005), tip + (0.0, 0.0, 0.045), 0.017, 'plastic_int', 12, r1=0.02))
     # the tunnel's carpet cover over the gearbox and transfer case, the handbrake's slot behind the levers
     C.extend(tunnel_cover())
-    # seat rails: the two buckets, the rear bench
+    # seat rails: the two buckets' runners let into the floor, the rear bench's on it
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
         for dy in (-0.17, 0.17):
-            C.extend(K.box_buf((sx - 0.22, sy + dy - 0.015, FLOOR_Z), (sx + 0.22, sy + dy + 0.015, FLOOR_Z + 0.03), 'steel', 0.004, 2))
+            C.extend(K.box_buf((sx - 0.22, sy + dy - 0.015, FLOOR_Z - 0.025), (sx + 0.22, sy + dy + 0.015, FLOOR_Z + SEAT_RISE), 'steel', 0.003, 2))
     for dy in (-0.48, 0.48):
         C.extend(K.box_buf((REAR_SEAT_X - 0.15, dy - 0.02, FLOOR_Z), (REAR_SEAT_X + 0.15, dy + 0.02, FLOOR_Z + 0.03), 'steel', 0.004, 2))
     # the interior mirror on the header, sun visors, the dome lamp over the rear seat
@@ -697,6 +712,31 @@ def rear_room():
     poly = np.vstack([[(x_b, FLOOR_Z)], arc, [(D['xr'] + 0.07, CARGO_Z), (D['xr'] + 0.07, D['waist_z'] - 0.01), (x_b, D['waist_z'] - 0.01)]])
     P = np.stack([poly[:, 0], np.full(len(poly), yl), poly[:, 1]], 1)
     b.extend(K.fill_loop(P, (0, -1, 0), 'plastic_int'))
+    # the inner sill along its top, out under the side skin's top strip, and its front edge closed against the door's
+    # opening: the room between the lining and the side skin stood open there, the grass outside showing through it
+    # in a green line along the waist and down the B pillar
+    xs1 = D['xr'] + 0.07
+    b.extend(K.box_buf((xs1, yl - 0.012, D['waist_z'] - 0.03), (x_b, 0.83, D['waist_z'] - 0.004), 'plastic_int', 0.004, 1))
+    b.extend(K.box_buf((x_b - 0.006, yl - 0.004, FLOOR_Z), (x_b + 0.002, 0.83, D['waist_z'] - 0.006), 'plastic_int', 0.002, 1))
+    b.extend(K.box_buf((x_b - 0.006, yl - 0.004, D['waist_z'] - 0.01), (x_b + 0.002, 0.815, D['waist_z'] + 0.014), 'plastic_int', 0.002, 1))
+    # (and on forward to 2.5 mm behind the door opening's flange, out to the side skin: between the lining's front
+    # edge and the flange the slot still let a green line through along the door's rear edge, the flange being a single
+    # face that looks at the door)
+    xj = D['fd_rear'] - 0.0045
+    b.extend(K.box_buf((x_b + 0.001, yl - 0.004, 0.54), (xj, 0.834, D['waist_z'] - 0.004), 'plastic_int', 0.0, 1))
+    # (and the opening's lower rear corner: the opening's flanges are single faces looking at the door, and where the
+    # rear one rounds into the sill (r 35 mm) the door's edge falls away from it, so from the rear bench the eye went
+    # through the flange's back, over the sill trim and out through the hollow sill: a small green corner under the
+    # door's rear edge. The flange's back is closed there, and a plate flush with its inner rim fills the corner
+    # outside the door's rounded edge, down into the sill trim, behind the door's inner face wherever the door is)
+    rc, rp, e, zs = 0.035, 0.029, 0.006, FLOOR_Z + 0.058
+    cx, cz = D['fd_rear'] + rc, D['door_bot'] + rc
+    xk = D['fd_rear'] - 0.0035
+    b.extend(K.fill_loop(np.array([(xk, 0.742, zs), (xk, 0.836, zs), (xk, 0.836, cz + 0.01), (xk, 0.742, cz + 0.01)]), (-1, 0, 0), 'paint'))
+    th = np.linspace(-0.5 * PI, -PI, 9)
+    corner = np.vstack([[(D['fd_rear'] - e, zs), (cx, zs)],
+                        np.stack([cx + rp * np.cos(th), cz + rp * np.sin(th)], 1), [(D['fd_rear'] - e, cz)]])
+    b.extend(K.fill_loop(np.stack([corner[:, 0], np.full(len(corner), 0.744), corner[:, 1]], 1), (0, -1, 0), 'paint'))
     # the tub's cover: the half cylinder over the wheel from the lining in to its inner wall, the inner wall
     y0 = 0.40
     b.extend(tub(xa, zc, r, y0, yl, math.degrees(a_lo), 180.0 - math.degrees(a_hi), 'fabric', True, n=16))
@@ -731,9 +771,11 @@ def dashboard():
     fx = DASH_FACE_X
 
     def pad_sec(y):
-        return K.round_profile(np.array([(1.00, 1.122), (0.96, 1.146), (fx + 0.03, 1.152), (fx - 0.012, 1.148), (fx - 0.024, 1.128),
-                                         (fx - 0.016, 1.108), (fx + 0.01, 1.10), (1.00, 1.10)]), [0, 0.03, 0.02, 0.012, 0.01, 0.008, 0.01, 0], 1)
-    ys = np.linspace(-0.725, 0.725, 9)
+        # over the binnacle the rail rises POD_RISE as its hood, its lip over the dials
+        rise = POD_RISE * float(K.sstep(0.27, 0.22, abs(y - DRIVER_Y))) if y > 0 else 0.0
+        return K.round_profile(np.array([(1.00, 1.122), (0.96, 1.146 + rise * 0.5), (fx + 0.03, 1.152 + rise), (fx - 0.012, 1.148 + rise), (fx - 0.024, 1.128 + rise),
+                                         (fx - 0.016, 1.108 + rise), (fx + 0.01, 1.10 + rise), (1.00, 1.10)]), [0, 0.03, 0.02, 0.012, 0.01, 0.008, 0.01, 0], 1)
+    ys = np.concatenate([np.linspace(-0.725, 0.05, 6), np.linspace(0.09, 0.71, 22), [0.725]])
     b.extend(extrude_y(None, ys, 'plastic_int', inside=(0.90, 0.0, 1.125), sec_fn=pad_sec))
     fas = K.round_profile(np.array([(fx, 1.10), (fx, 0.88), (fx + 0.04, 0.85), (0.98, 0.85), (0.98, 1.10)]), [0, 0.025, 0.02, 0, 0], 2)
     b.extend(extrude_y(fas, np.linspace(-0.66, 0.66, 5), 'paint', inside=(0.88, 0.0, 0.97)))
@@ -742,9 +784,11 @@ def dashboard():
     # glovebox and its push button (passenger)
     b.extend(K.box_buf((fx - 0.006, -0.66, 0.90), (fx + 0.004, -0.24, 1.04), 'paint', 0.01, 2))
     b.extend(K.box_buf((fx - 0.012, -0.47, 1.015), (fx - 0.004, -0.43, 1.03), 'chrome', 0.003, 1))
+    # the back of the raised hood: closed behind the binnacle down to the fascia
+    b.extend(K.box_buf((fx + 0.012, DRIVER_Y - 0.26, 1.05), (0.98, DRIVER_Y + 0.26, 1.098 + POD_RISE), 'plastic_int', 0.004, 1))
     # the binnacle: a box standing out of the fascia, tilted towards the eye, a hood over it
-    eye = np.array(EYE)
-    pc = np.array([fx - 0.03, DRIVER_Y, 1.055])
+    eye = np.array(VIEW)
+    pc = np.array([fx - 0.03, DRIVER_Y, 1.055 + POD_RISE])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)
@@ -772,10 +816,11 @@ def dashboard():
     for k in range(3):
         yy = -0.05 + 0.05 * k
         b.extend(K.box_buf((fx - 0.02, yy - 0.006, 1.026), (fx - 0.008, yy + 0.006, 1.039), 'plastic_int', 0.003, 1))
-    # the inclinometer on the top rail's middle: a round case on a stand facing back, a weighted pointer
-    ic = np.array([0.90, -0.02, 1.215])
-    b.extend(K.box_buf((0.88, -0.05, 1.148), (0.93, 0.01, 1.165), 'trim', 0.004, 1))
-    b.extend(K.box_buf((0.895, -0.03, 1.16), (0.91, -0.01, 1.18), 'trim', 0.003, 1))
+    # the inclinometer on the top rail before the passenger, low on its stand: a round case facing back, a weighted
+    # pointer (it stood on the rail's middle, in the road's view from the driver's seat)
+    ic = np.array([0.90, -0.27, 1.200])
+    b.extend(K.box_buf((0.88, -0.30, 1.144), (0.93, -0.24, 1.158), 'trim', 0.004, 1))
+    b.extend(K.box_buf((0.895, -0.28, 1.152), (0.91, -0.26, 1.166), 'trim', 0.003, 1))
     V, N, T = K.lathe(np.array([(0.0, -0.018), (0.052, -0.018), (0.058, -0.01), (0.058, 0.012), (0.052, 0.016), (0.046, 0.012)]), ic, (-1, 0, 0), 16)
     b.add(V, N, T, 'trim')
     V, N, T = K.lathe(np.array([(0.0, 0.004), (0.046, 0.004)]), ic, (-1, 0, 0), 16, prof_n=np.array([[0, 1.0], [0, 1.0]]))

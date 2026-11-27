@@ -22,7 +22,17 @@ RAD_X = 1.995
 APRON_Y = 0.50
 SEAT_X = 0.30            # seat floor attachment x: a 1.01 m bucket seat's back clears the cab's rear wall
 DRIVER_Y = 0.36
-EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.03 + 0.90)   # the stock bucket seat's eye (parts_geo: eye -0.16, 0.90)
+# the seats' runners are let into the floor, standing 5 mm proud of the mat (they stood on it, 3 cm tall: the
+# cushion 2.5 cm lower gives her head its room with her eyes where a woman of her height sits, Nomad Drive's driver's
+# view, 2026-11-26)
+SEAT_RISE = 0.005
+EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + SEAT_RISE + 0.90)   # the stock bucket seat's eye (parts_geo: eye -0.16, 0.90)
+# where the view is from: her eyes as the game seats her (0.18 ahead of and 0.08 under the seat's eye point), the
+# frame's cabView (core/modcar/frames.ts) 0.30 back and 0.145 up — a woman's sitting height, 0.73 m over the cushion
+VIEW = (EYE[0] + 0.183 - 0.30, DRIVER_Y, EYE[2] - 0.079 + 0.145)
+# the instrument hood and the pod in it stand this much higher than they did, so that from the raised view the dials
+# are 30 deg under the level line (they would have been 34; Nomad Drive's 23-32)
+POD_RISE = 0.045
 GEAR_X = 0.62
 # the handbrake on the hump between the seats, behind the gear lever (seen when the driver looks down to the right)
 HB_X = 0.36
@@ -413,10 +423,10 @@ def interior(ex):
     hz = tunnel_h(HB_X)
     C.extend(K.box_buf((HB_X - 0.14, -0.03, hz - 0.004), (HB_X + 0.16, 0.03, hz + 0.008), 'plastic_int', 0.006, 2))
     C.extend(K.box_buf((HB_X - 0.11, -0.012, hz + 0.004), (HB_X + 0.13, 0.012, hz + 0.0095), 'trim', 0.002, 1))
-    # bench seat rails
+    # seat runners, let into the floor
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
         for dy in (-0.16, 0.16):
-            C.extend(K.box_buf((sx - 0.22, sy + dy - 0.015, FLOOR_Z), (sx + 0.22, sy + dy + 0.015, FLOOR_Z + 0.03), 'steel', 0.004, 2))
+            C.extend(K.box_buf((sx - 0.22, sy + dy - 0.015, FLOOR_Z - 0.025), (sx + 0.22, sy + dy + 0.015, FLOOR_Z + SEAT_RISE), 'steel', 0.003, 2))
     mp = np.array([float(S.ws_x(0, 1.55)) - 0.08, 0.0, 1.53])
     C.extend(K.box_buf(mp + (-0.01, -0.012, 0.01), mp + (0.012, 0.012, 0.05), 'plastic_int', 0.004, 2))
     C.extend(K.box_buf(mp + (-0.025, -0.11, -0.03), mp + (0.0, 0.11, 0.02), 'plastic_int', 0.012, 3))
@@ -439,16 +449,18 @@ def dashboard():
     def pad_sec(y):
         ay = abs(y - DRIVER_Y)
         hood = 0.035 * float(K.sstep(0.27, 0.22, ay)) if y > 0 else 0.0
-        # (the hood's lower lip is lifted over the cluster: from the eye it hid the top small dial)
-        pts = np.array([(0.92, 1.065), (0.86, 1.095), (fx + 0.03, 1.105 + hood * 0.6), (fx - 0.005 - hood, 1.10 + hood * 0.6),
-                        (fx - 0.02 - hood, 1.08 + hood * 0.85), (fx - 0.012 - hood, 1.058 + hood * 0.85), (fx + 0.01, 1.05), (0.92, 1.045)])
+        # (the hood's lower lip is lifted over the cluster: from the eye it hid the top small dial; the hood stands
+        # POD_RISE higher than the rest of the top, the instrument hood of an 80s truck)
+        rise = POD_RISE * float(K.sstep(0.27, 0.22, ay)) if y > 0 else 0.0
+        pts = np.array([(0.92, 1.065), (0.86, 1.095 + rise * 0.5), (fx + 0.03, 1.105 + hood * 0.6 + rise), (fx - 0.005 - hood, 1.10 + hood * 0.6 + rise),
+                        (fx - 0.02 - hood, 1.08 + hood * 0.85 + rise), (fx - 0.012 - hood, 1.058 + hood * 0.85 + rise), (fx + 0.01, 1.05 + rise), (0.92, 1.045)])
         return K.round_profile(pts, [0, 0.03, 0.02, 0.012, 0.01, 0.008, 0.01, 0], 1)
     ys = np.concatenate([np.linspace(-0.70, 0.06, 3), np.linspace(0.08, 0.64, 8), [0.71]])
     b.extend(extrude_y(None, ys, 'plastic_int', inside=(0.85, 0.0, 1.07), sec_fn=pad_sec))
     fas = K.round_profile(np.array([(fx, 1.05), (fx, 0.84), (fx + 0.04, 0.81), (0.93, 0.81), (0.93, 1.05)]), [0, 0.025, 0.02, 0, 0], 2)
     # behind the instrument box the fascia stops lower: the box leans back towards the driver and its top
     # half sat behind the fascia's face (a painted band across the top small dial)
-    fas_low = K.round_profile(np.array([(fx, 0.995), (fx, 0.84), (fx + 0.04, 0.81), (0.93, 0.81), (0.93, 0.995)]), [0, 0.025, 0.02, 0, 0], 2)
+    fas_low = K.round_profile(np.array([(fx, 0.995 + POD_RISE), (fx, 0.84), (fx + 0.04, 0.81), (0.93, 0.81), (0.93, 0.995 + POD_RISE)]), [0, 0.025, 0.02, 0, 0], 2)
     yb0, yb1 = DRIVER_Y - 0.222, DRIVER_Y + 0.222
     for (y0, y1, sec) in ((-0.66, yb0, fas), (yb0, yb1, fas_low), (yb1, 0.66, fas)):
         b.extend(extrude_y(sec, np.linspace(y0, y1, 3), 'paint', inside=(0.82, 0.5 * (y0 + y1), 0.94)))
@@ -457,8 +469,10 @@ def dashboard():
     # glovebox
     b.extend(K.box_buf((fx - 0.006, -0.60, 0.86), (fx + 0.004, -0.22, 0.98), 'plastic_int', 0.01, 2))
     b.extend(K.box_buf((fx - 0.012, -0.43, 0.955), (fx - 0.004, -0.39, 0.97), 'chrome', 0.003, 1))
-    eye = np.array(EYE)
-    pc = np.array([fx - 0.012, DRIVER_Y, 1.005])
+    # the back of the raised hood: closed behind the pod down to the fascia
+    b.extend(K.box_buf((fx + 0.012, DRIVER_Y - 0.26, 0.98), (0.90, DRIVER_Y + 0.26, 1.048 + POD_RISE), 'plastic_int', 0.004, 1))
+    eye = np.array(VIEW)
+    pc = np.array([fx - 0.012, DRIVER_Y, 1.005 + POD_RISE])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)

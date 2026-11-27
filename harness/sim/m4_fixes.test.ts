@@ -41,24 +41,26 @@ describe('M4 fixes · the sounds are the archive\'s', () => {
 
 describe('M4 fixes · walking about inside the motorhome', () => {
   const rv = aboardOf('rv')!;
-  // (from just inside the side door, straight back: the dinette and the wardrobe are in the way, the aisle a step aside)
-  const walkBack = (funnel: boolean, seconds = 3): Walker => {
+  // (from just inside the side door, straight back. The wardrobe that stood in the way there is gone — docs/V3/plan/
+  // finish.md §十一 1: the floor is open to the right wall, and the walk goes on to the foot of the bed; the door and
+  // the bed 0.75 and 1.2 m further back since the Whale was lengthened, §18)
+  const walkBack = (funnel: boolean, seconds = 4.5): Walker => {
     const w = new Walker(rv);
     w.funnel = funnel;
-    w.place(-0.08, 0.72, Math.PI);
+    w.place(-0.83, 0.72, Math.PI);
     for (let t = 0; t < seconds; t += 1 / 60) w.step(1 / 60, 1, 0);
     return w;
   };
 
   it('straight back from the door, eased round the corner into the aisle and on to the back', () => {
     const w = walkBack(true);
-    expect(w.x).toBeLessThan(-2.4);
+    expect(w.x).toBeLessThan(-3.15);
     expect(w.inside(w.x, w.z)).toBe(true);
   });
 
-  it('without the easing (the older game), pressed to the wall at the end of the lounge, as before', () => {
+  it('without the easing too: nothing stands in the way along the right wall, and one walks straight to the foot of the bed', () => {
     const w = walkBack(false);
-    expect(w.x).toBeCloseTo(-1.35, 6);
+    expect(w.x).toBeCloseTo(-4.02, 6);
     expect(w.z).toBeCloseTo(0.72, 6);
   });
 
@@ -66,7 +68,7 @@ describe('M4 fixes · walking about inside the motorhome', () => {
     const w = new Walker(rv);
     w.funnel = true;
     // (at the very back, walking on into the rear wall)
-    w.place(-2.9, 0, Math.PI);
+    w.place(-4.1, 0, Math.PI);
     w.step(1 / 60, 1, 0);
     const x = w.x;
     const z = w.z;

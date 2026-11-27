@@ -22,7 +22,10 @@ import { readParams } from '../params';
 import { loadStats } from './assets';
 import { devItemOf } from './devPanel';
 import { Tune } from './devTune';
-import { automated, ModGame, NEW_DIFFICULTY_KEY, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
+import { automated, GO_ON_KEY, ModGame, NEW_DIFFICULTY_KEY, NEW_LOOK_KEY, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
+import { cleanLook } from '../character/looks';
+import { loadedFromBackup } from './save';
+import { saveSettings } from './settings';
 import { loadSettings } from './settings';
 import { difficultyOf } from '../../core/modcar/difficulty';
 // (the V3 modules are found, and whatever they add to the catalogues at their top level is in, when this line is
@@ -96,11 +99,25 @@ if (!save && !own) {
       fresh.difficulty = difficultyOf(d);
       begun = true;
       localStorage.removeItem(NEW_DIFFICULTY_KEY);
+      // (… and how she looks in it, the menu's choice)
+      const look = localStorage.getItem(NEW_LOOK_KEY);
+      if (look) fresh.look = cleanLook(JSON.parse(look) as { skin?: unknown; helmet?: unknown });
+      localStorage.removeItem(NEW_LOOK_KEY);
     }
   } catch {
     /* storage unavailable */
   }
 }
+// (a kept game gone on with from the menu's page of them: the page opened again goes straight on into it, no title)
+let goOn = false;
+try {
+  goOn = localStorage.getItem(GO_ON_KEY) !== null;
+  localStorage.removeItem(GO_ON_KEY);
+} catch {
+  /* storage unavailable */
+}
+// (the save would not be read and an older copy of it was: said once the game is up)
+const fromBackup = save ? loadedFromBackup() : 0;
 // (a new game of one's own, no world asked for: the new world's seed ModGame.newGame left for it)
 if (!save && !own && !q.has('seed')) {
   try {
@@ -125,6 +142,10 @@ tune.applyAll();
 // harness/shots/modcar_kernel.mjs tries the kernel's seams in the real game, with a probe module of its own)
 const handed = (window as unknown as { __rtModules?: GameModule[] }).__rtModules;
 const game = new ModGame(canvas, params, save, tune, handed?.length ? [...MODULES, ...handed] : MODULES);
+// (the game is made: the page's own "loading" goes once it is ready to be drawn — or at once for the harness's stepped
+// pages, whose pictures must never have it in them)
+if (params.shot) document.getElementById('boot')?.remove();
+else void game.ready.then(() => document.getElementById('boot')?.remove());
 // (the load notice: through the kernel as its own lines go — written out, the test hook's last error, said to
 // the player once in a line, and never into a screenshot)
 if (unread && unread.unknown > 0) {
@@ -132,6 +153,7 @@ if (unread && unread.unknown > 0) {
   void game.ready.then(() => game.kernel.report('save', new Error(words.en), words.zh));
 }
 if (refused) void game.ready.then(() => game.kernel.report('save', new Error(refused.en), refused.zh));
+if (fromBackup) void game.ready.then(() => game.ui.say(fromBackup === 1 ? '存档读不出来，用了上一次睡觉时的备份。' : '存档读不出来，用了更早一次睡觉时的备份。', 8));
 
 const gl = game.core.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
@@ -877,7 +899,7 @@ const rt = {
    */
   kernel: () => game.kernel.telemetry(),
   /** the main menu (menu.ts): opened as the title or the pause, on a page, a difficulty picked; null shuts it; its state */
-  menu: (mode?: 'title' | 'pause' | null, page?: 'main' | 'new' | 'settings' | 'keys', pick?: 'easy' | 'normal' | 'hard') => {
+  menu: (mode?: 'title' | 'pause' | null, page?: 'main' | 'new' | 'load' | 'settings' | 'keys' | 'credits', pick?: 'easy' | 'normal' | 'hard') => {
     if (mode === null) game.play();
     else if (mode) game.openMenu(mode);
     if (page) game.menu.show(page);
@@ -926,15 +948,34 @@ void game.ready.then(async () => {
   // the main menu over the game as the page opens (docs/V3/plan/growth.md 定案 7): not over what the address asked for
   // of its own (a test drive, the developer's panel back from making the world again, ?menu=0), nor over the new game
   // the page was opened again for, nor for the harness (navigator.webdriver) unless it asks (?menu=1)
-  if (!own && !q.has('new') && !dp && !begun && q.get('menu') !== '0' && (q.get('menu') === '1' || !automated())) game.openMenu('title');
+  if (!own && !q.has('new') && !dp && !begun && !(goOn && save) && q.get('menu') !== '0' && (q.get('menu') === '1' || !automated())) game.openMenu('title');
   else game.play();
   let last = performance.now();
   let failed = '';
+  // The first visit's trial of the machine (docs/V3/plan/finish.md §十四: 第一次打开自动测两秒定画质): two seconds of
+  // frames drawn behind the title, the first half second left out; slower than 38 frames a second at the picture's
+  // best: the low picture; than 52: the middle one — kept, and the page opened again in it, once. Not for the
+  // harness, an address that names its picture, or a window out of sight.
+  let trial: number[] | null = !game.settings.tried && !automated() && !own && !q.has('quality') ? [] : null;
+  let trialT = 0;
   const loop = (now: number): void => {
     // (the next frame is asked for first: a frame that throws must not stop the game for good)
     requestAnimationFrame(loop);
-    const dt = Math.min(0.1, (now - last) / 1000);
+    const gap = now - last;
+    const dt = Math.min(0.1, gap / 1000);
     last = now;
+    if (trial && document.visibilityState === 'visible' && gap < 250) {
+      trialT += gap;
+      if (trialT > 500) trial.push(gap);
+      if (trialT > 2500 && trial.length >= 20) {
+        const mid = [...trial].sort((a, b) => a - b)[Math.floor(trial.length / 2)];
+        trial = null;
+        const now0 = game.settings.quality;
+        const want = mid > 1000 / 38 ? 'low' : mid > 1000 / 52 && now0 === 'high' ? 'med' : now0;
+        if (want !== now0 && game.menuOpen) game.applyQuality(want);
+        else saveSettings({ ...game.settings, tried: true });
+      }
+    }
     try {
       // (the menu up: the game stands still behind it, drawn)
       game.frame(game.menuOpen ? 0 : dt);
@@ -942,9 +983,18 @@ void game.ready.then(async () => {
       const msg = e instanceof Error ? e.message : String(e);
       rt.lastError = msg;
       if (msg !== failed) {
+        // (the first time: the game is kept as it stands before anything else goes wrong, and said so)
+        const first = !failed;
         failed = msg;
         console.error(e);
-        game.ui.say('出了个小错，已跳过，游戏继续。', 3);
+        if (first) {
+          try {
+            game.save();
+          } catch {
+            /* it could not be kept */
+          }
+        }
+        game.ui.say(first ? '出了个小错，已经跳过，进度存好了，游戏继续。' : '出了个小错，已跳过，游戏继续。', 3.5);
       }
     }
     rt.ready = true;

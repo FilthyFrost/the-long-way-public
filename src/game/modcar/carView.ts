@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import type { FillerKind } from './fillers';
+import { aboardOf, type DoorSteps, doorSteps, roomOf } from '../../core/modcar/aboard';
 import { zonesOf } from '../../core/modcar/cargo';
 import { frameDef, hubsOf } from '../../core/modcar/frames';
 import type { Derived } from '../../core/modcar/derive';
@@ -19,7 +20,7 @@ import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
-import { measureCarShape, meshCarMaterialName, type CarLook, type WiperArc } from '../render/carMaterials';
+import { measureCarShape, meshCarMaterialName, type CarLook, type CarMaterialName, type WiperArc } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import { castMesh } from '../render/triGrid';
@@ -27,7 +28,8 @@ import { glassName } from './grime';
 import { partGeo, partTop } from '../../core/modcar/geo';
 import { addonModel, cageFor, frameVariant, cloneModel, frameModel, panelAddOn, panelPaint, partModel, placeAddOn, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
-import { Cluster, CLUSTERS, CLUSTER_NODE, type ClusterValues } from './cluster';
+import { Cluster, CLUSTERS, CLUSTER_NODE, cutFramePod } from './cluster';
+import { gearedTopKmh } from '../../core/modcar/instruments';
 import { tyreStage } from '../../core/modcar/tyres';
 
 const DEG = Math.PI / 180;
@@ -102,6 +104,22 @@ export interface GrimePart {
 
 /** owner names of the looks (CarMaterials): the body, a mount's part, a panel, a wheel (+tire, +turbo, +cage) */
 const BODY = 'body';
+
+/**
+ * Each living space in its own colours (docs/V3/plan/finish.md §十一 1 内饰): the lining of its walls and ceiling, the
+ * covering of its floor (sRGB; the materials 'lining' and 'lino' of the frame's own model — and its wood, where that
+ * is not the usual warm one: the Old Elephant's dark).
+ * The Whale warm wood with cream, the Old Elephant dark wood with camel, the Camel a school bus's pale lining over its
+ * grey rubber floor, the Turtle a pale green; the trailer's and the box van's a workshop's off-white.
+ */
+const INTERIORS: Readonly<Record<string, Partial<Record<CarMaterialName, number>>>> = {
+  rv: { lining: 0xefe6d0, lino: 0x8a6a4c },
+  elephant: { lining: 0xc9a878, lino: 0x5a4636, wood: 0x6a4630 },
+  camel: { lining: 0xe9e6dc, lino: 0x8b8e90 },
+  turtle: { lining: 0xe4e8d6, lino: 0x7d8a82 },
+  trailer: { lining: 0xe8e2d2, lino: 0x8b8e90 },
+  snail: { lining: 0xe8e2d2, lino: 0x8b8e90 },
+};
 const partOwner = (mount: string): string => `m:${mount}`;
 const panelOwner = (mount: string): string => `p:${mount}`;
 const wheelOwner = (i: number): string => `w:${i}`;
@@ -207,53 +225,57 @@ export class CarView {
     while (this.loads.size) await Promise.all([...this.loads]);
   }
 
-  /** the cab's instruments (cluster.ts): the plate over the frame's own dials; null where the frame has none to put it by */
+  /** the cab's instruments (cluster.ts): the binnacle where the frame's own dials were; null where the frame has none to put it by */
   cluster: Cluster | null = null;
-  private readonly clusterV: ClusterValues = {
-    on: false,
-    lit: false,
-    kmh: 0,
-    rpm: 0,
-    redline: 6000,
-    fuel: 0,
-    tempC: 20,
-    battery: 0,
-    outC: 20,
-    gear: '',
-    odoKm: 0,
-    hour: 12,
-    lamps: { handbrake: false, lights: false, high: false, oil: false, battery: false, temp: false, fuel: false, engine: false },
-    tyres: [-1, -1, -1, -1],
-  };
+  /** someone at the wheel (ModGame sets it each frame): the key is on, the instruments lit by the battery with the engine stopped */
+  atWheel = false;
+  /** the four tyres as the cluster's display shows them (FL, FR, RL, RR; a motorcycle's front and rear) */
+  private readonly clusterTyres: number[] = [-1, -1, -1, -1];
 
   /**
-   * The instruments' plate put over the frame's own two big dials (docs/V3/plan/finish.md §五), in the space they are
+   * The instruments (docs/V3/plan/finish.md §五) put where the frame's own two big dials are, in the space they are
    * modelled in — the fork's, on a motorcycle: it turns with the bars. Their plane from the needles' axis (towards the
-   * driver), across the body, and up it. The frame's own needles are hidden behind it.
+   * driver), across the body, and up it. The frame's own pod is cut out of its model for the binnacle (cluster.ts
+   * cutFramePod), its needles hidden; the binnacle's shell goes in the frame's model beside the cluster, in the cab's
+   * own materials, and is merged with it.
    */
   private fitCluster(): void {
     if (this.cluster) {
       this.cluster.group.removeFromParent();
+      this.cluster.shell?.removeFromParent();
       this.cluster.dispose();
       this.cluster = null;
     }
     const spec = CLUSTERS[this.frame.id];
     const ns = this.needles.N_speed;
     const nr = this.needles.N_rpm;
-    if (!spec || !ns || !nr || !ns.parent || ns.parent !== nr.parent) return;
+    const obj = this.frameObj;
+    if (!spec || !ns || !nr || !ns.parent || ns.parent !== nr.parent || !obj) return;
     const axis = this.frame.rig?.needles.N_speed?.axis;
     const out = new THREE.Vector3(...(axis ?? [-1, 0.3, 0])).normalize();
     if (out.x > 0) out.negate();
     const right = new THREE.Vector3(0, 0, 1).addScaledVector(out, -out.z).normalize();
     const up = new THREE.Vector3().crossVectors(out, right).normalize();
-    // (its two big dials come where the frame's own are: how far apart they are, and which is the speedometer)
+    const mid = ns.position.clone().add(nr.position).multiplyScalar(0.5);
+    // (the frame's own pod out of its model: the dials' space from the space its needles are modelled in)
+    if (ns.parent === obj) cutFramePod(obj, spec, new THREE.Matrix4().makeBasis(right, up, out).setPosition(mid).invert());
+    // (which of its two big dials is the speedometer, how far apart they are, the filler's side for the fuel gauge's arrow)
     const across = nr.position.clone().sub(ns.position).dot(right);
-    const c = new Cluster(spec, Math.abs(across), across >= 0);
-    c.place(ns.position.clone().add(nr.position).multiplyScalar(0.5), right, up, out);
+    const cap = obj.getObjectByName('FUEL_CAP');
+    obj.updateMatrixWorld(true);
+    const fillerRight = !!cap && cap.getWorldPosition(new THREE.Vector3()).applyMatrix4(obj.matrixWorld.clone().invert()).z > 0;
+    const c = new Cluster(spec, across >= 0, fillerRight, Math.abs(across));
+    c.place(mid, right, up, out);
     ns.parent.add(c.group);
+    if (c.shell) {
+      ns.parent.add(c.shell);
+      applyMaterials(c.shell, this.mats.look(BODY, this.bodyLook()));
+    }
     for (const n of Object.values(this.needles)) n.visible = false;
     this.cluster = c;
     c.show(this.clusterLevel());
+    this.mergeDirty = true;
+    this.targetCache = null;
   }
 
   /**
@@ -287,6 +309,7 @@ export class CarView {
     applyMaterials(obj, this.mats.look(BODY, this.bodyLook()));
     this.model.add(obj);
     this.frameObj = obj;
+    this.buildSteps();
     // hinged panels: P_<mountId>, re-hung on pivots so they swing about their hinges
     for (const mt of frame.mounts) {
       if (!mt.panel) continue;
@@ -623,6 +646,95 @@ export class CarView {
 
   panelOpen(mount: string): number {
     return this.panels.get(mount)?.t ?? 0;
+  }
+
+  // ------------------------------------------------------------------ the steps up into a living space
+
+  /**
+   * each doorway's steps outside the body (frame model space: core/modcar/aboard.ts doorSteps), how far they are slid out,
+   * and how far back in and up under the body they are stowed
+   */
+  private readonly steps: { mount: string; st: DoorSteps; group: THREE.Group; out: number; back: number; lift: number }[] = [];
+
+  /**
+   * The steps outside a living space's doorways (the player's ask, 2026-11-26: as handsome as Nomad Drive's, part of the
+   * camper — the stairwell inside the door is the frame's own): a tread for each rise, a black ribbed rubber mat in a
+   * black steel tray with a bright aluminium nosing along its outer edge, on two slim arms that run back in under the
+   * body; a ladder of them (a box van's, a trailer's) between two slim aluminium stringers. They slide out from under the
+   * body as its door opens and back in and up under it as it shuts.
+   */
+  private buildSteps(): void {
+    const def = aboardOf(this.frame.id);
+    if (!def || this.steps.length) return;
+    for (const door of def.doors) {
+      const st = doorSteps(def, door);
+      const o = st.out;
+      if (!o) continue;
+      const n = o.tops.length;
+      const g = new THREE.Group();
+      g.name = `STEPS_${door.mount}`;
+      // (its own frame: +x the way out, +y up, +z across, from the body's face under the doorway's middle)
+      g.rotation.y = Math.atan2(-st.uz, st.ux);
+      const w = o.width;
+      const trim = new THREE.MeshStandardMaterial({ name: 'trim' });
+      const rubber = new THREE.MeshStandardMaterial({ name: 'rubber' });
+      const alu = new THREE.MeshStandardMaterial({ name: 'alu' });
+      const box = (sx: number, sy: number, sz: number, x: number, y: number, z: number, m: THREE.Material, rz = 0): void => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m);
+        b.position.set(x, y, z);
+        b.rotation.z = rz;
+        b.castShadow = true;
+        g.add(b);
+      };
+      for (let j = 0; j < n; j++) {
+        // (the highest against the body's face, the lowest furthest out)
+        const top = o.tops[n - 1 - j];
+        const s0 = j * o.depth;
+        const c = s0 + o.depth / 2;
+        box(o.depth - 0.01, 0.024, w, c, top - 0.018, 0, trim);
+        box(o.depth - 0.05, 0.006, w - 0.04, c - 0.012, top - 0.003, 0, rubber);
+        for (let r = 0; r < 5; r++) box(0.01, 0.004, w - 0.06, s0 + 0.035 + (r * (o.depth - 0.1)) / 4, top + 0.001, 0, rubber);
+        box(0.032, 0.03, w + 0.004, s0 + o.depth - 0.021, top - 0.013, 0, alu);
+      }
+      // two arms under the top tread, back in under the body
+      const yArm = o.tops[n - 1] - 0.05;
+      for (const side of [-1, 1]) box(o.depth + 0.22, 0.03, 0.03, (o.depth - 0.22) / 2 - 0.02, yArm, side * (w / 2 - 0.09), trim);
+      // a ladder's stringers: a flat bar down each side from the top tread's inner edge to the lowest's outer foot
+      if (n > 1) {
+        const y0 = o.tops[n - 1] - 0.01;
+        const y1 = o.tops[0] - 0.05;
+        const ds = n * o.depth;
+        const len = Math.hypot(ds, y1 - y0);
+        for (const side of [-1, 1]) box(len, 0.06, 0.012, ds / 2, (y0 + y1) / 2, side * (w / 2 + 0.008), alu, Math.atan2(y1 - y0, ds));
+      }
+      // (stowed: drawn back in by its depth, and a single step up under the stairwell or the body's floor)
+      const back = n * o.depth + 0.02;
+      const under = door.well ? door.well.tops[0] - 0.045 : Math.min(st.floor - 0.1, o.tops[n - 1] + 0.1);
+      const lift = n === 1 ? Math.max(0, under - 0.035 - o.tops[0]) : 0;
+      g.visible = false;
+      applyMaterials(g, this.mats.look(BODY, this.bodyLook()));
+      this.model.add(g);
+      this.steps.push({ mount: door.mount, st, group: g, out: 0, back, lift });
+    }
+  }
+
+  /** the steps slid out with their doors (a little after the door starts to open, back in before it shuts) */
+  private foldSteps(dt: number): void {
+    for (const sp of this.steps) {
+      const want = this.panelOpen(sp.mount) > 0.35 ? 1 : 0;
+      sp.out += Math.sign(want - sp.out) * Math.min(Math.abs(want - sp.out), dt * 2.8);
+      const g = sp.group;
+      g.visible = sp.out > 0.01;
+      if (!g.visible) continue;
+      const e = sp.out * sp.out * (3 - 2 * sp.out);
+      // (out and down together, as a step on its linkage swings)
+      const st = sp.st;
+      const ax = -st.uz;
+      const az = st.ux;
+      const across = (st.mid[0] - st.inside[0]) * ax + (st.mid[1] - st.inside[1]) * az;
+      const sill = st.sill - (1 - e) * sp.back;
+      g.position.set(st.inside[0] + st.ux * sill + ax * across, (1 - e) * sp.lift, st.inside[1] + st.uz * sill + az * across);
+    }
   }
 
   hasPanel(mount: string): boolean {
@@ -1352,7 +1464,7 @@ export class CarView {
     this.grimeCache = null;
     this.targetCache = null;
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
-    const look = this.mats.look('merged', { paint: paintNow(this.build, 0xd8d4c8), paint2: paintHex(this.build.paint2) });
+    const look = this.mats.look('merged', { paint: paintNow(this.build, 0xd8d4c8), paint2: paintHex(this.build.paint2), ...(INTERIORS[this.frame.id] ? { bases: INTERIORS[this.frame.id] } : {}) });
     applyMaterials(merged.group, look, true);
     // (far off the car is one mesh in the paint's material, made once its far twins are in: render/carMerge.ts)
     merged.onFarOne = (mesh) => applyMaterials(mesh, look, true);
@@ -1408,7 +1520,16 @@ export class CarView {
       const b = new THREE.Box3(new THREE.Vector3(z.x[0], z.floor - 0.08, z.z[0]), new THREE.Vector3(z.x[1], z.top, z.z[1]));
       boot = boot ? boot.union(b) : b;
     }
-    this.mats.setShape({ ...measureCarShape(this.model), boot });
+    const shape = measureCarShape(this.model);
+    // (a living space one walks about in is indoors from wall to wall, whether or not a seat or a dial stands in it —
+    // docs/V3/plan/finish.md §十一 1: a trailer's box, a bus emptied of its seats; kept under the roof's skin)
+    const room = roomOf(this.frame.id);
+    if (room) {
+      const top = Math.min(room.hi[1], shape.bodyHeight - 0.03);
+      const b = new THREE.Box3(new THREE.Vector3(room.lo[0], room.lo[1], room.lo[2]), new THREE.Vector3(room.hi[0], top, room.hi[2]));
+      shape.cabin = shape.cabin ? shape.cabin.union(b) : b;
+    }
+    this.mats.setShape({ ...shape, boot });
   }
 
   /** a part just fitted eases into its place from a few centimetres off */
@@ -1426,7 +1547,8 @@ export class CarView {
 
   private bodyLook(): LookOf {
     const b = this.build;
-    return { paint: paintNow(b, 0xd8d4c8), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond) * (1 - (b.polish ?? 0)), crust: b.crust ?? 0 };
+    const bases = INTERIORS[this.frame.id];
+    return { paint: paintNow(b, 0xd8d4c8), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond) * (1 - (b.polish ?? 0)), crust: b.crust ?? 0, ...(bases ? { bases } : {}) };
   }
 
   /** a part's look: its own paint (or the body's / the factory's) and its own wear */
@@ -1759,6 +1881,7 @@ export class CarView {
   // ------------------------------------------------------------------ every frame
 
   update(dt: number, sim: VehicleSim, dash: Dash | null, core: RenderCore, alpha?: number): void {
+    if (this.steps.length) this.foldSteps(dt);
     sim.renderPose(this.pose, alpha);
     const pose = this.pose;
     core.place(this.root, pose.x, pose.y, pose.z);
@@ -1788,52 +1911,34 @@ export class CarView {
       if (bar) steer.rotation.y = onFork ? 0 : -sim.steerAngle;
       else steer.rotation.x = sim.steerAngle * ratio;
     }
-    // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C)
-    this.needle += (sim.kmh - this.needle) * Math.min(1, dt * 9);
+    // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C): the frame's
+    // own needles, where it has no cluster of its own
     const on = !!dash && dash.battery > 0.02;
-    this.turnNeedle('N_speed', Math.min(1, Math.abs(this.needle) / 180));
-    if (dash) {
-      this.turnNeedle('N_rpm', Math.min(1, dash.rpm / 8000));
-      this.turnNeedle('N_fuel', on ? Math.min(1, dash.fuel) : 0);
-      this.turnNeedle('N_temp', on ? Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) : 0);
-    }
-    // the instruments' plate: what the dashboard data says, as it is
-    if (this.cluster) {
-      const v = this.clusterV;
-      v.on = on;
-      v.kmh = this.needle;
-      v.redline = sim.spec.engine.redline;
-      const l = v.lamps;
+    if (!this.cluster) {
+      this.needle += (sim.kmh - this.needle) * Math.min(1, dt * 9);
+      this.turnNeedle('N_speed', Math.min(1, Math.abs(this.needle) / 180));
       if (dash) {
-        v.lit = dash.lightsOn;
-        v.rpm = dash.rpm;
-        v.fuel = dash.fuel;
-        v.tempC = dash.coolantC;
-        v.battery = dash.battery;
-        v.outC = dash.outC;
-        v.gear = dash.gearLabel;
-        v.odoKm = dash.odoKm;
-        v.hour = dash.hour;
-        l.handbrake = dash.handbrake;
-        l.lights = dash.lightsOn;
-        l.high = dash.lightsOn && dash.lights === 'high';
-        l.oil = dash.lamps.oil;
-        l.battery = dash.lamps.battery;
-        l.temp = dash.lamps.temp;
-        l.fuel = dash.lamps.fuel;
-        l.engine = dash.lamps.check;
-        const t = v.tyres as number[];
-        // (a motorcycle's two wheels are each twice in the simulation: the plate has the front and the back once)
+        this.turnNeedle('N_rpm', Math.min(1, dash.rpm / 8000));
+        this.turnNeedle('N_fuel', on ? Math.min(1, dash.fuel) : 0);
+        this.turnNeedle('N_temp', on ? Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) : 0);
+      }
+    }
+    // the instruments: what the dashboard data says, as it is — the key on with someone at the wheel or the engine running
+    const c = this.cluster;
+    if (c) {
+      c.setScales(gearedTopKmh(sim.spec), sim.spec.engine.redline);
+      const t = this.clusterTyres;
+      if (dash) {
+        // (a motorcycle's two wheels are each twice in the simulation: its display has the front and the back once)
         const two = !!this.frame.balance;
-        for (let i = 0; i < 4; i++) {
-          const ty = two ? (i < 2 ? dash.tyres[i * 2] : undefined) : dash.tyres[i];
+        t.length = two ? 2 : 4;
+        for (let i = 0; i < t.length; i++) {
+          const ty = two ? dash.tyres[i * 2] : dash.tyres[i];
           t[i] = !ty || ty.tread < 0 ? -1 : ty.flat ? 4 : tyreStage(ty.tread);
         }
-      } else {
-        v.lit = false;
-        v.rpm = 0;
       }
-      this.cluster.update(v, dt);
+      const power = on && !!dash && (dash.running || dash.cranking || this.atWheel);
+      c.update({ dash, kmh: sim.kmh, power, blink: this.hazard && on && this.blinkT > 0 && this.blinkT < 0.4, lit: !!dash?.lightsOn, tyres: t }, dt);
     }
     // the wipers sweep with the weather's wipers (0…1 of their sweep)
     const arcs: WiperArc[] = [];

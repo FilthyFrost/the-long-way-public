@@ -295,6 +295,37 @@ export function addonModel(name: string): Promise<Model | null> {
 }
 
 const items = new Map<string, Promise<Model | null>>();
+
+/**
+ * The kitchen's things drawn bigger than life (the player's ask, 2026-11-26: "the cookware and the food want to be
+ * bigger, as they are it is hard to look at"): cooked on the ground and seen from a standing eye a pan of 26 cm was a
+ * small thing at one's feet. The vessels, the board, the plates and the seasonings by 1.3, the food by 1.35; the stoves
+ * as they are (a camp stove 1.15 times its size no longer stood on the Turtle's worktop; the hotplates stand four along
+ * a galley) and the cooler too (a big thing as it is). The scale is put into the model as it comes in — its meshes and
+ * the places marked on it (M_food, LID, …) — so everything measured on it is of its new size.
+ */
+export function itemScale(model: string): number {
+  if (model.startsWith('food_')) return 1.35;
+  if (/^kit_(pan|pot|kettle|steamer|oven|bowl|grill|board|plate|dish|spice)$/.test(model)) return 1.3;
+  return 1;
+}
+
+/** a model made bigger in itself: every mesh's geometry and every piece's place under the root, by s */
+function bakeScale<T extends THREE.Object3D>(root: T, s: number): T {
+  if (s === 1) return root;
+  const done = new Set<THREE.BufferGeometry>();
+  root.traverse((o) => {
+    if (o !== root) o.position.multiplyScalar(s);
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !done.has(m.geometry)) {
+      done.add(m.geometry);
+      m.geometry.scale(s, s, s);
+    }
+  });
+  root.updateMatrixWorld(true);
+  return root;
+}
+
 /**
  * An item's model (items/<model>.glb, tools/blender/items: food, drinks, clothes, junk, boxes of components),
  * or null while it has none (loose.ts draws a stand-in box). Its paint and paint_b materials take the item's
@@ -307,7 +338,7 @@ export function itemGlb(model: string): Promise<Model | null> {
     const maker = MAKERS.find((m) => m.owns(model));
     p = maker
       ? Promise.resolve(maker.make(model)).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null))
-      : fetchGlb(`${BASE}items/${model}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+      : fetchGlb(`${BASE}items/${model}.glb`).then((scene) => (scene ? { scene: bakeScale(scene, itemScale(model)), standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
     items.set(model, p);
   }
   return p;

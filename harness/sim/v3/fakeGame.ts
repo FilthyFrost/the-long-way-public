@@ -123,6 +123,11 @@ export class FakeGame {
       cockpit: { uses: [], aimed: null },
       heldThing: { lift: 0, hang: () => {}, model: null } as unknown as GameContext['heldThing'],
       lookZoom: 1,
+
+      workZoom: 1,
+
+      workCrouch: false,
+      warmers: [],
       input: { lookYaw: 0, lookPitch: 0, walk: { forward: 0, right: 0 }, isDown: () => false },
       grimeCast: () => null,
       scrubStroke: () => {},

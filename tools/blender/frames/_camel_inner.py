@@ -16,6 +16,7 @@ sys.dont_write_bytecode = True
 import numpy as np  # noqa: E402
 
 from frames import _kit as K  # noqa: E402
+from frames import _steps as STP  # noqa: E402
 from frames import camel as S  # noqa: E402
 from frames import camel_hood as H  # noqa: E402
 from frames._sedan_inner import dial, extrude_y, quad_sheet, rear_tub_cabin, smooth_path  # noqa: E402
@@ -24,6 +25,9 @@ D = S.D
 HD = H.D
 PI = math.pi
 IN_Y = D['hw'] - 0.05    # the walls' inside (the lining's face)
+# the floor's edge along the walls: under the lining (it stopped short of it, and through the slot the ground showed
+# from inside)
+FLOOR_Y = float(S.side_w(0.0, 0.72)) - 0.03 + 0.003
 FLOOR_Z = 0.72           # the bus's floor (its plywood top)
 PAN_Z = 0.68             # under the floor
 SEAT_Z = 1.10            # the driver's seat's pedestal (the seat part stands on it)
@@ -120,15 +124,33 @@ def wheelhouse(xa, y0, y1, r, z_cut, mat='trim'):
 XC_R = D['ax_r'] + 0.70  # the rear arms' crossmember
 
 
-def underbody():
+def well_span():
+    """The entry door's stairwell in plan (left coordinates): its x between the opening's edges, its inner edge's y, the
+    face's y."""
+    from frames import _camel_ext as EX
+    xa, xb = EX.WELL_X
+    yf = float(S.side_w(0.5 * (xa + xb), D['z_bot'] + 0.2))
+    return xa, xb, yf - len(EX.WELL['tops']) * EX.WELL['depth'], yf
+
+
+def underbody(right=False):
     """UNDER (left half): the floor pan, the rails, crossmembers, the front lower arms, the rear trailing arms and drive
-    shafts, the rear wheelhouse liner (the front's is the engine bay's)."""
+    shafts, the rear wheelhouse liner (the front's is the engine bay's). `right`: the half mirrored onto the right, where
+    the entry door's stairwell goes down through the pan (the outrigger there stands behind it)."""
     b = K.Buf()
+    xs, xe, y_in, _ = well_span()
     xa, xr_a = HD['ax_f'], D['ax_r']
     wr0, wr1 = xr_a - WELL_R - 0.01, xr_a + WELL_R + 0.01
     pan = 'trim'
     # the floor pan's underside, round the rear wheel well
-    for (x0, x1, y0, y1) in ((D['xr'] + 0.08, D['xf'] - 0.03, 0.0, WELL_IN_R), (wr1, D['xf'] - 0.03, WELL_IN_R, IN_Y + 0.02), (D['xr'] + 0.08, wr0, WELL_IN_R, IN_Y + 0.02)):
+    spans = [(D['xr'] + 0.08, D['xf'] - 0.03, 0.0, WELL_IN_R), (D['xr'] + 0.08, wr0, WELL_IN_R, IN_Y + 0.02)]
+    if right:
+        spans += [(wr1, xs - 0.035, WELL_IN_R, IN_Y + 0.02), (xs - 0.035, D['xf'] - 0.03, WELL_IN_R, y_in - 0.03)]
+        if D['xf'] - 0.03 > xe + 0.035:
+            spans += [(xe + 0.035, D['xf'] - 0.03, y_in - 0.03, IN_Y + 0.02)]
+    else:
+        spans += [(wr1, D['xf'] - 0.03, WELL_IN_R, IN_Y + 0.02)]
+    for (x0, x1, y0, y1) in spans:
         b.extend(K.box_buf((x0, y0, PAN_Z - 0.006), (x1, y1, PAN_Z), pan, 0.003, 1))
     # rails: a C section straight from under the hood to the tail
     path = np.array([(HD['xf'] - 0.22, FRAME_Y, RAIL_Z), (D['xr'] + 0.30, FRAME_Y, RAIL_Z)])
@@ -142,7 +164,7 @@ def underbody():
     for x in (HD['xf'] - 0.25, xa - 0.70, 1.60, 0.0, -1.60, XC_R, D['xr'] + 0.35):
         b.extend(K.box_buf((x - 0.04, 0.0, RAIL_Z - 0.07), (x + 0.04, FRAME_Y, RAIL_Z + 0.07), 'steel', 0.004, 1))
     # the outriggers out to the skirt between the wheels
-    for x in (2.0, 0.8, -0.4, -1.6):
+    for x in ((2.0 if not right else xs - 0.07), 0.8, -0.4, -1.6):
         b.extend(K.box_buf((x - 0.03, FRAME_Y, PAN_Z - 0.10), (x + 0.03, IN_Y, PAN_Z - 0.01), 'steel', 0.004, 1))
     # the rear arms' crossmember out to the skirt
     b.extend(K.box_buf((XC_R - 0.06, 0.0, RAIL_Z - 0.05), (XC_R + 0.06, IN_Y - 0.06, RAIL_Z + 0.05), 'steel', 0.008, 2))
@@ -208,7 +230,10 @@ def interior(ex):
     xr_a = D['ax_r']
     # ---------------------------------------------------------------- the cab
     # the floor mat from the modesty panel to the cowl
-    L.extend(K.box_buf((ROOM_FRONT_X - 0.02, 0.0, FLOOR_Z - 0.03), (D['xf'] - 0.05, IN_Y, FLOOR_Z), 'rubber', 0.004, 1))
+    # (on the right round the entry door's stairwell: _camel_build.entry_well)
+    C.extend(K.box_buf((ROOM_FRONT_X - 0.02, 0.0, FLOOR_Z - 0.03), (D['xf'] - 0.05, FLOOR_Y, FLOOR_Z), 'rubber', 0.004, 1))
+    xs, xe, y_in, _ = well_span()
+    C.extend(STP.floor_round(ROOM_FRONT_X - 0.02, D['xf'] - 0.05, 0.0, FLOOR_Y, FLOOR_Z - 0.03, FLOOR_Z, 'rubber', (xs, xe, y_in, IN_Y + 0.1), 0.004).mirrored())
     # the driver's seat on its pedestal (left: as it is)
     C.extend(K.box_buf((SEAT_X - 0.30, DRIVER_Y - 0.22, FLOOR_Z - 0.005), (SEAT_X + 0.26, DRIVER_Y + 0.22, SEAT_Z), 'steel', 0.02, 2))
     C.extend(K.box_buf((SEAT_X - 0.33, DRIVER_Y - 0.25, FLOOR_Z - 0.005), (SEAT_X + 0.29, DRIVER_Y + 0.25, FLOOR_Z + 0.04), 'trim', 0.01, 2))
@@ -265,12 +290,11 @@ def interior(ex):
     C.extend(K.box_buf((ROOM_FRONT_X - 0.02, 0.24, FLOOR_Z - 0.005), (ROOM_FRONT_X, IN_Y - 0.01, FLOOR_Z + 0.95), 'paint_b', 0.006, 2))
     C.extend(K.tube_buf(np.array([(ROOM_FRONT_X + 0.01, 0.24, FLOOR_Z + 0.97), (ROOM_FRONT_X + 0.01, IN_Y - 0.03, FLOOR_Z + 0.97)]), 0.016, 'chrome', 10))
     R.extend(K.tube_buf(np.array([(D['sd_x0'] - 0.06, IN_Y - 0.34, FLOOR_Z), (D['sd_x0'] - 0.06, IN_Y - 0.34, D['roof_z'] - 0.06)]), 0.018, 'chrome', 12))
-    # the stairwell inside the entry door (right side, in left coordinates): a step down to the door's sill
-    R.extend(K.box_buf((D['sd_x0'] + 0.02, IN_Y - 0.36, D['sd_z0'] - 0.04), (D['sd_x1'] - 0.02, IN_Y + 0.04, D['sd_z0'] - 0.005), 'rubber', 0.004, 1))
-    R.extend(K.box_buf((D['sd_x0'] + 0.02, IN_Y - 0.36, D['sd_z0'] - 0.005), (D['sd_x1'] - 0.02, IN_Y - 0.33, FLOOR_Z), 'steel', 0.003, 1))
+    # (the stairwell inside the entry door is _camel_build.entry_well's)
     # ---------------------------------------------------------------- the room: emptied
-    # the plywood floor from the tail to the modesty panel (round the stairwell, on the right)
-    L.extend(K.box_buf((D['xr'] + 0.06, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, IN_Y, FLOOR_Z), 'wood', 0.004, 1))
+    # the floor from the tail to the modesty panel (round the stairwell, on the right): a school bus's grey rubber
+    # over its plywood (docs/V3/plan/finish.md section 11.1)
+    L.extend(K.box_buf((D['xr'] + 0.06, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, FLOOR_Y, FLOOR_Z), 'lino', 0.004, 1))
     # the rear wheels' humps in it
     L.extend(rear_tub_cabin(xr_a, D['hub_z'], WELL_R + 0.03, WELL_IN_R, IN_Y + 0.01, FLOOR_Z, 'rubber'))
     # the lamps in the ceiling

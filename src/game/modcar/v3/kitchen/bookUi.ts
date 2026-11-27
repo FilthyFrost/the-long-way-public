@@ -15,7 +15,7 @@
  * the dish's picture, its name, its stars popping in one after another, "新菜谱！" the first time, a gold glow and
  * "完美" for a perfect one, what it feeds and whether a serving is left; a failed dish grey, with why it failed.
  */
-import { hintOf, pinned, tally, togglePin } from '../../../../core/v3/kitchen/book';
+import { hintOf, pinned, shown, tally, togglePin } from '../../../../core/v3/kitchen/book';
 import { DISHES, WAYS, type DishDef } from '../../../../core/v3/kitchen/dishes';
 import { recipeLine, VESSEL } from '../../../../core/v3/kitchen/items';
 import { DISH_LOOK, FAIL_LOOK, type DishLook } from '../../../../core/v3/kitchen/looks';
@@ -119,9 +119,26 @@ export class BookUi {
   private offTab: (() => void) | null = null;
 
   private readonly key = (e: KeyboardEvent): void => {
-    if (!this.open) return;
     const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT' || (e.target as HTMLElement | null)?.tagName === 'SELECT';
     if (typing) return;
+    // J: the book straight away, and J again shuts it — as on 11-24 (docs/V3/plan/finish.md §十八, 界面恢复); it is
+    // the Tab screen's page all the same (in a seat the keys are the car's; not over the menu)
+    if (e.code === 'KeyJ') {
+      if (e.repeat) return;
+      const menu = document.querySelector<HTMLElement>('.mc-menu');
+      if (menu && menu.offsetParent !== null) return;
+      if (this.open) {
+        if (this.ctx.closeTab) this.ctx.closeTab();
+        else this.toggle(false);
+      } else if (!this.ctx.seated) {
+        if (this.ctx.openTab) this.ctx.openTab('recipes');
+        else this.toggle(true);
+      } else return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    if (!this.open) return;
     // the book has the keys while it is open
     e.stopImmediatePropagation();
     e.preventDefault();
@@ -190,7 +207,8 @@ export class BookUi {
 
   private turn(page: number): void {
     this.page = page;
-    this.list = DISHES.filter((d) => d.stars === page);
+    // (the dishes of so many stars that are in the book: made, or to be made of what one has met — core/v3/kitchen/book.ts shown)
+    this.list = DISHES.filter((d) => d.stars === page && shown(this.sys.book, d));
     this.sel = 0;
   }
 
@@ -263,6 +281,8 @@ export class BookUi {
       const url = this.pic(d);
       tiles += `<div class="tile${i === this.sel ? ' sel' : ''}${e ? '' : ' no'}">${url ? `<img src="${url}">` : '<i class="ph"></i>'}${e ? `<span class="n">×${e.n}</span>${e.p ? '<span class="p">★ 完美</span>' : ''}` : ''}${pin === d ? '<span class="pin">钉住</span>' : ''}<div class="nm">${e ? d.zh : '？？？'}</div></div>`;
     }
+    // (a page with nothing on it yet: why)
+    if (!this.list.length) tiles = '<div style="grid-column:1/-1;align-self:center;text-align:center;color:var(--tx-3);padding-top:120px">这一页还空着：碰到新的食材，用得上它的菜就会出现在这里</div>';
     const d = this.list[this.sel];
     let side = '';
     if (d) {

@@ -23,11 +23,12 @@ const DEFAULT_CHROME = process.platform === 'win32' ? 'C:/Program Files/Google/C
 /**
  * An address of the game with its world named. The browser scripts were written against worlds of version 1
  * (a place at a known stretch, a wreck at a known distance, a border at a known kilometre), and a new game is
- * of version 3, the journey's (src/game/modcar/ModGame.ts readModParams): so an address of the game that names
- * no world is given world=1, and a script that wants a newer generator says world=2 or world=3. Every page opened through
+ * of the newest version (src/core/world/rules.ts NEWEST_WORLD: 7; src/game/modcar/ModGame.ts readModParams): so an
+ * address of the game that names no world is given world=1, and a script that wants a newer generator says so
+ * (world=6, world=7). Every page opened through
  * launchBrowser goes this way, whichever of its own calls opens it; a game gone on with from a save is of its
  * save's world whatever the address says, and a new game the page begins of itself (F9 twice, the panel's
- * 「从头开始」) opens the plain address, as it always did: that one is of version 3.
+ * 「从头开始」) opens the plain address, as it always did: that one is of the newest version.
  */
 export function withWorld(url) {
   let at;

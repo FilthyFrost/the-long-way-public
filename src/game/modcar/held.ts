@@ -5,9 +5,12 @@
  *
  * At its own size (docs/V3/plan/growth.md §1.7, J2: it was shrunk to 19 cm, 36 cm for a big thing): further out and
  * lower the bigger it is, drawn back from a wall in front (Nomad Drive's, at most 0.45 m), and where it stands over
- * the middle of the view its middle is seen through (as Nomad Drive does: 29 points round the mark, from 35% of
- * them covered it fades, by 65% fully — to 0.3 at the centre, whole again 0.12–0.42 of the screen out). It casts
- * no shadow.
+ * the middle of the view it is seen through, carried or held out to be placed (as Nomad Drive does — core/v3/nd/
+ * viewFade.ts: rays through 29 points round the mark asked against its pieces' boxes within 2.5 m; from 35% of them
+ * blocked it fades, by 65% fully). Seen through, it is drawn alone into a layer laid over the frame (render/frame.ts
+ * SeeLayer): only its nearest faces, nearly gone within 0.12 of the screen's height of the mark and a quarter of
+ * them left from 0.42 out, its outline kept (the player's ask, 2026-11-26: the fridge carried with only its outermost
+ * outline, the way ahead clear). It casts no shadow.
  *
  * A can held to an open filler goes to it by itself (the way Arctic Drive does it): it leaves the hands
  * and, at its real size, lines its spout up with the filler's mouth, leaning in; with the button held it
@@ -20,7 +23,9 @@ import * as THREE from 'three';
 import { itemDef, itemMass, itemModelOf, itemPaint } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { toolModelId } from '../../core/modcar/tools';
+import { coverageOf, easeWeight, samplePattern, segmentHitsBox, targetWeight, VIEW_FADE, viewFadeScale } from '../../core/v3/nd/viewFade';
 import type { RenderCore } from '../render/core';
+import type { SeeLayer } from '../render/frame';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import { cloneModel, itemGlb, partModel, seatTyres, toolGlb } from './assets';
 import { itemStandIn, partLook, toolLook, toolModel } from './loose';
@@ -62,15 +67,21 @@ const GAP_SIDE = 0.1;
 const GAP_TOP = 0.12;
 const DEG = Math.PI / 180;
 
-/** the points round the mark asked whether the held thing covers them (a 7 × 7 grid cut to the disc: 29), the middle ones weighing more */
-const SEE_POINTS: [number, number, number][] = [];
-for (let j = -3; j <= 3; j++)
-  for (let i = -3; i <= 3; i++) {
-    const u = i / 3;
-    const v = j / 3;
-    const r = Math.hypot(u, v);
-    if (r <= 1 + 1e-9) SEE_POINTS.push([u, v, 1.5 - r]);
-  }
+/** the points round the mark asked whether the held thing blocks them (Nomad Drive's: a 7 × 7 grid cut to the oval, 29), the middle ones weighing more */
+const SEE_POINTS = samplePattern();
+
+/** a piece of the held model: its box in its own frame, what is asked of it */
+interface Piece {
+  mesh: THREE.Mesh;
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+/** a material the scene's lights light (three's own): drawn alone, without them, it would be dark */
+function litByLights(m: THREE.Material): boolean {
+  const x = m as THREE.Material & { isMeshStandardMaterial?: boolean; isMeshLambertMaterial?: boolean; isMeshPhongMaterial?: boolean; isMeshToonMaterial?: boolean; isShaderMaterial?: boolean; lights?: boolean };
+  return !!(x.isMeshStandardMaterial || x.isMeshLambertMaterial || x.isMeshPhongMaterial || x.isMeshToonMaterial || (x.isShaderMaterial && x.lights));
+}
 
 export class HeldThing {
   readonly root = new THREE.Group();
@@ -124,14 +135,38 @@ export class HeldThing {
   private big = 0.1;
   /** how far one can reach ahead before something solid (m; set each frame by the game) */
   room = Infinity;
-  /** how far it is seen through now (0…1), the frame drawn into (px) */
+  /** how far it is seen through now (0…1: the fade), how far it should be, the frame drawn into (px) */
   private seeK = 0;
+  private seeWant = 0;
   private frameW = 1;
   private frameH = 1;
-  /** how much of the middle of the view it covered last (0…1: the harness) */
+  /** how much of the middle of the view it blocked last (0…1, by its own scale: the harness) */
   covered = 0;
-  private readonly corner = new THREE.Vector3();
-  private readonly projM = new THREE.Matrix4();
+  /** its own scale on what it blocks (a compass: 0, never seen through) */
+  private seeScale = 1;
+  /** its pieces' boxes, measured as its model comes in (stale: measured again); a piece three's lights light (not seen through then) */
+  private pieces: Piece[] = [];
+  private piecesStale = true;
+  private litPieces = false;
+  /** the layer it is drawn into while seen through (render/frame.ts), given to the frame then */
+  private readonly layer: SeeLayer = {
+    root: this.root,
+    weight: 0,
+    minOpacity: VIEW_FADE.minOpacity,
+    edgeOpacity: VIEW_FADE.edgeOpacity,
+    inner: VIEW_FADE.inner,
+    outer: VIEW_FADE.outer,
+    stretch: VIEW_FADE.stretch,
+    lineOpacity: VIEW_FADE.lineOpacity,
+    inkPx: VIEW_FADE.inkPx,
+    bandPx: VIEW_FADE.bandPx,
+  };
+  private readonly rayO = new THREE.Vector3();
+  private readonly rayDirs: THREE.Vector3[] = SEE_POINTS.map(() => new THREE.Vector3());
+  private readonly inv = new THREE.Matrix4();
+  private readonly lo: [number, number, number] = [0, 0, 0];
+  private readonly ld: [number, number, number] = [0, 0, 0];
+  private readonly hits: boolean[] = SEE_POINTS.map(() => false);
   /** the model's height as held (its own up), and whether it lies flat (a packet, a tin) */
   private fitH = 0.19;
   private fitFlat = false;
@@ -142,9 +177,14 @@ export class HeldThing {
   private readonly marks = new Map<string, THREE.Vector3>();
   /** pinned to a surface (a tool scrubbing it): the model's point `at` put on `pos`, its frame turned to `q` */
   private pinned: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null = null;
-  /** a system's tool on a surface (docs/ND/PLAN.md: the grinder), pinned as the game's scrub is; the game's own goes first */
-  private pinBy: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null = null;
+  /**
+   * a system's tool on a surface (docs/ND/PLAN.md: the grinder), pinned as the game's scrub is; the game's own goes
+   * first. `see`: held out where it is to be placed (nd-place) — seen through as it is when carried
+   */
+  private pinBy: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3; see?: boolean } | null = null;
   private pinB = 0;
+  /** the last system's pin was a thing held out to be placed (kept while it comes back to the hands) */
+  private pinSee = false;
   private readonly pp = new THREE.Vector3();
   /**
    * Raised before the eye by a system (a camera looked through: docs/ND/PLAN.md): 0 in the hands … 1 at the eye,
@@ -181,6 +221,10 @@ export class HeldThing {
     this.key = key;
     this.toolKind = held?.kind === 'tool' ? held.tool.kind : '';
     this.modelId = held?.kind === 'tool' ? toolModelId(held.tool) : '';
+    // (another thing: whole at first, as Nomad Drive's comes into the hands; its pieces measured as its model comes in)
+    this.seeScale = held?.kind === 'item' ? viewFadeScale(held.item.item) : 1;
+    this.seeK = 0;
+    this.piecesStale = true;
     this.sprayB = 0;
     this.shakeT = 0;
     this.dockB = 0;
@@ -285,6 +329,7 @@ export class HeldThing {
     });
     this.inner.add(obj);
     if (this.hung) obj.add(this.hung);
+    this.piecesStale = true;
   }
 
   /**
@@ -292,11 +337,16 @@ export class HeldThing {
    * @param sway the walk's side-to-side (m), bob its up-and-down (m)
    */
   update(dt: number, cam: THREE.Camera, show: boolean, sway: number, bob: number, dock: Dock | null = null): void {
+    // (her eyes: the view stands a hand's breadth ahead of them — eyeShift — and what she holds is held from them)
+    this.base.copy(cam.position).sub(this.eyeShift);
     this.root.visible = show && this.key !== '' && this.liftB < 0.97;
     if (!this.root.visible) this.liftB += (this.lift - this.liftB) * (1 - Math.exp(-dt * 18));
     if (!this.root.visible) {
       this.lagInit = false;
       this.dockB = 0;
+      // (not drawn: whole again at once, as Nomad Drive's is when the view is not its own)
+      this.seeK = 0;
+      this.useLayer(false);
       return;
     }
     // heavier things trail the turn of the view more
@@ -365,7 +415,9 @@ export class HeldThing {
       this.off.lerp(m, mb);
       this.q.slerp(this.qMouth, mb);
     }
-    this.off.applyQuaternion(this.lagQ).add(cam.position);
+    // (a big thing carried across both arms is held out before the view as it was: from her eyes it came a hand's
+    // breadth nearer and filled the screen)
+    this.off.applyQuaternion(this.lagQ).add(this.large || bg > 0.7 ? cam.position : this.base);
     this.root.position.copy(this.off);
     this.root.quaternion.copy(this.lagQ).multiply(this.q);
     this.root.scale.setScalar(1);
@@ -394,7 +446,7 @@ export class HeldThing {
     if (sw === 0 && this.sprayB < 0.002) this.sprayB = 0;
     if (this.sprayB > 0) {
       if (this.sprayAt) {
-        this.sprayPos.set(0.21 + sway * 0.5, -0.2 + bob * 0.5, -0.5).applyQuaternion(this.lagQ).add(cam.position);
+        this.sprayPos.set(0.21 + sway * 0.5, -0.2 + bob * 0.5, -0.5).applyQuaternion(this.lagQ).add(this.base);
         // (up to the surface, square to it: 0.37 m off, 0.30 m spraying — no further out than an arm, a metre)
         const n = this.sprayN;
         if (n) {
@@ -455,6 +507,13 @@ export class HeldThing {
     this.seeThrough(dt, cam);
   }
 
+  /**
+   * Where the view stands from her eyes (render space; HerInGame.eyeShift), set each frame by the game: what is in
+   * her hands is placed from her eyes, so that it stays where her arms hold it however far ahead the view is
+   */
+  readonly eyeShift = new THREE.Vector3();
+  private readonly base = new THREE.Vector3();
+
   /** the frame the scene is drawn into (px): the faded middle is measured in it */
   frameSize(w: number, h: number): void {
     this.frameW = Math.max(1, w);
@@ -462,74 +521,93 @@ export class HeldThing {
   }
 
   /**
-   * How much of the middle of the view it stands over (Nomad Drive's: 29 points of a disc round the mark, 0.28 of
-   * the screen's height across, half as wide again, the middle ones weighing more) — against the box it fills on
-   * screen — and so how far it is seen through, coming in a quarter of a second, going in a third.
+   * How much of the middle of the view it blocks (Nomad Drive's: a ray through each of 29 points of an oval round the
+   * mark, 0.28 of the screen's height, half as wide again, asked whether it meets one of its pieces' boxes within
+   * 2.5 m of the eye; the middle ones weigh more), and so how far it is seen through — evenly, in a quarter of a second,
+   * back in 0.35 s. Carried, or held out to be placed; not at a filler, at a tool's work on a surface, before the eye,
+   * at the mouth, spraying: there it is meant to be seen whole.
    */
   private seeThrough(dt: number, cam: THREE.Camera): void {
     let cover = 0;
-    // (at a filler, pinned to a surface, raised before the eye, at the mouth: it is meant to be seen whole)
-    const busy = this.dockB > 0.05 || this.pinB > 0.05 || this.liftB > 0.05 || this.mouthB > 0.05 || this.sprayB > 0.05;
-    if (!busy && this.inner.children.length) {
-      const c = cam as THREE.PerspectiveCamera;
-      this.projM.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse).multiply(this.root.matrixWorld);
-      let x0 = Infinity;
-      let x1 = -Infinity;
-      let y0 = Infinity;
-      let y1 = -Infinity;
-      let behind = false;
-      const s = this.sizeV;
-      for (let i = 0; i < 8; i++) {
-        this.corner.set((i & 1 ? 0.5 : -0.5) * s.x, (i & 2 ? 0.5 : -0.5) * s.y, (i & 4 ? 0.5 : -0.5) * s.z);
-        const e = this.projM.elements;
-        const px = this.corner.x;
-        const py = this.corner.y;
-        const pz = this.corner.z;
-        const w = e[3] * px + e[7] * py + e[11] * pz + e[15];
-        if (w <= 1e-4) {
-          behind = true;
-          break;
-        }
-        const nx = (e[0] * px + e[4] * py + e[8] * pz + e[12]) / w;
-        const ny = (e[1] * px + e[5] * py + e[9] * pz + e[13]) / w;
-        if (nx < x0) x0 = nx;
-        if (nx > x1) x1 = nx;
-        if (ny < y0) y0 = ny;
-        if (ny > y1) y1 = ny;
-      }
-      if (behind) cover = 1;
-      else {
-        const aspect = this.frameW / this.frameH;
-        // (the disc in the screen's height: 0.28 tall → 0.56 of NDC; as wide again by 1.4, in NDC x by the aspect)
-        const ry = 0.56;
-        const rx = (0.56 * 1.4) / aspect;
-        let sum = 0;
-        let all = 0;
-        for (const [u, v, wt] of SEE_POINTS) {
-          all += wt;
-          const x = u * rx;
-          const y = v * ry;
-          if (x >= x0 && x <= x1 && y >= y0 && y <= y1) sum += wt;
-        }
-        cover = sum / all;
-      }
-    }
+    const placing = this.pinSee && !this.pinned;
+    const busy = this.dockB > 0.05 || (this.pinB > 0.05 && !placing) || this.liftB > 0.05 || this.mouthB > 0.05 || this.sprayB > 0.05;
+    if (this.piecesStale) this.measurePieces();
+    if (!busy && this.pieces.length && this.seeScale > 0 && !this.litPieces) cover = this.blocked(cam) * this.seeScale;
     this.covered = cover;
-    const want = cover <= 0.35 ? 0 : cover >= 0.65 ? 1 : ((cover - 0.35) / 0.3) ** 2 * (3 - 2 * ((cover - 0.35) / 0.3));
-    const tau = want > this.seeK ? 0.25 / 3 : 0.35 / 3;
-    this.seeK += (want - this.seeK) * (1 - Math.exp(-dt / tau));
-    if (this.seeK < 0.003 && want === 0) this.seeK = 0;
-    for (const o of this.mats.owners(OWNER)) {
-      const look = this.mats.lookOf(o);
-      // (its blended programs compiled ahead, in the background: seen through only once they are ready)
-      look?.warmSeeThrough(this.core.renderer, this.core.scene, cam);
-      look?.setSeeThrough(this.seeK, this.frameW, this.frameH);
-    }
+    this.seeWant = busy ? 0 : targetWeight(cover);
+    this.seeK = easeWeight(this.seeK, this.seeWant, dt);
+    this.useLayer(this.seeK > 0);
   }
 
-  /** a system's tool put to a surface (its model's point at on pos, its frame turned to q), null: back in the hands */
-  pinFor(p: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null): void {
+  /** drawn alone into its layer, laid over the frame (on), or with the scene as always */
+  private useLayer(on: boolean): void {
+    const frame = this.core.frame;
+    this.layer.weight = this.seeK;
+    if (on) frame.overlay = this.layer;
+    else if (frame.overlay === this.layer) frame.overlay = null;
+    for (const o of this.mats.owners(OWNER)) this.mats.lookOf(o)?.drawnAlone(on);
+  }
+
+  /** its pieces: each mesh's own box (made once a model), and whether any is lit by three's lights */
+  private measurePieces(): void {
+    this.piecesStale = false;
+    this.pieces = [];
+    this.litPieces = false;
+    this.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const g = mesh.geometry;
+      if (!g.boundingBox) g.computeBoundingBox();
+      const b = g.boundingBox!;
+      if (b.isEmpty()) return;
+      this.pieces.push({ mesh, min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
+      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (litByLights(m)) this.litPieces = true;
+    });
+  }
+
+  /** the weighted share of the points round the mark whose rays meet one of its pieces within 2.5 m of the eye */
+  private blocked(cam: THREE.Camera): number {
+    const c = cam as THREE.PerspectiveCamera;
+    // (the camera as it is this frame: its matrices are brought up to date only as a frame is drawn)
+    c.updateMatrixWorld();
+    const o = this.rayO.setFromMatrixPosition(c.matrixWorld);
+    const aspect = this.frameW / this.frameH;
+    for (let i = 0; i < SEE_POINTS.length; i++) {
+      const s = SEE_POINTS[i];
+      // (the point's place on the screen: x and y in screen heights from the mark, to the device's −1 … 1)
+      this.rayDirs[i].set((2 * s.x) / aspect, 2 * s.y, 0.5).unproject(c).sub(o).normalize().multiplyScalar(VIEW_FADE.maxDistance);
+      this.hits[i] = false;
+    }
+    const lo = this.lo;
+    const ld = this.ld;
+    for (const p of this.pieces) {
+      if (!p.mesh.visible) continue;
+      this.inv.copy(p.mesh.matrixWorld).invert();
+      const e = this.inv.elements;
+      lo[0] = e[0] * o.x + e[4] * o.y + e[8] * o.z + e[12];
+      lo[1] = e[1] * o.x + e[5] * o.y + e[9] * o.z + e[13];
+      lo[2] = e[2] * o.x + e[6] * o.y + e[10] * o.z + e[14];
+      for (let i = 0; i < SEE_POINTS.length; i++) {
+        if (this.hits[i]) continue;
+        const d = this.rayDirs[i];
+        ld[0] = e[0] * d.x + e[4] * d.y + e[8] * d.z;
+        ld[1] = e[1] * d.x + e[5] * d.y + e[9] * d.z;
+        ld[2] = e[2] * d.x + e[6] * d.y + e[10] * d.z;
+        if (segmentHitsBox(lo, ld, p.min, p.max)) this.hits[i] = true;
+      }
+    }
+    return coverageOf(SEE_POINTS, (_s, i) => this.hits[i]);
+  }
+
+  /** how far it is seen through now, should be, and how much of the middle of the view it blocks (the harness) */
+  get fade(): { weight: number; want: number; covered: number; layer: boolean } {
+    return { weight: +this.seeK.toFixed(3), want: +this.seeWant.toFixed(3), covered: +this.covered.toFixed(3), layer: this.core.frame.overlay === this.layer };
+  }
+
+  /** a system's tool put to a surface (its model's point at on pos, its frame turned to q), null: back in the hands; see: a thing held out to be placed */
+  pinFor(p: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3; see?: boolean } | null): void {
     this.pinBy = p;
+    if (p) this.pinSee = !!p.see;
   }
 
   /** hang something on the thing in the hands, in its model's own frame (null: take it off again) */

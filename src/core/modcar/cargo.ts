@@ -11,7 +11,7 @@
 import { frameDef } from './frames';
 import type { Text } from './types';
 
-export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'table' | 'galley' | 'bench' | 'wall' | 'dash' | 'roof' | 'sofa' | 'fridge';
+export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'table' | 'galley' | 'bench' | 'wall' | 'dash' | 'roof' | 'sofa' | 'fridge' | 'shelfL' | 'shelfR' | 'cubby' | 'nook' | 'fore';
 export type Carry = 'small' | 'medium' | 'large';
 
 export interface CargoZone {
@@ -42,6 +42,17 @@ export interface CargoZone {
   readonly grid?: number;
   /** there only with one of these parts on that mount (a roof rack on the roof); absent: always there */
   readonly needs?: { readonly mount: string; readonly parts: readonly string[] };
+  /**
+   * Its rectangle is the room's own walls, face to face (docs/V3/plan/finish.md §十一 3: measured on the model): a thing
+   * stands against them — its footprint may touch the rectangle's edge, where another place's keeps a finger's width in —
+   * and the squares a thing is placed by begin at its rear left corner (nd-place).
+   */
+  readonly walls?: boolean;
+}
+
+/** a place for things whose rectangle is the room's walls (CargoZone.walls) */
+function W(id: ZoneId, zh: string, en: string, x: [number, number], z: [number, number], floor: number, top: number, max: Carry, order: number, via?: string[]): CargoZone {
+  return { ...Z(id, zh, en, x, z, floor, top, max, order, via), walls: true };
 }
 
 function Z(id: ZoneId, zh: string, en: string, x: [number, number], z: [number, number], floor: number, top: number, max: Carry, order: number, via?: string[]): CargoZone {
@@ -67,26 +78,49 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     D([0.56, 0.68], [-0.55, 0.55], 0.94, 1.15, ['door_FL', 'door_FR']),
   ],
   pickup: [
-    Z('bed', '车斗', 'Bed', [-2.22, -0.62], [-0.72, 0.72], 0.69, 1.9, 'large', 0),
+    // (its sides', its tailgate's and the cab's back's inner faces: the wheel arches stand in it)
+    W('bed', '车斗', 'Bed', [-2.278, -0.402], [-0.744, 0.744], 0.69, 1.9, 'large', 0),
     Z('pass', '副驾驶座', 'Passenger seat', [0.1, 0.5], [0.12, 0.6], 0.7, 1.3, 'medium', 1, ['door_FR']),
     D([0.67, 0.8], [-0.6, 0.6], 1.08, 1.29, ['door_FL', 'door_FR']),
   ],
   rv: [
-    Z('cabin', '车厢', 'Cabin', [-2.95, -0.45], [-0.45, 0.55], 0.86, 2.6, 'large', 0, ['door_side', 'trunk']),
+    // (the floor from the bed's foot to the dinette, wall to wall on the right since docs/V3/plan/finish.md §十一 1 — the
+    // wardrobe and the bath's cubicle that stood there are gone, and the floor is flat over the rear wheels; the corner
+    // between the bed and the galley's end on the left is a place of its own)
+    // (their rectangles the walls' own: the bed's foot at −4.1, the right wall at 1.1, the galley's worktop's edge at
+    // −0.5, the side door's frame at −1.37; the corner's the left wall at −1.1 and the galley's end — the room 1.2 m longer
+    // since docs/V3/plan/finish.md §18: 0.45 m of it in the back, 0.75 m ahead of the dinette's table, 'fore')
+    W('cabin', '车厢', 'Cabin', [-4.1, -1.37], [-0.5, 1.1], 0.86, 2.3, 'large', 0, ['door_side', 'trunk']),
+    { ...W('nook', '车厢后角', 'Rear corner', [-4.1, -2.73], [-1.1, -0.5], 0.86, 2.3, 'large', 0.5, ['door_side', 'trunk']), put: '放到车厢地上' },
+    { ...W('fore', '车厢前部左侧', 'Ahead of the table', [0.12, 0.85], [-1.1, -0.1], 0.86, 2.3, 'large', 0.6, ['door_side']), put: '放到车厢地上' },
     Z('pass', '副驾驶座', 'Passenger seat', [0.9, 1.35], [0.3, 0.8], 0.9, 1.55, 'medium', 1, ['door_FR']),
     // (the living space as one walks about in it, docs/V3/nodes/M2-rv.md: the floor by the door, the dinette's
-    // table, the galley's worktop under its lockers, the rear bench, and the walls)
-    { ...Z('lounge', '车厢前部', 'By the door', [-1.3, 0.85], [-0.1, 1.0], 0.86, 2.6, 'large', 2, ['door_side']), put: '放到车厢地上' },
-    { ...Z('table', '餐桌', 'Dinette table', [0.17, 0.59], [-1.04, -0.37], 1.59, 2.3, 'medium', 3, ['door_side']), put: '放到餐桌上' },
-    { ...Z('galley', '厨房台面', 'Galley worktop', [-1.94, -0.79], [-1.06, -0.51], 1.75, 2.18, 'medium', 4, ['door_side']), put: '放到厨房台面上' },
-    { ...Z('bench', '后排长椅', 'Rear bench', [-3.6, -2.95], [-0.95, 0.95], 1.2, 2.4, 'large', 5, ['door_side', 'trunk']), put: '放到后排长椅上' },
+    // table, the galley's worktop under its shelf, the bed across the back, the open shelves over both walls, the
+    // cubby under the sink, and the walls)
+    { ...Z('lounge', '车厢前部', 'By the door', [-2.05, 0.85], [-0.1, 1.0], 0.86, 2.3, 'large', 2, ['door_side']), put: '放到车厢地上' },
+    { ...Z('table', '餐桌', 'Dinette table', [-0.58, -0.16], [-1.04, -0.37], 1.59, 2.3, 'medium', 3, ['door_side']), put: '放到餐桌上' },
+    { ...Z('galley', '厨房台面', 'Galley worktop', [-2.69, -1.54], [-1.06, -0.51], 1.75, 2.18, 'medium', 4, ['door_side']), put: '放到厨房台面上' },
+    { ...Z('bed', '床上', 'Bed', [-5.04, -4.13], [-1.04, 1.04], 1.4, 2.3, 'large', 5, ['door_side', 'trunk']), put: '放到床上' },
+    // (the shelves over the walls — tools/blender/frames/_rv_inner.py LOCKER_*: their boards at 2.385, the lip along
+    // their front; the left one's run over the galley and the dinette, the right one's over the door)
+    { ...Z('shelfL', '左边吊柜', 'Left overhead shelf', [-3.98, -0.07], [-1.07, -0.76], 2.385, 2.78, 'medium', 6, ['door_side']), put: '放进吊柜' },
+    // (their orders under the roof rack's, 8: what is packed in without aiming goes inside before it goes on the roof)
+    { ...Z('shelfR', '右边吊柜', 'Right overhead shelf', [-3.98, -1.45], [0.76, 1.07], 2.385, 2.78, 'medium', 6.5, ['door_side']), put: '放进吊柜' },
+    { ...Z('cubby', '水槽下面', 'Under the sink', [-2.08, -1.62], [-1.03, -0.53], 0.92, 1.6, 'medium', 7, ['door_side']), put: '放进橱柜' },
     // (the walls' inner faces stand at about ±1.09: the rectangle reaches a little past them)
-    { ...Z('wall', '墙上', 'On the wall', [-3.95, 1.05], [-1.13, 1.13], 1.0, 2.5, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
+    { ...Z('wall', '墙上', 'On the wall', [-5.15, 1.05], [-1.13, 1.13], 1.0, 2.5, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
     D([1.64, 2.04], [-0.75, 0.75], 1.4, 1.62, ['door_FL', 'door_FR', 'door_side']),
   ],
   moto: [Z('pillion', '后座', 'Pillion', [-0.85, -0.5], [-0.13, 0.13], 0.8, 1.15, 'small', 0)],
   snail: [
-    Z('cabin', '货厢', 'Box', [-2.29, 0.62], [-0.86, 0.86], 0.95, 2.62, 'large', 0, ['trunk']),
+    // (its box a room since docs/V3/plan/finish.md §十一 1: the floor between the plywood walls at ±0.905, under the
+    // ceiling's bows at 2.805; the walls with their three rails to hang things on)
+    // (3.02 × 1.80 m at the floor: kick plate to kick plate, and from the front of the door frame's posts — they
+    // stand 8 cm into the box from the doors' inner faces at −2.434, 7 cm out from each wall — to the front wall's
+    // kick plate: nothing is stood into a post)
+    // (its top under the rail along its walls, 2.53: the floor is drawn looking down from the top)
+    W('cabin', '货厢', 'Box', [-2.354, 0.666], [-0.9, 0.9], 0.95, 2.5, 'large', 0, ['trunk']),
+    { ...Z('wall', '墙上', 'On the wall', [-2.4, 0.67], [-0.93, 0.93], 1.2, 2.7, 'medium', 9, ['trunk']), wall: true, put: '挂到墙上' },
     Z('pass', '副驾驶座', 'Passenger seat', [1.3, 1.62], [0.34, 0.79], 1.26, 1.9, 'medium', 1, ['door_FR']),
     D([2.11, 2.33], [-0.75, 0.75], 1.29, 1.5, ['door_FL', 'door_FR']),
   ],
@@ -98,7 +132,7 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
   ],
   rhino: [
     // (the box under its canvas, the tailgate the way in; and the seat beside the driver)
-    Z('bed', '货厢', 'Cargo box', [-3.08, -0.37], [-1.04, 1.04], 1.24, 2.65, 'large', 0, ['trunk']),
+    W('bed', '货厢', 'Cargo box', [-3.096, -0.336], [-1.07, 1.07], 1.24, 2.65, 'large', 0, ['trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.52, 0.9], [0.37, 0.83], 1.27, 1.87, 'medium', 1, ['door_FR']),
     D([1.25, 1.5], [-0.75, 0.75], 1.6, 1.81, ['door_FL', 'door_FR']),
   ],
@@ -117,7 +151,9 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
   ],
   van: [
     Z('trunk', '行李台', 'Luggage deck', [-2.15, -1.42], [-0.74, 0.74], 0.95, 1.75, 'large', 0, ['trunk']),
-    Z('cabin', '车厢', 'Cabin', [-0.67, 0.65], [-0.76, 0.72], 0.42, 1.78, 'large', 1, ['door_side', 'trunk']),
+    // (the left wall's inner face at −0.817, the sliding door's at 0.79; its back edge the front of the ledge under
+    // the luggage deck, 4 cm in from the bulkhead at −0.74)
+    W('cabin', '车厢', 'Cabin', [-0.7, 0.65], [-0.817, 0.79], 0.42, 1.78, 'large', 1, ['door_side', 'trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.98, 1.36], [0.14, 0.62], 0.88, 1.5, 'medium', 2, ['door_FR']),
     D([1.71, 1.95], [-0.7, 0.7], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
   ],
@@ -126,37 +162,55 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
   // with the roof down, 2.04: the floor is drawn looking down from the top)
   turtle: [
     // (in from the bed's cupboard knobs, the tail's roll over the bed, the wall over the worktop)
-    Z('cabin', '车厢', 'Cabin', [-0.34, 0.86], [-0.42, 0.84], 0.42, 1.85, 'large', 0, ['door_side']),
-    { ...Z('bed', '床上', 'Bed', [-2.26, -0.44], [-0.8, 0.8], 1.065, 1.85, 'large', 1, ['door_side', 'trunk']), put: '放到床上' },
-    { ...Z('galley', '厨房台面', 'Galley worktop', [-0.2, 0.78], [-0.845, -0.47], 1.22, 1.85, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
-    Z('pass', '副驾驶座', 'Passenger seat', [1.18, 1.56], [0.14, 0.66], 0.88, 1.5, 'medium', 3, ['door_FR']),
-    D([1.99, 2.22], [-0.74, 0.74], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
-    { ...Z('wall', '墙上', 'On the wall', [-2.35, 0.86], [-0.9, 0.9], 1.0, 1.9, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
+    // (the doors of the bed's cupboard at −1.288; the lip of the galley's worktop at −0.585, 13 mm out from its
+    // front; the trim of the pillar by the sliding door at 1.005, 11 mm in from the wall's lining — 0.9 m longer and
+    // 0.3 m wider since docs/V3/plan/finish.md §18, the floor ahead of the galley open to the left wall, 'nook')
+    W('cabin', '车厢', 'Cabin', [-1.288, 0.86], [-0.585, 1.005], 0.42, 1.85, 'large', 0, ['door_side']),
+    { ...W('nook', '厨房前面', 'Ahead of the galley', [-0.08, 0.86], [-0.995, -0.585], 0.42, 1.85, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
+    { ...Z('bed', '床上', 'Bed', [-3.16, -1.34], [-0.95, 0.95], 1.065, 1.85, 'large', 1, ['door_side', 'trunk']), put: '放到床上' },
+    { ...Z('galley', '厨房台面', 'Galley worktop', [-1.1, -0.12], [-0.995, -0.62], 1.22, 1.85, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
+    Z('pass', '副驾驶座', 'Passenger seat', [1.18, 1.56], [0.29, 0.81], 0.88, 1.5, 'medium', 3, ['door_FR']),
+    D([1.99, 2.22], [-0.89, 0.89], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
+    { ...Z('wall', '墙上', 'On the wall', [-3.25, 0.86], [-1.05, 1.05], 1.0, 1.9, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
   ],
-  // (the Old Elephant, docs/V3/plan/rv.md R2: the aisle's floor from the bed to the cab, the bed across the back, the
-  // galley's worktop beside the sink (where its hobs stand), the dinette's table, the sofa, the fridge's niche behind
-  // the passenger's seat, the passenger's seat, the dash; the walls of the room under the lockers)
+  // (the Old Elephant, docs/V3/plan/rv.md R2, its room opened up in docs/V3/plan/finish.md §十一 1: the floor from the
+  // galley's and the dinette's fronts to the right wall — the sofa that was built in there is gone — and from the bed
+  // to the fridge's cabinet; the corner behind the driver, open since the dinette moved back beside the galley; the
+  // bed across the back, the galley's worktop beside the sink (where its hobs stand), the cubby under the sink, the
+  // dinette's table, the fridge's niche behind the passenger's seat, the passenger's seat, the dash; the walls of the
+  // room under the lockers. tools/blender/frames/_elephant_inner.py; data/mounts/elephant.json `room`)
   elephant: [
-    Z('cabin', '车厢', 'Cabin', [-1.86, 2.44], [-0.4, 0.36], 0.62, 2.4, 'large', 0, ['door_side']),
-    { ...Z('bed', '床上', 'Bed', [-4.0, -1.94], [-1.12, 1.12], 1.44, 2.4, 'large', 1, ['door_side']), put: '放到床上' },
-    { ...Z('galley', '厨房台面', 'Galley worktop', [-1.86, -0.2], [-1.13, -0.58], 1.54, 2.4, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
-    { ...Z('table', '餐桌', 'Dinette table', [1.32, 1.98], [-1.13, -0.48], 1.34, 2.4, 'medium', 3, ['door_side']), put: '放到餐桌上' },
-    { ...Z('sofa', '沙发', 'Sofa', [-1.74, 0.3], [0.57, 0.98], 1.06, 2.4, 'large', 4, ['door_side']), put: '放到沙发上' },
+    // (their rectangles the walls' own: the bed's platform's front at −3.386, the right wall at 1.163 (its window's surround: the lining bows 2 to 6 mm out behind it), a
+    // centimetre clear of the dinette's benches at −0.42, the fridge's cabinet's side at 1.66; the corner's the left
+    // wall, the cabinet's front at 0.37, the dinette's front bench at 0.16 and the seat boxes' backs — the corner 1.5 m
+    // deeper since docs/V3/plan/finish.md §18, everything from the bench back 1.5 m further back)
+    W('cabin', '车厢', 'Cabin', [-3.386, 1.66], [-0.41, 1.163], 0.62, 2.4, 'large', 0, ['door_side']),
+    { ...W('nook', '驾驶座后面', 'Behind the driver', [0.16, 2.48], [-1.163, 0.37], 0.62, 2.4, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
+    { ...Z('bed', '床上', 'Bed', [-5.5, -3.44], [-1.12, 1.12], 1.44, 2.4, 'large', 1, ['door_side']), put: '放到床上' },
+    { ...Z('galley', '厨房台面', 'Galley worktop', [-3.36, -1.72], [-1.13, -0.58], 1.54, 2.4, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
+    { ...Z('table', '餐桌', 'Dinette table', [-0.88, -0.33], [-1.13, -0.48], 1.34, 2.4, 'medium', 3, ['door_side']), put: '放到餐桌上' },
+    { ...Z('cubby', '水槽下面', 'Under the sink', [-1.97, -1.44], [-1.11, -0.56], 0.7, 1.42, 'medium', 4, ['door_side']), put: '放进橱柜' },
     { ...Z('fridge', '冰箱位', 'Fridge niche', [1.685, 2.455], [0.38, 1.13], 0.92, 2.34, 'large', 5, ['door_side']), put: '放进冰箱位' },
     Z('pass', '副驾驶座', 'Passenger seat', [2.82, 3.2], [0.34, 0.86], 1.23, 1.85, 'medium', 6, ['door_FR']),
     D([3.57, 3.95], [-1.0, 1.0], 1.5, 1.75, ['door_FL', 'door_FR', 'door_side']),
-    { ...Z('wall', '墙上', 'On the wall', [-4.0, 2.45], [-1.16, 1.16], 1.62, 2.46, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
+    { ...Z('wall', '墙上', 'On the wall', [-5.5, 2.45], [-1.16, 1.16], 1.62, 2.46, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
   ],
   // (the Camel, docs/V3/plan/rv.md R3: emptied — its whole floor from the tail to the modesty panel (the rear wheels'
-  // humps in it), the dash; the walls under the ceiling's roll. The rack on its roof is the roof mount's)
+  // humps in it), the dash; the walls under the ceiling's roll — its back 1.1 m longer since docs/V3/plan/finish.md
+  // §18. The rack on its roof is the roof mount's)
   camel: [
-    Z('cabin', '车厢', 'Cabin', [-4.98, 1.82], [-1.14, 1.14], 0.72, 2.6, 'large', 0, ['door_side', 'trunk']),
+    W('cabin', '车厢', 'Cabin', [-6.108, 1.72], [-1.185, 1.185], 0.72, 2.6, 'large', 0, ['door_side', 'trunk']),
     D([2.64, 2.85], [-1.0, 1.0], 1.48, 1.7, ['door_side']),
-    { ...Z('wall', '墙上', 'On the wall', [-5.0, 1.84], [-1.19, 1.19], 1.5, 2.45, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
+    { ...Z('wall', '墙上', 'On the wall', [-6.1, 1.84], [-1.19, 1.19], 1.5, 2.45, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
   ],
-  // (the trailer's box: its floor from the door to the front wall, the door the way in — docs/V3/plan/growth.md §六 2)
-  // (its top under the ceiling's lining, 1.836: the floor is drawn looking down from the top)
-  trailer: [Z('cabin', '货厢', 'Box', [-1.22, 0.92], [-0.64, 0.64], 0.67, 1.8, 'large', 0, ['trunk'])],
+  // (the Tadpole's box, a room one walks into since docs/V3/plan/finish.md §十一 1: 3.00 × 1.70 m between its linings and
+  // from its door's inner face to its front wall's, the door the way in, and the walls with a rail high along each to
+  // hang things on. Its top under those rails, 2.32: the floor is drawn looking down from the top, and a rail in it
+  // would be a shelf up there)
+  trailer: [
+    W('cabin', '货厢', 'Box', [-1.662, 1.338], [-0.85, 0.85], 0.67, 2.3, 'large', 0, ['trunk']),
+    { ...Z('wall', '墙上', 'On the wall', [-1.66, 1.36], [-0.87, 0.87], 0.9, 2.45, 'medium', 9, ['trunk']), wall: true, put: '挂到墙上' },
+  ],
   wagon: [
     Z('trunk', '后备箱', 'Load space', [-2.42, -1.76], [-0.69, 0.69], 0.48, 1.25, 'large', 0, ['trunk']),
     Z('rear', '后座', 'Back seat', [-0.97, -0.63], [-0.57, 0.57], 0.47, 1.12, 'large', 1, ['door_RL', 'door_RR']),
@@ -325,12 +379,32 @@ function quadsMeet(a: [number, number][], b: [number, number][], gap: number): b
   return true;
 }
 
-/** the floor's height at a point of the grid (NaN: nothing there, or off the grid) */
+/**
+ * The floor's height at a point of the grid (NaN: nothing there, or off the grid). The grid's cells are whole ones:
+ * a strip less than half a cell wide left over along the far edges of what it covers (a place 1.57 m across in
+ * cells of 2 cm) reads as the last cell beside it.
+ */
 export function gridAt(g: HeightGrid, x: number, z: number): number {
-  const i = Math.floor((x - g.x0) / g.cell);
-  const j = Math.floor((z - g.z0) / g.cell);
+  let i = Math.floor((x - g.x0) / g.cell);
+  let j = Math.floor((z - g.z0) / g.cell);
+  if (i === g.nx && x - g.x0 <= (g.nx + 0.5) * g.cell) i = g.nx - 1;
+  if (j === g.nz && z - g.z0 <= (g.nz + 0.5) * g.cell) j = g.nz - 1;
   if (i < 0 || j < 0 || i >= g.nx || j >= g.nz) return NaN;
   return g.h[j * g.nx + i];
+}
+
+/** how far over a room's wall a footprint's corner may be and still stand against it (m) */
+export const WALL_EPS = 0.0005;
+
+/** the corner the squares a thing is placed by begin at, in a frame (docs/V3/plan/finish.md §十一 3): its first place for things' rear left one — a room's walls' own corner where that place is a room's (CargoZone.walls) */
+export function latticeOrigin(frame: string, zone?: CargoZone): { x: number; z: number } {
+  // (a room's squares are its own: from its walls' rear left corner, whichever room of the vehicle it is)
+  if (zone?.walls) return { x: zone.x[0], z: zone.z[0] };
+  const zones = zonesOf(frame).filter((z) => !z.wall);
+  const rooms = zones.filter((z) => z.walls);
+  const from = rooms.length ? rooms : zones;
+  const first = from.length ? from.reduce((p, q) => (q.order < p.order ? q : p)) : null;
+  return { x: first ? first.x[0] : 0, z: first ? first.z[0] : 0 };
 }
 
 /**
@@ -340,8 +414,11 @@ export function gridAt(g: HeightGrid, x: number, z: number): number {
  */
 export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z: number, yaw: number, placed: readonly Placed[]): number | null {
   const q = footprint(b, x, z, yaw);
+  // (a finger's width in from the place's edge — up to the edge itself where that is a room's wall: half a millimetre
+  // over it still counts as against it)
+  const in_ = zone.walls ? -WALL_EPS : GAP;
   for (const [px, pz] of q) {
-    if (px < zone.x[0] + GAP || px > zone.x[1] - GAP || pz < zone.z[0] + GAP || pz > zone.z[1] - GAP) return null;
+    if (px < zone.x[0] + in_ || px > zone.x[1] - in_ || pz < zone.z[0] + in_ || pz > zone.z[1] - in_) return null;
   }
   // the floor under it: sampled over the footprint at the grid's spacing
   const c = Math.cos(yaw);
@@ -349,10 +426,12 @@ export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z
   const nu = Math.max(1, Math.ceil((b.maxX - b.minX) / g.cell));
   const nv = Math.max(1, Math.ceil((b.maxZ - b.minZ) / g.cell));
   let floor = -Infinity;
+  // (against a room's wall the floor is asked for a hair inside the footprint: the wall's own foot is not its floor)
+  const hair = zone.walls ? 0.003 : 0;
   for (let a = 0; a <= nu; a++) {
-    const lx = b.minX + ((b.maxX - b.minX) * a) / nu;
+    const lx = Math.min(b.maxX - hair, Math.max(b.minX + hair, b.minX + ((b.maxX - b.minX) * a) / nu));
     for (let d = 0; d <= nv; d++) {
-      const lz = b.minZ + ((b.maxZ - b.minZ) * d) / nv;
+      const lz = Math.min(b.maxZ - hair, Math.max(b.minZ + hair, b.minZ + ((b.maxZ - b.minZ) * d) / nv));
       const h = gridAt(g, x + lx * c + lz * s, z - lx * s + lz * c);
       if (Number.isNaN(h)) return null;
       if (h > floor) floor = h;
@@ -360,8 +439,10 @@ export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z
   }
   // on top of what it would overlap (its own bottom lands there)
   let base = floor - b.minY;
+  // (in a room two things may stand side against side — a cupboard beside a fridge: only what its footprint is over
+  // is under it; elsewhere a finger's width from a thing is still on it)
   for (const p of placed) {
-    if (!quadsMeet(q, footprint(p.box, p.x, p.z, p.yaw), GAP)) continue;
+    if (!quadsMeet(q, footprint(p.box, p.x, p.z, p.yaw), in_)) continue;
     base = Math.max(base, p.y + p.box.maxY - b.minY);
   }
   if (base + b.maxY > zone.top + 1e-6) return null;

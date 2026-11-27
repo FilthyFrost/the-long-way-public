@@ -16,10 +16,18 @@ import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_MAIN, GLSL_VERTEX_PARS, gl
  * the instruments she is looking at — thinned to a quarter of their points within the box (an ordered pattern, the
  * surface left opaque), whole again a little way outside it. uSeeBox: the box's middle and half size (frame px);
  * uSeeK: how far (0 … 1) and the frame's height (px). Her skin and her clothes both (HerInGame.seeThrough sets them).
+ *
+ * And seen through near the eye over the middle of the view (seeViewFade; the player's ask of 2026-11-26: what of her
+ * body stands in the view goes see-through): first person on foot, her trunk, legs and clothes — not her arms, not
+ * her hands — thinned to a tenth of their points where they are within about half a metre of the eye and a fifth of
+ * the screen's height of its middle (an ellipse half as wide again, Nomad Drive's for a thing held), whole again by a
+ * metre off or 0.62 of the screen's height out; nothing at all of her within 12 cm of the eye (the view inside her as
+ * she leans into a run). uSeeView: how far (0 … 1) and the frame's width and height (px).
  */
 export const SEE_GLSL = `
 uniform vec4 uSeeBox;
 uniform vec2 uSeeK;
+uniform vec3 uSeeView;
 float seeBayer2(vec2 a) {
   a = floor(a);
   return fract(a.x / 2.0 + a.y * a.y * 0.75);
@@ -31,10 +39,21 @@ void seeThroughBox() {
   float t = seeBayer2(0.5 * gl_FragCoord.xy) * 0.25 + seeBayer2(gl_FragCoord.xy);
   if (gone > t + 0.03) discard;
 }
+void seeViewFade(vec3 p) {
+  if (uSeeView.x <= 0.0) return;
+  vec2 c = (gl_FragCoord.xy - 0.5 * uSeeView.yz) / max(1.0, uSeeView.z);
+  c.x /= 1.4;
+  float r = length(c);
+  float near = length(p - cameraPosition);
+  float gone = uSeeView.x * 0.9 * (1.0 - smoothstep(0.2, 0.62, r)) * (1.0 - smoothstep(0.55, 1.05, near));
+  gone = max(gone, uSeeView.x * (1.0 - smoothstep(0.12, 0.2, near)));
+  float t = seeBayer2(0.5 * gl_FragCoord.xy) * 0.25 + seeBayer2(gl_FragCoord.xy);
+  if (gone > t + 0.03) discard;
+}
 `;
-/** the two uniforms of SEE_GLSL, for a material's own set */
-export function seeUniforms(): { uSeeBox: { value: THREE.Vector4 }; uSeeK: { value: THREE.Vector2 } } {
-  return { uSeeBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uSeeK: { value: new THREE.Vector2(0, 1) } };
+/** the uniforms of SEE_GLSL, for a material's own set */
+export function seeUniforms(): { uSeeBox: { value: THREE.Vector4 }; uSeeK: { value: THREE.Vector2 }; uSeeView: { value: THREE.Vector3 } } {
+  return { uSeeBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uSeeK: { value: new THREE.Vector2(0, 1) }, uSeeView: { value: new THREE.Vector3(0, 1, 1) } };
 }
 
 /** The ink numbers she writes (render/frame.ts draws lines between different ones below 0.23). */
@@ -233,6 +252,7 @@ void main() {
   #include <logdepthbuf_fragment>
   seeThroughBox();
   float part = vSkin.z;
+  if (part < 0.5) seeViewFade(vPos);
   if (uHide.x > 0.5 && part > 0.5 && part < 1.5) discard;
   if (uHide.y > 0.5 && part > 1.5 && part < 2.5) discard;
   if (uHide.z > 0.5 && part > 2.5) discard;

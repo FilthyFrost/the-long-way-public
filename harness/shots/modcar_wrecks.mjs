@@ -297,14 +297,18 @@ try {
     g.changed(v, 'tyres');
     g.enter(v);
     g.simulate(0.5);
-    // (the instruments' plate in the cab: the four lamps round its little car — cluster.ts)
-    return { tyres: v.sys.dash.tyres, plate: [...v.view.clusterV.tyres] };
+    // (the cab's own instruments — cluster.ts: the four tyres on its display, the tyre pressure's lamp lit for the
+    // blown one; no readings in the corner of the screen since 2026-11-26)
+    const c = v.view.cluster;
+    return { tyres: v.sys.dash.tyres, shown: c ? [...c.display.tyres] : null, lamp: c ? c.lamp('tyre') : -1, corner: !!document.querySelector('.mc-dash') };
   });
   console.log('dash tyres', JSON.stringify(dash));
   if (!dash) fail('no pickup to sit in');
   else {
-    // (new, worn, more worn, and the blown one: 4)
-    if (dash.plate.join(' ') !== '0 1 2 4') fail(`the dash's tyres are not in their stages (${dash.plate.join(' ')})`);
+    // (new, worn, more worn, and the blown one)
+    if ((dash.shown ?? []).join(' ') !== '0 1 2 4') fail(`the cluster's display does not show the tyres in their stages (${JSON.stringify(dash.shown)})`);
+    if (!(dash.lamp > 0.5)) fail(`the tyre pressure's lamp is not lit for the blown tyre (${dash.lamp})`);
+    if (dash.corner) fail('readings in the corner of the screen');
     await shot('dash');
   }
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);

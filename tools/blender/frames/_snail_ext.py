@@ -707,7 +707,7 @@ XS = X_F - SKIN          # the front wall's skin
 Z0 = D['bz0']            # bottom of the bottom rail
 Z1 = D['bz1']            # top of the top rail
 ZR0 = 0.97               # top of the bottom rail (the panels start)
-ZR1 = 2.61               # bottom of the top rail (the panels end)
+ZR1 = Z1 - 0.14          # bottom of the top rail (the panels end)
 R_POST = 0.055           # the front corner posts' round
 POST_F = 0.04            # the flats either side of the round
 RP_X = 0.075             # the rear corner posts' depth
@@ -717,7 +717,7 @@ HEAD_Z = ZR1 - 0.03      # the rear header's bottom
 DOOR_IN = X_R - 0.004    # the rear doors' inner face (shut)
 DOOR_T = 0.04            # their thickness
 DOOR_Y = 0.835           # their outer edge (the corner posts show outboard of it, with the hinges)
-DOOR_Z0, DOOR_Z1 = 0.925, 2.61
+DOOR_Z0, DOOR_Z1 = 0.925, ZR1
 # the hinge pins (left; x, |y|): outboard of the side, so the doors swing 270 deg round and lie along the sides with
 # their lock rods and handles clear of it
 HINGE_P = (X_R - 0.040, BW + 0.065)
@@ -726,7 +726,7 @@ TAIL = (0.60, 0.89, 0.81, 0.94, 0.012)        # tail lamp recess in the rear sil
 
 
 def hinge_z():
-    return (DOOR_Z0 + 0.13, 1.45, 2.05, DOOR_Z1 - 0.13)
+    return (DOOR_Z0 + 0.13, 1.50, 2.13, DOOR_Z1 - 0.13)
 
 
 def flat(o, a, b_, n, outer, holes=(), step=0.12, mat='paint_b', lines=(), edge=0.0):
@@ -837,13 +837,13 @@ class Box:
         y1 = BW - R_POST - POST_F + 0.005
         z0, z1 = ZR0 - 0.008, ZR1 + 0.008
         b.extend(flat(np.array([XS, 0.0, 0.0]), (0, 1, 0), (0, 0, 1), (1, 0, 0), rect2(0.0, y1, z0, z1), step=0.14,
-                      lines=rib_lines(1, (2.30, 2.46), 0.0, y1) + [(0, y1 - 0.026, z0, z1), (1, z0 + 0.026, 0.0, y1), (1, z1 - 0.026, 0.0, y1)]))
+                      lines=rib_lines(1, (ZR1 - 0.31, ZR1 - 0.15), 0.0, y1) + [(0, y1 - 0.026, z0, z1), (1, z0 + 0.026, 0.0, y1), (1, z1 - 0.026, 0.0, y1)]))
         runs = prof_runs([(0.030, 0.0), (0.020, 0.011), (-0.020, 0.011), (-0.030, 0.0)], [0, 0.003, 0.003, 0], closed=False)
-        for z in (2.30, 2.46):
+        for z in (ZR1 - 0.31, ZR1 - 0.15):
             path = np.array([(XS, 0.0, z), (XS, y1 - 0.002, z)])
             b.extend(sweep_runs(path, (1, 0, 0), runs, 'paint_b'))
-        b.extend(K.box_buf((X_F - 0.004, 0.70, 2.665), (X_F + 0.012, 0.84, 2.705), 'trim', 0.006, 2))
-        b.extend(K.box_buf((X_F + 0.008, 0.71, 2.670), (X_F + 0.030, 0.83, 2.700), 'lens_amber', 0.008, 2))
+        b.extend(K.box_buf((X_F - 0.004, 0.70, Z1 - 0.085), (X_F + 0.012, 0.84, Z1 - 0.045), 'trim', 0.006, 2))
+        b.extend(K.box_buf((X_F + 0.008, 0.71, Z1 - 0.080), (X_F + 0.030, 0.83, Z1 - 0.050), 'lens_amber', 0.008, 2))
         return b
 
     def roof(self):
@@ -856,8 +856,8 @@ class Box:
         b = K.Buf()
         b.extend(K.box_buf((X_R, 0.0, HEAD_Z), (X_R + 0.10, BW, Z1 - 0.004), 'alu', 0.008, 2))
         for (y0, y1) in ((0.0, 0.05), (0.66, 0.78)):
-            b.extend(K.box_buf((X_R - 0.012, y0, 2.665), (X_R + 0.002, y1, 2.705), 'trim', 0.004, 2))
-            b.extend(K.box_buf((X_R - 0.026, y0 + (0.006 if y0 > 0 else 0.0), 2.670), (X_R - 0.010, y1 - 0.006, 2.700), 'lens_tail', 0.006, 2))
+            b.extend(K.box_buf((X_R - 0.012, y0, Z1 - 0.085), (X_R + 0.002, y1, Z1 - 0.045), 'trim', 0.004, 2))
+            b.extend(K.box_buf((X_R - 0.026, y0 + (0.006 if y0 > 0 else 0.0), Z1 - 0.080), (X_R - 0.010, y1 - 0.006, Z1 - 0.050), 'lens_tail', 0.006, 2))
         z0, z1 = SILL_Z
         b.extend(flat(np.array([X_R, 0.0, 0.0]), (0, 1, 0), (0, 0, 1), (-1, 0, 0), rect2(0.0, BW, z0, z1), holes=[self.tail], step=0.06, mat='steel'))
         b.extend(K.box_buf((X_R, 0.0, z0), (X_R + SILL_X, BW, z0 + 0.004), 'steel', 0.0, 1))

@@ -25,12 +25,6 @@ export interface Assists {
   needs: boolean;
   /** driving into the dark the headlamps come on by themselves, and go out again in the light (L still switches them) */
   autoLights: boolean;
-  /**
-   * the vehicle's readings in a corner of the screen as well (speed, gear, revs, fuel, water, lamps, tyres). Off by
-   * default: the instruments are in the cab (docs/V3/plan/finish.md §五); from outside the vehicle its speed and its
-   * fuel are shown whichever.
-   */
-  screenDash: boolean;
 }
 
 export const ASSIST_LABELS: [keyof Assists, string][] = [
@@ -44,7 +38,6 @@ export const ASSIST_LABELS: [keyof Assists, string][] = [
   ['guide', '任务和指引小旗'],
   ['needs', '生存：会饿、会渴、会冷'],
   ['autoLights', '天黑自动开车灯'],
-  ['screenDash', '屏幕车况（左下角也显示车速、油、水温、警告灯）'],
 ];
 
 /** the keys that switch them on the card, in their order (the rest only in the pause menu) */
@@ -52,7 +45,7 @@ export const ASSIST_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'D
 export const ASSIST_KEY_NAMES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'];
 
 /** the hardcore default: the handbrake stays on until one releases it; the rest helps */
-export const DEFAULT_ASSISTS: Assists = { autoRelease: false, autoHold: true, autoReverse: true, abs: true, esc: true, ghosts: true, compare: false, guide: true, needs: true, autoLights: true, screenDash: false };
+export const DEFAULT_ASSISTS: Assists = { autoRelease: false, autoHold: true, autoReverse: true, abs: true, esc: true, ghosts: true, compare: false, guide: true, needs: true, autoLights: true };
 
 const KEY = 'modcar.assists';
 

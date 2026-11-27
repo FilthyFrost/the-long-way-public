@@ -78,7 +78,34 @@ export class PhotoStore {
     return null;
   }
 
+  private readonly urls = new Map<string, string>();
+
+  /** a print's picture as an address a page can show (the compendium's), null: there is none in this browser (yet) */
+  async url(key: string): Promise<string | null> {
+    const had = this.urls.get(key);
+    if (had) return had;
+    const db = await this.open();
+    if (!db || !key) return null;
+    return new Promise((resolve) => {
+      try {
+        const r = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+        r.onsuccess = () => {
+          const blob = r.result as Blob | undefined;
+          if (!blob) return resolve(null);
+          const u = URL.createObjectURL(blob);
+          this.urls.set(key, u);
+          resolve(u);
+        };
+        r.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
   dispose(): void {
+    for (const u of this.urls.values()) URL.revokeObjectURL(u);
+    this.urls.clear();
     for (const t of this.tex.values()) t.dispose();
     this.tex.clear();
   }

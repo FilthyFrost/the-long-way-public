@@ -70,6 +70,12 @@ const ND_FRONT = 2.2;
 
 export const SITE_KINDS = ['station', 'garage', 'shop', 'house', 'camp', 'jetty', 'hide', 'lookout', 'lighthouse', 'works', 'roadside'] as const;
 export type SiteKind = (typeof SITE_KINDS)[number];
+/**
+ * The sort of place a place is to what is found there (Site.sort): its kind — and, in a world of version 7, the sorts
+ * that are a kind of ours to the dice and a place of their own to the plan (a motel: a home's ground and yard, a
+ * traveller's leavings)
+ */
+export type PlaceSort = SiteKind | 'motel';
 
 /** the pictogram on a place's board */
 export const SIGN = { none: 0, fuel: 1, wrench: 2, shop: 3, house: 4, camp: 5, fish: 6, game: 7, view: 8, light: 9, works: 10 } as const;
@@ -226,6 +232,12 @@ export class Site {
   id = '';
   slot = 0;
   kind: SiteKind = 'roadside';
+  /**
+   * what sort of place it is to what is found there — the plan's finds (core/modcar/schedule.ts), the junk about it,
+   * the line on its boxes' cards: its kind, but (world version 7; docs/V3/plan/finish.md §二 6) a motel is a sort of
+   * its own (its card's: prefabs.ts PrefabCard.sort). In a world made before, always its kind.
+   */
+  sort: PlaceSort = 'roadside';
   seed = 0;
   /** the country it stands in (a biome id): what grows over it, whether snow lies on it */
   biome = 'plains';
@@ -652,6 +664,8 @@ export class SitePlan implements SolidSource {
   private layCard(site: Site, card: PrefabCard, a: number, front: number, r: Rng, dice: boolean): void {
     site.prefab = card.id;
     site.ground = card.ground ?? 0;
+    // (version 7: a card that is a sort of place of its own — the motel — is that to what is found there)
+    if (this.cold && card.sort) site.sort = card.sort;
     const o = this.put(site, 'prefab', a, front + card.d / 2, 0, card.w, card.d, card.h);
     // the floor is level on its plinth over its levelled ground, and that ground flat at the height it has at the
     // middle of the building's front: a stair's first tread, a container's floor, a door's sill as high over it at
@@ -1027,6 +1041,7 @@ export class SitePlan implements SolidSource {
     const site = new Site();
     site.slot = k;
     site.kind = kind;
+    site.sort = kind;
     site.id = `site${k}${tag ?? (kind === 'roadside' ? 'v' : 'p')}`;
     site.seed = r.nextU32();
     site.biome = this.biomeId(fit.s);
@@ -1460,6 +1475,16 @@ export class SitePlan implements SolidSource {
       }
       default:
         break;
+    }
+    // (version 7, docs/V3/plan/finish.md §八 1: 房子后面荒了的菜地 — the bed of the garden behind a house of ours still has
+    // two to four things coming up in it; its own dice, laid after all the rest: the place's other things as they were)
+    const bed = this.cold && site.kind === 'house' ? site.objects.find((o) => o.kind === 'patch') : undefined;
+    if (bed) {
+      const pr = new Rng(hash2(site.seed, 0xf21d, 11));
+      for (let i = 0, n = 2 + pr.int(3); i < n; i++) this.lie(site, 'plot.bed', 1, (pr.next() - 0.5) * (bed.w - 0.8), (pr.next() - 0.5) * (bed.d - 0.6), pr, bed);
+      // (… and, two houses in five, a packet of seeds left on its mailbox: §八 2 种子在信箱里)
+      const box = site.objects.find((o) => o.kind === 'mailbox');
+      if (box && pr.next() < 0.4) this.lie(site, 'plot.seeds', 1, 0, 0, pr, box);
     }
     if (site.kind === 'station' || site.kind === 'garage' || site.kind === 'shop') this.boardAt(site, site.kind === 'station' ? SIGN.fuel : site.kind === 'garage' ? SIGN.wrench : SIGN.shop);
     else if (site.kind === 'house') this.boardAt(site, SIGN.house);

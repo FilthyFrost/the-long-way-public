@@ -103,6 +103,20 @@ const FISH_OF = new Map<string, number>(FISH.map((f, i) => [`fish_${f.id}`, i]))
 const ROD_OF = new Map<string, number>(RODS.map((r, i) => [r.id, i]));
 const BAIT_OF = new Map<string, number>(BAITS.map((b, i) => [`bait_${b.id}`, i]));
 
+/**
+ * Bait out of the larder (docs/V3/plan/finish.md §九: bread and maize do as a common bait): what a loaf or a cob is
+ * pulled apart into, and how many pinches of it. In the rules each is the common bait (the worm) under its own name.
+ */
+export const PANTRY_BAIT: Readonly<Record<string, { bait: string; n: number }>> = {
+  ing_bread: { bait: 'bait_bread', n: 12 },
+  ing_corn: { bait: 'bait_kernels', n: 16 },
+};
+const PANTRY_ROWS = [
+  ['bait_bread', '面包团', 'Bread paste', 0xd9b47a, 0xf1e6c8],
+  ['bait_kernels', '玉米粒', 'Sweetcorn', 0xf2cf4a, 0x6f9a3c],
+] as const;
+for (const [id] of PANTRY_ROWS) BAIT_OF.set(id, Math.max(0, BAITS.findIndex((b) => b.id === 'worm')));
+
 /** the fish (index into FISH) a kind of thing is; −1: it is no fish */
 export function fishOfItem(id: string): number {
   return FISH_OF.get(id) ?? -1;
@@ -247,6 +261,24 @@ const BAIT_ITEMS: readonly ItemRow[] = BAITS.map((b): ItemRow => {
   };
 });
 
+const PANTRY_BAIT_ITEMS: readonly ItemRow[] = PANTRY_ROWS.map(
+  ([id, zh, en, paint, paint2]): ItemRow => ({
+    id,
+    cat: BAIT_CAT.id,
+    name: { zh, en },
+    stars: TIER_STARS[0],
+    blurb: '素饵。和蚯蚓一样，哪一种普通的鱼都会来咬，来的是哪种看运气。竿上没饵的时候，带着的面包、玉米会自己掰一些挂上。',
+    mass: 0.01,
+    carry: 'small',
+    salvage: {},
+    model: 'bait_tin',
+    paint,
+    paint2,
+    tags: [BAIT_TAG],
+    stack: 40,
+  }),
+);
+
 const OTHER_ITEMS: readonly ItemRow[] = [
   {
     id: CREEL,
@@ -333,7 +365,7 @@ const OTHER_ITEMS: readonly ItemRow[] = [
 ];
 
 /** every fishing thing for the catalogue */
-export const FISHING_ITEMS: readonly ItemRow[] = [...FISH_ITEMS, ...ROD_ITEMS, ...BAIT_ITEMS, ...OTHER_ITEMS];
+export const FISHING_ITEMS: readonly ItemRow[] = [...FISH_ITEMS, ...ROD_ITEMS, ...BAIT_ITEMS, ...PANTRY_BAIT_ITEMS, ...OTHER_ITEMS];
 
 /** the fish as the kitchen's ingredients (core/v3/cooking/ingredients.ts registerIngredients): any fish in a pot */
 export const FISH_INGREDIENTS: readonly Ingredient[] = FISH.map((f): Ingredient => {

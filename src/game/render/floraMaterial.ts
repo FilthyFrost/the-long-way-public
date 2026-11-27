@@ -19,10 +19,13 @@ import { GLSL_LEAF_COVER } from './materials';
 import { GLSL_PAINT, GLSL_SLOTS } from './paint';
 import { GLSL_COMMON, globals } from './shaderlib';
 import { sharedTextures } from './textures';
+import { GLSL_PRESS, pressUniforms } from './press';
 
 /** the plants' atlas, for every material that reads it (set by whoever builds the registry: scene/worldView.ts) */
 export const floraUniforms = {
   tPlants: { value: null as THREE.Texture | null },
+  // (a plant on the ground under a vehicle's body is not drawn: press.ts)
+  ...pressUniforms,
 };
 
 /**
@@ -39,6 +42,7 @@ export const FLORA_VERTEX = /* glsl */ `
   attribute vec4 aShape;   // scale across, scale up, first vertex in the atlas, vertices
   attribute vec4 aLook;    // palette slots + settled snow / 4; share of b + 2 bears + 4 evergreen + 8 deciduous wood; first colour; second colour
   attribute vec4 aLie;     // ground slope along x and z; the plant's own number; lean
+  ${GLSL_PRESS}
   bool rtPlantVertex(mat4 model, float wind, float time, out vec3 world, out vec3 normal, out vec4 leaf, out vec3 colour, out float part) {
     world = vec3(0.0);
     normal = vec3(0.0, 1.0, 0.0);
@@ -60,6 +64,8 @@ export const FLORA_VERTEX = /* glsl */ `
     vec3 n = texelFetch(tPlants, at + ivec2(2, 0), 0).xyz;
     colour = texelFetch(tPlants, at + ivec2(3, 0), 0).rgb;
     vec3 root = (model * vec4(aPlace.xyz, 1.0)).xyz;
+    // (rooted under a vehicle's body, on the ground: pressed out of sight — press.ts)
+    if (rtPressed(root)) return false;
     float c = cos(aPlace.w);
     float s = sin(aPlace.w);
     vec3 p = t0.xyz * vec3(aShape.x, aShape.y, aShape.x);

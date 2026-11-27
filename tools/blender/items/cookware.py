@@ -25,6 +25,7 @@ vessel or on the board), M_knife (the knife at work). `paint` and `paint_b` take
 import math
 
 import bmesh
+from mathutils import Matrix
 
 from parts import _kit as K
 from parts._kit import mat4
@@ -87,6 +88,69 @@ def kit_stove(P):
     P.empty('M_pot', (0.0, yb, top + 0.029))
     P.empty('M_flame', (0.0, yb, top + 0.03))
     P.empty('M_can', (-0.012, yc, top - 0.034))
+    P.views = [('a', 35, 32), ('b', 325, 32)]
+
+
+def kit_stove2(P):
+    """A two-burner camp stove (docs/V3/plan/finish.md §八 6; faces +X): the cassette stove's layout twice over in one
+    body. Each half has its burner, its knob (KNOB_fire; the second half's KNOB_fire_B), its canister's bay under a
+    cover (COVER, COVER_B) with its lever (LEVER, LEVER_B) and its markers (M_pot, M_flame, M_can; the second's with
+    _B — not _1: a loaded mesh of several materials is a group whose pieces are named so). The first half is the one
+    at −Y; a carrying handle at each end."""
+    P.ao_distance = 0.06
+    dx, wy, h = 0.27, 0.75, 0.078           # front to back, side to side, the body's height
+    zf = 0.012                               # on its feet
+    top = zf + h
+    half = 0.19                              # each half's middle, from the body's
+    body = P.box('body', (dx, wy, h), (0, 0, zf + h / 2), 'paint', bev=0.012, segs=1)
+    for k, oy in enumerate((-half, half)):
+        sfx = '' if k == 0 else '_B'
+        yb, yc = oy - 0.068, oy + 0.122      # the burner's centre line, the bay's
+        cut = bmesh.new()
+        K.bm_cube(cut, (dx - 0.046, 0.092, 0.2), mat4((0.0, yc, top + 0.1 - 0.07)))
+        P.cut(body, cut)
+        P.box('bay_floor', (dx - 0.05, 0.088, 0.003), (0.0, yc, top - 0.0695), 'trim', bev=None)
+        P.cyl('regulator', 0.014, 0.012, (dx / 2 - 0.03, yc, top - 0.036), 'steel', axis='X', segs=24, bev=None)
+        P.box('tray', (dx - 0.036, 0.222, 0.006), (0.0, yb, top + 0.001), 'trim', bev=0.003)
+        P.cyl('burner', 0.036, 0.02, (0.0, yb, top + 0.012), 'steel', segs=40, r2=0.032, bev=None)
+        P.torus('ports', 0.032, 0.0045, (0.0, yb, top + 0.02), 'trim', segs=40, rsegs=8)
+        for i in range(24):
+            a = TAU * i / 24
+            P.cyl(f'port{k}_{i}', 0.0018, 0.006, (0.0322 * math.cos(a), yb + 0.0322 * math.sin(a), top + 0.0215), 'trim', segs=8,
+                  rot=D(0.0, math.pi / 2, a), bev=None)
+        P.cyl('cap', 0.026, 0.008, (0.0, yb, top + 0.026), 'alu', segs=40, r2=0.022, bev=None)
+        for j in range(4):
+            a = TAU * j / 4 + TAU / 8
+            P.box(f'rest{k}_{j}', (0.056, 0.008, 0.026), (0.078 * math.cos(a), yb + 0.078 * math.sin(a), top + 0.016), 'trim',
+                  rot=D(0.0, 0.0, a), bev=None)
+        P.box('strip', (0.003, 0.2, 0.012), (dx / 2 + 0.0008, yb + 0.01, zf + 0.022), 'paint_b', bev=None)
+        # the cover over the bay, hinged along the back
+        cw, cl = 0.104, dx - 0.03
+        cover = P.box('cover', (cl, cw, 0.006), (0.0, yc, top + 0.0035), 'paint_b', bev=0.0025, segs=1)
+        grip = P.box('grip', (0.012, 0.05, 0.006), (cl / 2 - 0.012, yc, top + 0.0085), 'trim', bev=0.002, segs=1)
+        P.mover('COVER' + sfx, [cover, grip], (-cl / 2, yc, top + 0.0035))
+        # the lever on the front: down is locked
+        lv = P.box('lever', (0.03, 0.03, 0.009), (dx / 2 + 0.017, yc + 0.01, zf + 0.036), 'trim', bev=0.003, segs=1)
+        lk = P.cyl('lever_hub', 0.009, 0.034, (dx / 2 + 0.004, yc + 0.01, zf + 0.036), 'steel', axis='Y', segs=18, bev=None)
+        P.mover('LEVER' + sfx, [lv, lk], (dx / 2 + 0.004, yc + 0.01, zf + 0.036))
+        # the knob, beside the lever
+        ky = oy + 0.036
+        kn = P.cyl('knob', 0.02, 0.018, (dx / 2 + 0.01, ky, zf + 0.04), 'trim', axis='X', segs=40, r2=0.017, bev=None)
+        kp = P.box('pointer', (0.006, 0.006, 0.02), (dx / 2 + 0.02, ky, zf + 0.049), 'paint_b', bev=None)
+        ribs = [P.box(f'knob_rib{k}_{i}', (0.016, 0.003, 0.003),
+                      (dx / 2 + 0.011, ky + 0.0185 * math.cos(TAU * i / 12), zf + 0.04 + 0.0185 * math.sin(TAU * i / 12)), 'trim',
+                      rot=D(TAU * i / 12, 0.0, 0.0), bev=None) for i in range(12)]
+        P.mover('KNOB_fire' + sfx, [kn, kp, *ribs], (dx / 2 + 0.01, ky, zf + 0.04))
+        P.empty('M_pot' + sfx, (0.0, yb, top + 0.029))
+        P.empty('M_flame' + sfx, (0.0, yb, top + 0.03))
+        P.empty('M_can' + sfx, (-0.012, yc, top - 0.034))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            P.cyl('foot', 0.012, zf + 0.004, (sx * (dx / 2 - 0.035), sy * (wy / 2 - 0.035), (zf + 0.004) / 2), 'rubber', segs=18, bev=None)
+    for sy in (-1, 1):
+        P.box('handle', (0.09, 0.012, 0.012), (0.0, sy * (wy / 2 + 0.008), zf + 0.05), 'trim', bev=0.003, segs=1)
+        for sx in (-1, 1):
+            P.box('handle_arm', (0.008, 0.012, 0.012), (sx * 0.041, sy * (wy / 2 + 0.002), zf + 0.05), 'trim', bev=None)
     P.views = [('a', 35, 32), ('b', 325, 32)]
 
 
@@ -311,36 +375,54 @@ def kit_kettle(P):
 
 
 def kit_cooler(P):
-    """A camping cooler (face +X): a blue body a little wider at the top, a white lid hinged along its back edge with a
-    moulded grip, a swinging bail handle at each end, the lid's latch and the drain plug at the front, two skids under it."""
+    """A camping cooler (face +X) at Nomad Drive's size (0.73 m over its handles, 0.46 m high, 0.42 m
+    deep): a blue tub, its walls 5 cm thick round a white liner — inside 0.53 m end to end, 0.31 m front to back, 0.36 m
+    deep, as Nomad Drive's board inside it is (src/core/v3/nd/store.ts: what is put in stands on its floor) — a white
+    lid hinged along its back edge with a moulded grip, a swinging bail handle at each end, the lid's latch and the drain
+    plug at the front, two skids under it."""
     P.ao_distance = 0.08
-    dx, wy, h = 0.3, 0.5, 0.27              # front to back, end to end, the body's height (to the lid)
+    dx, wy, h = 0.42, 0.64, 0.385           # front to back, end to end, the body's height (to the lid)
     zf = 0.016                               # on its skids
     top = zf + h
-    # the body: a slightly flared tub, its rim a band of the lid's colour
-    P.box('body', (dx, wy, h - 0.012), (0, 0, zf + (h - 0.012) / 2), 'paint', bev=0.03, segs=3)
-    P.box('rim', (dx + 0.006, wy + 0.006, 0.014), (0, 0, top - 0.007), 'paint_b', bev=0.006, segs=2)
+    ix, iy, fz, t = 0.31, 0.53, zf + 0.024, 0.004   # inside: front to back, end to end; its floor; the liner's thickness
+
+    def hollow():
+        """the inside, cut out of the body and the bands round it (open at the top)"""
+        bm = bmesh.new()
+        hh = top - fz + 0.05
+        K.bm_cube(bm, (ix, iy, hh), matrix=Matrix.Translation((0.0, 0.0, fz + hh / 2)))
+        return bm
+
+    # the body: an insulated tub, its rim a band of the lid's colour
+    P.cut(P.box('body', (dx, wy, h - 0.012), (0, 0, zf + (h - 0.012) / 2), 'paint', bev=0.03, segs=3), hollow())
+    P.cut(P.box('rim', (dx + 0.006, wy + 0.006, 0.014), (0, 0, top - 0.007), 'paint_b', bev=0.006, segs=2), hollow())
     # a groove round the body, half way up
-    P.box('groove', (dx + 0.004, wy + 0.004, 0.008), (0, 0, zf + h * 0.42), 'paint_b', bev=0.003, segs=1)
+    P.cut(P.box('groove', (dx + 0.004, wy + 0.004, 0.008), (0, 0, zf + h * 0.42), 'paint_b', bev=0.003, segs=1), hollow())
+    # the white liner: its floor and its four walls, up to the rim
+    P.box('liner_floor', (ix, iy, t), (0, 0, fz + t / 2), 'paint_b', bev=None)
+    dz = top - 0.004 - fz
+    for s in (-1, 1):
+        P.box(f'liner_end{s}', (ix, t, dz), (0, s * (iy / 2 - t / 2), fz + dz / 2), 'paint_b', bev=None)
+        P.box(f'liner_side{s}', (t, iy - 2 * t, dz), (s * (ix / 2 - t / 2), 0, fz + dz / 2), 'paint_b', bev=None)
     # the skids
     for s in (-1, 1):
-        P.box(f'skid{s}', (dx - 0.06, 0.04, zf), (0, s * (wy / 2 - 0.07), zf / 2), 'trim', bev=0.004, segs=1)
+        P.box(f'skid{s}', (dx - 0.06, 0.05, zf), (0, s * (wy / 2 - 0.09), zf / 2), 'trim', bev=0.004, segs=1)
     # the drain plug, low at the front
-    P.cyl('plug', 0.012, 0.012, (dx / 2 + 0.004, wy / 2 - 0.07, zf + 0.03), 'trim', axis='X', segs=40, bev=None)
+    P.cyl('plug', 0.014, 0.012, (dx / 2 + 0.004, wy / 2 - 0.09, zf + 0.035), 'trim', axis='X', segs=40, bev=None)
     # the bail handles at the ends: two pivots and a bar across, hanging down
     for s in (-1, 1):
-        y = s * (wy / 2 + 0.012)
-        P.cyl(f'pivot{s}a', 0.011, 0.012, (-0.09, s * (wy / 2 + 0.004), top - 0.05), 'trim', axis='Y', segs=40, bev=None)
-        P.cyl(f'pivot{s}b', 0.011, 0.012, (0.09, s * (wy / 2 + 0.004), top - 0.05), 'trim', axis='Y', segs=40, bev=None)
-        P.tube(f'bail{s}', [(-0.09, y, top - 0.05), (-0.08, y + s * 0.006, top - 0.12), (0.08, y + s * 0.006, top - 0.12), (0.09, y, top - 0.05)], 0.007, 'trim', segs=18, bend=0.02)
+        y = s * (wy / 2 + 0.014)
+        P.cyl(f'pivot{s}a', 0.013, 0.014, (-0.12, s * (wy / 2 + 0.005), top - 0.06), 'trim', axis='Y', segs=40, bev=None)
+        P.cyl(f'pivot{s}b', 0.013, 0.014, (0.12, s * (wy / 2 + 0.005), top - 0.06), 'trim', axis='Y', segs=40, bev=None)
+        P.tube(f'bail{s}', [(-0.12, y, top - 0.06), (-0.105, y + s * 0.008, top - 0.15), (0.105, y + s * 0.008, top - 0.15), (0.12, y, top - 0.06)], 0.008, 'trim', segs=18, bend=0.02)
     # the lid: hinged along the back edge (-X), its top domed a little, a moulded grip at the front, the latch below it
     hl = 0.055
     lid = P.box('lid', (dx + 0.012, wy + 0.012, hl), (0.0, 0.0, top + hl / 2), 'paint_b', bev=0.022, segs=2)
-    crown = P.box('lid_top', (dx - 0.05, wy - 0.06, 0.012), (0.0, 0.0, top + hl + 0.004), 'paint_b', bev=0.006, segs=2)
-    grip = P.box('lid_grip', (0.03, 0.18, 0.016), (dx / 2 - 0.01, 0.0, top + hl - 0.012), 'paint', bev=0.006, segs=1)
-    latch = P.box('latch', (0.012, 0.07, 0.05), (dx / 2 + 0.01, 0.0, top + 0.004), 'trim', bev=0.004, segs=1)
+    crown = P.box('lid_top', (dx - 0.06, wy - 0.08, 0.012), (0.0, 0.0, top + hl + 0.004), 'paint_b', bev=0.006, segs=2)
+    grip = P.box('lid_grip', (0.035, 0.24, 0.018), (dx / 2 - 0.012, 0.0, top + hl - 0.013), 'paint', bev=0.006, segs=1)
+    latch = P.box('latch', (0.014, 0.09, 0.06), (dx / 2 + 0.01, 0.0, top + 0.004), 'trim', bev=0.004, segs=1)
     P.mover('LID', [lid, crown, grip, latch], (-dx / 2 - 0.006, 0.0, top))
-    P.empty('M_food', (0.0, 0.0, zf + 0.02))
+    P.empty('M_food', (0.0, 0.0, fz + t))
     P.views = [('a', 35, 30)]
 
 
@@ -391,11 +473,11 @@ def kit_spice(P):
     P.views = [('a', 35, 30)]
 
 
-MODELS = {f.__name__: f for f in [kit_stove, kit_hob, kit_gas, kit_board, kit_pan, kit_pot, kit_bowl, kit_grill, kit_steamer, kit_oven, kit_kettle, kit_plate, kit_dish, kit_spice, kit_cooler]}
+MODELS = {f.__name__: f for f in [kit_stove, kit_stove2, kit_hob, kit_gas, kit_board, kit_pan, kit_pot, kit_bowl, kit_grill, kit_steamer, kit_oven, kit_kettle, kit_plate, kit_dish, kit_spice, kit_cooler]}
 
 # the two colours each is painted in the game (src/core/v3/kitchen/items.ts), for the --look previews only
 COLORS = {
-    'kit_stove': (0x3e8e87, 0xede3c8), 'kit_hob': (0xede3c8, 0x2f3236), 'kit_gas': (0xc8323a, 0xf4efe2), 'kit_board': (0xc9a26b, 0x8a6a48), 'kit_pan': (0x2f3236, 0xb85c3e),
+    'kit_stove': (0x3e8e87, 0xede3c8), 'kit_stove2': (0xc8553d, 0xede3c8), 'kit_hob': (0xede3c8, 0x2f3236), 'kit_gas': (0xc8323a, 0xf4efe2), 'kit_board': (0xc9a26b, 0x8a6a48), 'kit_pan': (0x2f3236, 0xb85c3e),
     'kit_pot': (0xd8c29a, 0x2f3236), 'kit_bowl': (0x7fb3d5, 0xf4efe2), 'kit_grill': (0x2f3236, 0x6f7a82), 'kit_steamer': (0xd9b877, 0xa8824a),
     'kit_oven': (0x33363a, 0x6f7a82), 'kit_kettle': (0xb85c3e, 0x2f3236), 'kit_plate': (0xf4efe2, 0x3e8e87), 'kit_dish': (0xf4efe2, 0xb85c3e),
     'kit_spice': (0xb9915f, 0xc8323a), 'kit_cooler': (0x3f86b8, 0xf2efe6),

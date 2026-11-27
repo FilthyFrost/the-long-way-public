@@ -12,9 +12,10 @@ import { EarthJourney, GENTLE_MONTH, homeOf, isMild } from '../../src/core/earth
 import { monthWarmthAt } from '../../src/core/earth/climate';
 import { BIOMES } from '../../src/core/world/biomes';
 import { GENTLE_M } from '../../src/core/world/earth/road';
-import { rulesFor } from '../../src/core/world/rules';
+import { NEWEST_WORLD, rulesFor } from '../../src/core/world/rules';
 import { LORD_APART_LATE, LORD_EVERY_M, LORD_FROM_M, LORD_WATERS, SITE_SLOT, type Site } from '../../src/core/world/sites';
 import { modcarWorld } from '../../src/game/modcar/seamless';
+import { savedWorldOf } from '../../src/game/modcar/worldSave';
 import '../../src/core/v3/nd/cards';
 
 const SEEDS = [7, ...Array.from({ length: Number(process.env.ROBOT_SEEDS ?? 12) }, (_, k) => 1000 + k * 7919)];
@@ -30,6 +31,17 @@ function regionsTo(seed: number, version: 6 | 7, to: number): { id: string; kin:
   }
   return out;
 }
+
+describe('F6: a new game\'s world', () => {
+  it('is of version 7; a game gone on with keeps the world it was made in — version 6\'s its version, one from before there were versions its seed alone', () => {
+    expect(NEWEST_WORLD).toBe(7);
+    expect(rulesFor(NEWEST_WORLD).version).toBe(7);
+    // (what a save says of its world: entry.ts makes the world again from this, whatever the newest is)
+    expect(savedWorldOf(modcarWorld(7, { worldVersion: 7 }).world, 7)).toMatchObject({ seed: 7, version: 7 });
+    expect(savedWorldOf(modcarWorld(7, { worldVersion: 6 }).world, 7)).toMatchObject({ seed: 7, version: 6 });
+    expect(savedWorldOf(modcarWorld(7, {}).world, 7)).toEqual({ seed: 7 });
+  });
+});
 
 describe('F6: the world of version 7 begins gently', () => {
   it('a mild place: green country, neither chill nor hot, well clear of the dry', () => {

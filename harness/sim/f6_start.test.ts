@@ -16,7 +16,8 @@ import type { Build } from '../../src/core/modcar/types';
 import { VehicleSim } from '../../src/core/vehicle/sim';
 import type { VehicleSpec } from '../../src/core/vehicle/spec';
 import { carLines } from '../../src/game/modcar/carPage';
-import { planPlaces } from '../../src/game/modcar/places';
+import type { Site } from '../../src/core/world/sites';
+import { comesAlive, planPlaces } from '../../src/game/modcar/places';
 import { modcarWorld } from '../../src/game/modcar/seamless';
 import '../../src/core/v3/nd/cards';
 import.meta.glob('../../src/game/modcar/v3/*/index.ts', { eager: true });
@@ -111,6 +112,32 @@ describe('F6: a rougher start', () => {
     // (a workshop or a filling station where the first three kilometres have one; else the last place with a box in them)
     expect(Math.max(...doorAt)).toBeLessThanOrEqual(DOOR_BY_KM);
     expect(Math.min(...placesWith)).toBeGreaterThanOrEqual(4);
+  }, 600_000);
+
+  it('every place the plan lays a find at is one the game brings alive as one comes near — a verge with nothing but a wreck stripped long ago too', () => {
+    const seeds = [7, ...Array.from({ length: Number(process.env.ROBOT_SEEDS ?? 6) }, (_, k) => 1000 + k * 7919)];
+    let bare = 0;
+    let laid = 0;
+    for (const seed of seeds) {
+      const world = modcarWorld(seed, { worldVersion: 7 }).world;
+      const sites: Site[] = [];
+      world.sites.between(0, 60_000, sites);
+      const byId = new Map(sites.map((x) => [x.id, x]));
+      const places = planPlaces(world, 0, 60_000);
+      const planner = new SitePlanner(fitToPlaces(placesPlan(seed, 70, 'normal', SCHEDULE_V7), places));
+      planner.take(places);
+      for (const p of places) {
+        const finds = planner.findsAt(p.id);
+        if (!finds.length) continue;
+        laid += finds.length;
+        const site = byId.get(p.id)!;
+        expect(comesAlive(site), `seed ${seed}: ${p.id} at ${(p.s / 1000).toFixed(2)} km holds ${finds.map((f) => f.entry).join(', ')}`).toBe(true);
+        // (the verges this is about: a wreck with no box of its own and nothing lying by it — the plan's finds on the ground by its door)
+        if (site.kind === 'roadside' && !site.containers.length && !site.loose.length) bare += finds.length;
+      }
+    }
+    console.info(`${seeds.length} worlds, 60 km: ${laid} of the plan's finds laid, ${bare} of them on the ground by a wreck that has nothing else`);
+    expect(bare).toBeGreaterThan(0);
   }, 600_000);
 });
 

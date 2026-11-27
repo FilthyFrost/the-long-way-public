@@ -372,11 +372,17 @@ export class NdTape implements System<GameContext> {
     // a tape lying where a place had one: dealt the world's next (once); one in the hands: found
     if (ctx.loose.rev !== this.rev) {
       this.rev = ctx.loose.rev;
-      for (const l of ctx.loose.list) {
-        const it = l.item;
-        if (!it || !tapeOf(it.item) || it.state?.dealt) continue;
+      // (and one in a thing lying there that holds things — a motel's nightstand, its drawer)
+      const deal = (it: ItemInstance): void => {
+        if (!tapeOf(it.item) || it.state?.dealt) return;
         it.item = this.dealTape();
         (it.state ??= {}).dealt = true;
+      };
+      for (const l of ctx.loose.list) {
+        const it = l.item;
+        if (!it) continue;
+        deal(it);
+        if (it.inside) for (const x of it.inside) deal(x);
       }
     }
     const inHands = this.tapeInHands();

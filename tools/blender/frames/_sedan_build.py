@@ -511,10 +511,11 @@ def mounts(ex, panels, it):
     E.append(mount('exhaust', (1.00, -0.14, 0.24), dict(cat='exhaust', tail=[-3.05, -0.26, -0.01], route='under floor, right of the tunnel')))
     p, d = IN.steering_mount()
     E.append(mount('steering', tuple(p), dict(cat='steering', column_deg=24.0), rot=K.frame_from(d, (math.sin(math.radians(24)), 0, math.cos(math.radians(24))))))
-    # seat mounts at the floor attachment (the seat part's origin), floor_z repeated for the game
+    # seat mounts at the floor attachment (the seat part's origin), floor_z repeated for the game (the front ones on
+    # runners let into the floor)
     for name, x, y, drv in (('seat_driver', IN.SEAT_X, IN.DRIVER_Y, True), ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, False), ('seat_rear', IN.REAR_SEAT_X, 0.0, False)):
-        z = IN.FLOOR_Z + (0.035 if name != 'seat_rear' else 0.0)
-        E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=round(z, 4), cushion_z=0.48,
+        z = IN.FLOOR_Z + (IN.SEAT_RISE if name != 'seat_rear' else 0.0)
+        E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=round(z, 4), cushion_z=0.48 if name == 'seat_rear' else 0.45,
                                               side=0 if name == 'seat_rear' else (-1 if y > 0 else 1))))
     for pname, info in panels.items():
         if info['mount'] is None:

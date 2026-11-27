@@ -15,6 +15,8 @@ from frames import _preview as PV  # noqa: E402
 from frames import _camel_ext as EX  # noqa: E402
 from frames import _camel_hood as HX  # noqa: E402
 from frames import _camel_inner as IN  # noqa: E402
+from frames import _steps as STP  # noqa: E402
+from frames import _stretch as ST  # noqa: E402
 from frames import camel as S  # noqa: E402
 from frames import camel_hood as H  # noqa: E402
 from frames._sedan_build import game_vec, knuckles, mount, needle, obj_with_origin  # noqa: E402
@@ -35,6 +37,33 @@ def both(left, centre=None):
     b.extend(left.mirrored())
     if centre is not None:
         b.extend(centre)
+    return b
+
+
+def flat_z():
+    """Where the side's flat wall starts over its bottom roll, at the entry door."""
+    xa, xb, _, _ = IN.well_span()
+    return D['z_bot'] + float(np.atleast_1d(S.r_bot(np.array([0.5 * (xa + xb)])))[0])
+
+
+def entry_well():
+    """The entry door's stairwell (left coordinates; the build mirrors it to the right), frames/_steps.py: a bus's, two
+    deep treads EX.WELL with white nosings from the floor down to the door's foot, the walls in the cab's plastic, under
+    the body's bottom its housing (its cheeks up to where the bottom roll ends)."""
+    xa, xb, _, yf = IN.well_span()
+    return STP.stairwell(xa, xb, yf, IN.FLOOR_Z, EX.WELL['tops'], EX.WELL['depth'], flat_z() - 0.01, riser='rubber', wall='plastic_int',
+                         ribs=6, nosing='paint_b')
+
+
+def entry_edges(per_r):
+    """The right side's opening edges without the entry door's return along its foot (the opening goes on down to the
+    stairwell); the jambs on down to the well's housing, and a dark moulding round it all (left coordinates)."""
+    xa, xb, _, yf = IN.well_span()
+    b = STP.drop_box(per_r, (xa - 0.05, yf - 0.3, -1.0), (xb + 0.05, yf + 0.05, D['sd_z0'] + 0.012))
+    zh = STP.housing_bottom(EX.WELL['tops']) - 0.012
+    b.extend(STP.jambs(xa, xb, yf, zh, D['sd_z0'] + 0.016, mat='paint'))
+    zf = flat_z()
+    b.extend(STP.moulding(xa, xb, zh, D['sd_z1'] + S.DELTA, D['sd_r'], lambda x, z: float(S.side_w(x, max(z, zf))), mat='trim'))
     return b
 
 
@@ -77,7 +106,7 @@ def build(args):
     common.extend(IN.engine_bay())
     left = K.Buf().extend(common).extend(ex.body('L')).extend(per['L']).extend(strips['L'])
     left.extend(ex.window_seals(['drv', 'quarter'])).extend(ex.fuel_details())
-    right = K.Buf().extend(common).extend(ex.body('R')).extend(per['R']).extend(strips['R'])
+    right = K.Buf().extend(common).extend(ex.body('R')).extend(entry_edges(per['R'])).extend(strips['R'])
     body = K.Buf().extend(left).extend(right.mirrored())
     hb = K.Buf().extend(hood.body()).extend(hood.edges()).extend(hood.details()).extend(hood.lining())
     body.extend(both(hb, hood.emblem()))
@@ -89,6 +118,9 @@ def build(args):
     sd = ex.door_skin('side')
     sd.extend(pedges['side']).extend(pstrips['side']).extend(ex.door_card('side', mat='plastic_int')).extend(IN.door_extras(ex, 'side'))
     sd.extend(ex.window_seals(['side']))
+    # (its foot on down to the stairwell's lowest tread, shutting over the well)
+    xa, xb, _, yf = IN.well_span()
+    sd.extend(STP.kick_panel(D['sd_x0'] + S.DELTA, D['sd_x1'] - S.DELTA, yf, EX.WELL['tops'][0], D['sd_z0'] + S.DELTA, 'paint'))
     EX.two_tone(sd)
     dh = np.array([D['sd_x1'] - 0.004, -(float(S.side_w(D['sd_x1'], 1.50)) - 0.004), 1.50])
     o = owo(sd.mirrored(), 'P_door_side', dh)
@@ -121,10 +153,12 @@ def build(args):
         g.extend(gl[k]).extend(gl[k].mirrored())
     g.extend(gl['drv']).extend(gl['quarter'])
     objs.append(canon(g).to_object('GLASS'))
-    objs.append(canon(both(IN.underbody(), IN.centre_under())).to_object('UNDER'))
+    objs.append(canon(K.Buf().extend(IN.underbody()).extend(IN.underbody(right=True).mirrored()).extend(IN.centre_under())).to_object('UNDER'))
     it = IN.interior(ex)
     inner = K.Buf().extend(it['L']).extend(it['L'].mirrored()).extend(it['C']).extend(it['R'].mirrored())
     inner.extend(ex.lining('L')).extend(ex.lining('R').mirrored())
+    # the entry door's stairwell (frames/_steps.py), on the right
+    inner.extend(entry_well().mirrored())
     inner.extend(both(ex.roof(level=EX.WALL)))
     ib, dial_glass = K.split_mat(inner, ('glass',))
     o_int = canon(ib).to_object('INTERIOR')
@@ -144,6 +178,9 @@ def build(args):
     print('[camel] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, hood, panels)
     objs += knuckles(empties, lambda x, y, z, front: canon(IN.knuckle(x, y, z, front)))
+    # the frame lengthened (the Turtle widened too) as it is built: frames/_stretch.py
+    ST.apply('camel', objs, empties, panels, (needles, wipers))
+    dial_glass = ST.buf('camel', dial_glass)
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())
@@ -152,7 +189,7 @@ def build(args):
         # the engine bay under the hood is baked with the bonnet up (one looks into it with it up)
         hd = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hd, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((HD['xr'] - 0.05, -(HD['hw'] + 0.02), 0.30), (HD['xf'] + 0.05, HD['hw'] + 0.02, HD['roof_z'] + 0.05)), samples=32, distance=0.35)
+                       ST.box('camel', (HD['xr'] - 0.05, -(HD['hw'] + 0.02), 0.30), (HD['xf'] + 0.05, HD['hw'] + 0.02, HD['roof_z'] + 0.05)), samples=32, distance=0.35)
         print('[camel] AO', round(time.time() - t0, 1), 's')
         K.rebake_mats(o_int, [o for o in meshes if o.name.startswith('N_')], ('gauge',), samples=32, distance=0.35)
     K.join_white(o_int, dial_glass)
@@ -160,7 +197,7 @@ def build(args):
     total = sum(tris.values())
     print('[camel] grime masks', K.mask_frame(meshes))
     mc.export_glb(OUT_GLB, meshes + empties)
-    mc.mounts_json(OUT_JSON, 'camel', json_extra(objs, panels, needles, wipers, tris, total))
+    mc.mounts_json(OUT_JSON, 'camel', ST.map_json('camel', json_extra(objs, panels, needles, wipers, tris, total)))
     print('[camel] exported', round(time.time() - t0, 1), 's')
     if not no_preview:
         previews(quick)

@@ -194,8 +194,8 @@ describe('F6: looking down the road', () => {
     // is not one; before the border at 90 the shop is four kilometres off: the last place with a box within three, the
     // lay-by at 89.5; and the snow at 40 has none: its coat was at 17.5, not thirty kilometres back)
     expect(coats.map((f) => f.s)).toEqual([17_500 - 0.5, 89_500 - 0.5]);
-    expect(coats[0].themes).toBeDefined();
-    expect(coats[1].themes).toBeUndefined();
+    expect(coats[0].any).toBeUndefined();
+    expect(coats[1].any).toBe(true);
     expect(coats.every((f) => 'item' in f.thing && f.thing.item === AHEAD_COAT && f.novelty === false)).toBe(true);
     // no place of a home's sort so near: the last with a box of its own there; none there at all: the last within eight kilometres
     expect(lookAheadFinds(7, regions, [P(15_000, 'house'), P(18_600, 'garage')]).filter((f) => f.entry === 'ahead:coat')[0]).toMatchObject({ s: 18_600 - 0.5 });

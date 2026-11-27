@@ -119,7 +119,7 @@ try {
     ok((await openBench()) === 'device:bench', 'at the bench');
     let l = await list();
     ok(!!l && l.rows.join() === '塑料清理铲' && l.tabs === 0 && l.locked === 0, `its list: what one knows how to make and nothing else (${l ? l.rows.join('、') : 'not open'}; ${l?.tabs} tabs, ${l?.locked} locked)`);
-    ok(!!l && l.more.includes('图纸') && l.stock.join().includes('废料') && l.stock.join().includes('元件') && l.foot.includes('滚轮'), `it says where more comes from, and has the two materials (${l?.stock.join(', ')}; ${l?.foot})`);
+    ok(!!l && l.more.includes('图纸') && l.stock.join().includes('废料') && l.stock.join().includes('元件') && l.foot.includes('Enter') && l.foot.includes('Esc'), `it says where more comes from, has the two materials, and its footer says W S, Enter, Esc / E as on 11-24 (${l?.stock.join(', ')}; ${l?.foot})`);
     await shot('02_bench_one.png');
     // (what is not learnt cannot be made, whoever asks)
     const sneaked = await rt('craftAll', 'flashlight');

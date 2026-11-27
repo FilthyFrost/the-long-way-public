@@ -27,7 +27,7 @@ describe('the motorhome one walks about in', () => {
     expect(aboardOf('sedan')).toBeNull();
     expect(connected(rv)).toBe(true);
     const w = new Walker(rv);
-    w.place(rv.aft[0], rv.aft[1], Math.PI);
+    w.place(rv.aft![0], rv.aft![1], Math.PI);
     expect(w.inside(w.x, w.z)).toBe(true);
     // (the door's spot inside is on the floor, its spot outside is not)
     const door = rv.doors[0];
@@ -37,7 +37,7 @@ describe('the motorhome one walks about in', () => {
 
   it('takes one aft along the aisle to the rear, and never through the galley', () => {
     const w = new Walker(rv);
-    w.place(rv.aft[0], rv.aft[1], Math.PI);
+    w.place(rv.aft![0], rv.aft![1], Math.PI);
     let minZ = Infinity;
     for (let t = 0; t < 3; t += 1 / 30) {
       w.step(1 / 30, 1, 0);
@@ -60,23 +60,25 @@ describe('things put where one aims in the motorhome', () => {
   };
   const box = { minX: -0.05, maxX: 0.05, minY: 0, maxY: 0.1, minZ: -0.05, maxZ: 0.05 };
 
-  it('has the table, the galley, the floor by the door, the rear bench and the walls', () => {
+  it('has the table, the galley, the floor by the door, the bed across the back, the open shelves, the cubby under the sink and the walls', () => {
     const ids = zonesOf('rv').map((z) => z.id);
-    for (const id of ['lounge', 'table', 'galley', 'bench', 'wall']) expect(ids).toContain(id);
+    // (the rear bench is a bed, the lockers open shelves, since docs/V3/plan/finish.md §十一 1)
+    for (const id of ['lounge', 'table', 'galley', 'bed', 'shelfL', 'shelfR', 'cubby', 'wall']) expect(ids).toContain(id);
+    expect(ids).not.toContain('bench');
     expect(zonesOf('rv').find((z) => z.id === 'wall')?.wall).toBe(true);
   });
 
   it('keeps a thing aimed into a zone to the 10 cm grid', () => {
     const table = zonesOf('rv').find((z) => z.id === 'table')!;
     const g = flat(table, table.floor);
-    const s = findSpot(table, g, box, 0, { x: 0.33, z: -0.62 }, [], 0.1)!;
+    const s = findSpot(table, g, box, 0, { x: -0.42, z: -0.62 }, [], 0.1)!;
     expect(s).not.toBeNull();
     expect(Math.abs(s.x * 10 - Math.round(s.x * 10))).toBeLessThan(1e-6);
     expect(Math.abs(s.z * 10 - Math.round(s.z * 10))).toBeLessThan(1e-6);
     expect(s.y).toBeCloseTo(table.floor, 5);
     // (without a grid it goes just where it is aimed)
-    const free = findSpot(table, g, box, 0, { x: 0.33, z: -0.62 }, [], 0)!;
-    expect(free.x).toBeCloseTo(0.33, 5);
+    const free = findSpot(table, g, box, 0, { x: -0.42, z: -0.62 }, [], 0)!;
+    expect(free.x).toBeCloseTo(-0.42, 5);
     expect(free.z).toBeCloseTo(-0.62, 5);
   });
 });

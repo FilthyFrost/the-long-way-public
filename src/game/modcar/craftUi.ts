@@ -3,7 +3,7 @@
  * one knows how to make — those and no others: a making is learnt from its blueprint, and until then it is not on the
  * list — and the one picked: its picture, what it is, what it costs against what there is (short in red), how many
  * blows of the hammer, with the button that makes it. In the HUD's cartoon frame, on the right of the view; the bench
- * and its plate stay in sight. The wheel (or W / S) picks, the left button on "制作" (or Enter) makes it, Esc closes.
+ * and its plate stay in sight. W / S (or the wheel) pick, Enter makes it, Esc or E closes — as on 11-24, its footer says so.
  */
 import { shortOf, type Recipe, type Stock } from '../../core/modcar/crafting';
 import { MATERIAL_IDS, MATERIALS } from '../../core/modcar/items';
@@ -203,7 +203,7 @@ export class CraftUi {
             : ''
         }</div>
       </div>
-      <div class="ft"><span>滚轮 选 · 左键点 <b>制作</b></span><span><b>Esc</b> 离开</span></div>`;
+      <div class="ft"><span><b>W</b><b>S</b> 选 · <b>Enter</b> 制作</span><span><b>Esc</b> / <b>E</b> 离开</span></div>`;
     const list = this.el.querySelector('.list') as HTMLElement;
     list.scrollTop = listScroll;
     // (the picked one kept in sight)

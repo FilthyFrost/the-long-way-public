@@ -9,7 +9,7 @@
  * door). The programs behind them are the same for all owners: more owners cost materials, not shaders.
  */
 import * as THREE from 'three';
-import { CarLook, carMaterialName, type CarLights } from '../render/carMaterials';
+import { CarLook, carMaterialName, type CarLights, type CarMaterialName } from '../render/carMaterials';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 
 /** what an owner looks like: paint and second paint (sRGB hex), and its wear 0…1 */
@@ -24,6 +24,8 @@ export interface LookOf {
   crust?: number;
   /** not a car's paint: its gloss this share of a car's (CarLookOptions.matte) */
   matte?: number;
+  /** the vehicle's own colours for its living space's lining and floor covering (CarLookOptions.bases) */
+  bases?: Partial<Record<CarMaterialName, number>>;
 }
 
 interface Owned {
@@ -49,7 +51,7 @@ export class CarMaterials {
   look(owner: string, of: LookOf): CarLook {
     let o = this.owned.get(owner);
     if (!o) {
-      const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0, ...(of.matte !== undefined ? { matte: of.matte } : {}) });
+      const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0, ...(of.matte !== undefined ? { matte: of.matte } : {}), ...(of.bases ? { bases: of.bases } : {}) });
       look.setLights(this.lights);
       look.setCabinLamp(this.cabinLamp);
       if (this.framed) look.setCarFrame(this.frame);

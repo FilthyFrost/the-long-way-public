@@ -11,7 +11,7 @@
  * places. Pure data and maths.
  */
 import { hash2, Rng } from '../math/rng';
-import type { SiteKind } from '../world/sites';
+import type { PlaceSort, SiteKind } from '../world/sites';
 import { BLUEPRINT_RECIPES, CHAPTER_KM } from './crafting';
 import { DIFFICULTY, type Difficulty } from './difficulty';
 import { frameDef } from './frames';
@@ -44,7 +44,7 @@ export interface ScheduleEntry {
   /** then again every so many kilometres (absent: once) */
   everyKm?: readonly [number, number];
   /** the sorts of place it is found at (absent: any) */
-  themes?: readonly SiteKind[];
+  themes?: readonly PlaceSort[];
   /** what may come in the same box, and how likely */
   with?: readonly { thing: ScheduledThing; chance: number }[];
   /** what is guaranteed within so many kilometres after its first (the stove's gas) */
@@ -72,8 +72,15 @@ const STATION: readonly SiteKind[] = ['station'];
 const WORKSHOP: readonly SiteKind[] = ['garage', 'works'];
 const SHOP: readonly SiteKind[] = ['shop', 'station'];
 const CAMP: readonly SiteKind[] = ['camp', 'jetty'];
+/**
+ * (a world of version 7) the motel, a sort of place of its own (sites.ts Site.sort; docs/V3/plan/finish.md §二 6): what a
+ * traveller left in a room — medicines, something to eat and to drink, a pack, a camera and its film, a tape, a key, a
+ * souvenir, a sheet — and a vehicle in its yard. What a household keeps (a stove and its pans, the coffee machine, a
+ * flower pot, furniture) is never laid there (OWN_SORTS). No place of a world made before is of this sort.
+ */
+const MOTEL: readonly PlaceSort[] = ['motel'];
 /** the big places a blueprint is found at */
-const BLUEPRINT_PLACES: readonly SiteKind[] = [...WORKSHOP, 'station', 'shop', 'house'];
+const BLUEPRINT_PLACES: readonly PlaceSort[] = [...WORKSHOP, 'station', 'shop', 'house', ...MOTEL];
 
 /**
  * The blueprints' places down the road (docs/V3/plan/finish.md §六 2): in each chapter as many as it has sheets to
@@ -187,7 +194,8 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
  * a torch and a camera; to the 30th a radio, a bigger pack, paint; to the 50th coffee and the first meal; to the 75th
  * the garden; to the 105th fishing; to the 140th a home's things. A thing that begins a set (`kit`) comes by itself:
  * what goes with it follows where it was picked up (kits.ts), and it is offered again every 22–30 km until it has
- * been. The supplies and the blueprints' places as in the plan before it.
+ * been. The supplies and the blueprints' places as in the plan before it. A motel (MOTEL) is named by what a traveller
+ * leaves: the medicines, the tins and the water, the pack, the camera, the souvenir, the sheets.
  */
 export const SCHEDULE_V7: readonly ScheduleEntry[] = [
   // ---- chapter 1, to the 12th km
@@ -195,11 +203,11 @@ export const SCHEDULE_V7: readonly ScheduleEntry[] = [
   { id: 'torch', thing: I('nd_flashlight'), novelty: true, chapter: 1, firstKm: [2, 5], everyKm: [20, 35], themes: [...WORKSHOP, 'station'], after: [{ thing: I('nd_battery'), km: [3, 6] }] },
   { id: 'engine_kit', thing: I('nd_engine_kit'), novelty: false, firstKm: [3, 8], everyKm: [10, 16], themes: WORKSHOP },
   { id: 'charger', thing: I('nd_charger'), novelty: false, firstKm: [3, 8], everyKm: [14, 22], themes: [...WORKSHOP, 'station'] },
-  { id: 'bandage', thing: I('med_bandage'), novelty: false, firstKm: [3, 8], everyKm: [12, 20], themes: [...HOME, 'shop'] },
-  { id: 'camera', thing: I('nd_camera'), novelty: true, chapter: 1, firstKm: [7, 10.5], everyKm: [22, 30], kit: 'photo', themes: [...HOME, 'lookout', 'lighthouse'] },
+  { id: 'bandage', thing: I('med_bandage'), novelty: false, firstKm: [3, 8], everyKm: [12, 20], themes: [...HOME, 'shop', ...MOTEL] },
+  { id: 'camera', thing: I('nd_camera'), novelty: true, chapter: 1, firstKm: [7, 10.5], everyKm: [22, 30], kit: 'photo', themes: [...HOME, 'lookout', 'lighthouse', ...MOTEL] },
   // ---- chapter 2, to the 30th: a bigger vehicle (vehiclePlan), a radio, a bigger pack, paint
   { id: 'radio', thing: { part: 'radio_old' }, novelty: true, chapter: 2, firstKm: [13, 18], everyKm: [22, 30], kit: 'music', themes: [...WORKSHOP, ...HOME] },
-  { id: 'pack', thing: I('pack_std'), novelty: true, chapter: 2, firstKm: [19, 24], everyKm: [40, 60], themes: [...HOME, ...CAMP] },
+  { id: 'pack', thing: I('pack_std'), novelty: true, chapter: 2, firstKm: [19, 24], everyKm: [40, 60], themes: [...HOME, ...CAMP, ...MOTEL] },
   { id: 'spray', thing: { tool: 'spray' }, novelty: true, chapter: 2, firstKm: [24.5, 28.5], everyKm: [6, 10], themes: [...WORKSHOP, 'station'] },
   // ---- chapter 3, to the 50th: coffee, and the first meal
   { id: 'coffee', thing: I('nd_coffee_machine'), novelty: true, chapter: 3, firstKm: [31, 35], everyKm: [22, 30], kit: 'coffee', themes: HOME },
@@ -219,20 +227,30 @@ export const SCHEDULE_V7: readonly ScheduleEntry[] = [
   { id: 'fridge', thing: I('nd_fridge'), novelty: true, chapter: 6, firstKm: [121.5, 127], everyKm: [60, 90], themes: HOME },
   { id: 'kitchen2', thing: I('kit_kettle'), novelty: true, chapter: 6, firstKm: [130.5, 136.5], everyKm: [40, 60], themes: HOME, with: [{ thing: I('kit_steamer'), chance: 0.6 }] },
   // ---- what one collects (not counted by the pace: there is one or another in many a house)
-  { id: 'bobble', thing: I('nd_bobble_1'), novelty: false, firstKm: [60, 80], everyKm: [20, 35], themes: [...HOME, 'shop'] },
+  { id: 'bobble', thing: I('nd_bobble_1'), novelty: false, firstKm: [60, 80], everyKm: [20, 35], themes: [...HOME, 'shop', ...MOTEL] },
 
   // ---- the supplies, as the plan before it has them
   { id: 'fuel', thing: { tool: 'jerrycan' }, novelty: false, firstKm: [1, 3], everyKm: [2.5, 4], litres: [0.8, 1.8] },
   { id: 'tyre_kit', thing: I('nd_tire_kit'), novelty: false, firstKm: [2, 4], everyKm: [2, 3], themes: [...WORKSHOP, 'station', 'roadside'] },
   { id: 'coolant', thing: { tool: 'bottle', coolant: true }, novelty: false, firstKm: [3, 6], everyKm: [50, 80], themes: [...STATION, ...WORKSHOP], litres: [1, 2.5] },
   { id: 'oil', thing: { tool: 'oilcan' }, novelty: false, firstKm: [4, 8], everyKm: [60, 100], themes: [...STATION, ...WORKSHOP], litres: [1.5, 3] },
-  { id: 'painkillers', thing: I('med_pain_2'), novelty: false, firstKm: [1, 3], everyKm: [5, 9], themes: [...HOME, ...SHOP] },
-  { id: 'stomach', thing: I('nd_pills'), novelty: false, firstKm: [4, 9], everyKm: [8, 14], themes: [...HOME, ...SHOP] },
-  { id: 'water', thing: I('drink_water'), novelty: false, firstKm: [0.5, 2], everyKm: [12, 20], themes: [...SHOP, ...HOME, ...CAMP] },
-  { id: 'food', thing: { item: 'nd_baked_beans', food: true }, novelty: false, firstKm: [0.5, 2], everyKm: [3, 5], themes: [...SHOP, ...HOME, ...CAMP] },
+  { id: 'painkillers', thing: I('med_pain_2'), novelty: false, firstKm: [1, 3], everyKm: [5, 9], themes: [...HOME, ...SHOP, ...MOTEL] },
+  { id: 'stomach', thing: I('nd_pills'), novelty: false, firstKm: [4, 9], everyKm: [8, 14], themes: [...HOME, ...SHOP, ...MOTEL] },
+  { id: 'water', thing: I('drink_water'), novelty: false, firstKm: [0.5, 2], everyKm: [12, 20], themes: [...SHOP, ...HOME, ...CAMP, ...MOTEL] },
+  { id: 'food', thing: { item: 'nd_baked_beans', food: true }, novelty: false, firstKm: [0.5, 2], everyKm: [3, 5], themes: [...SHOP, ...HOME, ...CAMP, ...MOTEL] },
 
   // ---- the blueprints' places
   ...BLUEPRINT_SLOTS,
+
+  // ---- chapter 7, to the 190th: the kitchen's last batch (docs/V3/plan/finish.md §八 6) — the camp oven, and a
+  // hotplate for a van's own power. (After the blueprints' places: an entry's draws are by its place in the list, and
+  // the ones before these keep theirs.)
+  { id: 'oven', thing: I('kit_oven'), novelty: true, chapter: 7, firstKm: [144, 150], everyKm: [40, 60], themes: HOME },
+  { id: 'hob', thing: I('kit_hob'), novelty: true, chapter: 7, firstKm: [158, 166], everyKm: [40, 60], themes: HOME },
+  // the garden's second thing (docs/V3/plan/finish.md §八 2): a box of three plants for a van's window or its roof rack
+  { id: 'planter', thing: I('nd_planter'), novelty: true, chapter: 7, firstKm: [172, 178], everyKm: [50, 70], themes: HOME },
+  // chapter 6's last (docs/V3/plan/finish.md §八 6): the two-burner camp stove — two pots at once
+  { id: 'stove2', thing: I('kit_stove2'), novelty: true, chapter: 6, firstKm: [137, 139.5], everyKm: [50, 70], themes: HOME },
 ];
 
 /** the plan of a world by its version: version 7's by chapters, the one before it for every world made before */
@@ -247,8 +265,8 @@ export interface VehiclePlanned extends PlannedFind {
   seed: number;
 }
 
-/** the big places a vehicle to find stands at (a yard, a forecourt, a shop's, a house's, a camp's ground) */
-export const VEHICLE_PLACES: readonly SiteKind[] = ['garage', 'works', 'station', 'shop', 'house', 'camp'];
+/** the big places a vehicle to find stands at (a yard, a forecourt, a shop's, a house's, a camp's ground; a motel's car park) */
+export const VEHICLE_PLACES: readonly PlaceSort[] = ['garage', 'works', 'station', 'shop', 'house', 'camp', ...MOTEL];
 
 /**
  * The vehicles one finds before the 100th kilometre (§六 2's table): the first a Loaf or a Mule, then the Swallow, then
@@ -313,7 +331,7 @@ export function vehicleExtras(seed: number, toKm: number): PlannedFind[] {
     const r = new Rng(hash2(v.seed, 0x7e41e, 3));
     if (frameDef(v.frame).towed) out.push({ entry: 'vehicle+', thing: { part: 'hitch_ball' }, s: Math.max(1000, v.s - (3 + 5 * r.next()) * 1000), themes: ['garage', 'works', 'station'], novelty: false });
     // (its own draw: the panels' after it keep theirs)
-    if (frameDef(v.frame).balance) out.push({ entry: 'moto_rack', thing: { item: 'bp_moto_rack' }, s: v.s + (2 + 3 * new Rng(hash2(v.seed, 0xb1e9, 5)).next()) * 1000, themes: ['garage', 'works', 'station', 'shop', 'house'], novelty: false });
+    if (frameDef(v.frame).balance) out.push({ entry: 'moto_rack', thing: { item: 'bp_moto_rack' }, s: v.s + (2 + 3 * new Rng(hash2(v.seed, 0xb1e9, 5)).next()) * 1000, themes: ['garage', 'works', 'station', 'shop', 'house', ...MOTEL], novelty: false });
     for (const m of foundLayout(v.frame, v.seed).missing) {
       out.push({ entry: 'vehicle+', thing: { part: m.part, shapeOf: v.frame }, s: v.s + (2 + 4 * r.next()) * 1000, themes: ['garage', 'works', 'station', 'house', 'shop'], novelty: false });
     }
@@ -411,7 +429,13 @@ export interface PlannedFind {
   /** due here (m): the first place it fits at or after this takes it */
   s: number;
   /** the sorts of place it wants (absent: any) */
-  themes?: readonly SiteKind[];
+  themes?: readonly PlaceSort[];
+  /**
+   * it waits for none of its sorts: the first place that takes it from where it is due has it (a set's step put at a
+   * place chosen for it, a chapter's thing where the chapter has none of its sorts) — its sorts still say which of the
+   * places that keep to their own (OWN_SORTS) may have it
+   */
+  any?: true;
   novelty: boolean;
   /** what comes in the same box */
   with?: ScheduledThing[];
@@ -485,7 +509,8 @@ export function plan(seed: number, toKm: number, difficulty: Difficulty = 'norma
 /** a place down the road that may take a planned find: where it is (m), what sort, how many boxes it has to put things in */
 export interface PlanPlace {
   s: number;
-  kind: SiteKind;
+  /** its sort (sites.ts Site.sort: its kind, or a sort of its own) */
+  kind: PlaceSort;
   boxes: number;
   /**
    * no box of its own, but the ground by a wreck (loot.ts planGround): it takes only what wants no sort of place (the
@@ -496,9 +521,21 @@ export interface PlanPlace {
   room?: (f: PlannedFind) => boolean;
 }
 
-/** may this place take this find: a box of its own, or the ground by a wreck for what may lie by the road — and room for it */
+/**
+ * The sorts of place that keep to their own (a world of version 7's motel): a find that names the sorts of place it is
+ * found at is never laid at one of these unless it names it, however long it has waited for a place (a stove is not
+ * left in a motel's room); what names none (a can of petrol, what one is all but out of) may be, as anywhere.
+ */
+export const OWN_SORTS: ReadonlySet<PlaceSort> = new Set<PlaceSort>(MOTEL);
+
+/** may a place of this sort have a find of these sorts at all: yes anywhere but at a place that keeps to its own and is not named */
+export function takesSorts(kind: PlaceSort, sorts: readonly PlaceSort[] | undefined): boolean {
+  return !sorts || sorts.includes(kind) || !OWN_SORTS.has(kind);
+}
+
+/** may this place take this find: a box of its own, or the ground by a wreck for what may lie by the road — and room for it; never a place that keeps to its own and is not named */
 function fits(f: PlannedFind, p: Pick<PlanPlace, 'kind' | 'boxes' | 'ground' | 'room'>): boolean {
-  return (p.boxes > 0 || (!!p.ground && (!f.themes || f.themes.includes(p.kind)))) && (!p.room || p.room(f));
+  return takesSorts(p.kind, f.themes) && (p.boxes > 0 || (!!p.ground && (!f.themes || f.themes.includes(p.kind)))) && (!p.room || p.room(f));
 }
 
 /** how far a planned find waits for a place of its own sort before it takes any (m: Nomad Drive's) */
@@ -538,7 +575,7 @@ export class SitePlanner {
       for (let i = 0; i < this.pending.length; i++) {
         const f = this.pending[i];
         if (!fits(f, p)) continue;
-        const sorts = !f.themes || f.themes.includes(p.kind);
+        const sorts = f.any || !f.themes || f.themes.includes(p.kind);
         if (!sorts && p.s < f.s + THEME_WAIT_M) continue;
         const list = this.at.get(p.id) ?? [];
         list.push(f);
@@ -584,7 +621,7 @@ export class SitePlanner {
 function laidWhere(f: PlannedFind, places: readonly PlanPlace[]): number {
   for (const p of places) {
     if (p.s < f.s - 1 || !fits(f, p)) continue;
-    if (!f.themes || f.themes.includes(p.kind) || p.s >= f.s + THEME_WAIT_M) return p.s;
+    if (f.any || !f.themes || f.themes.includes(p.kind) || p.s >= f.s + THEME_WAIT_M) return p.s;
   }
   return Infinity;
 }
@@ -593,20 +630,19 @@ function laidWhere(f: PlannedFind, places: readonly PlanPlace[]): number {
  * The plan fitted to a world's places (docs/V3/plan/finish.md §二 4: 每章的主玩具在它的里程段里一定出现). A chapter's
  * new thing (PlannedFind.within) that would be laid beyond its chapter — the road has no place with a box in it from
  * where it is due to the chapter's end — is due instead at the last place within the chapter that takes it: one of its
- * own sorts if the chapter has one, else any with a box of its own (and then it waits for no sort of place). The rest
- * of the plan as it was. `places` in road order, down to the end of the last chapter there is to fit.
+ * own sorts if the chapter has one, else any with a box of its own that may have it (and then it waits for no sort of
+ * place: PlannedFind.any). The rest of the plan as it was. `places` in road order, down to the end of the last chapter there is to fit.
  */
 export function fitToPlaces(finds: readonly PlannedFind[], places: readonly PlanPlace[]): PlannedFind[] {
   const out = finds.map((f) => {
     if (!f.within || laidWhere(f, places) <= f.within[1]) return f;
     const within = f.within;
-    const boxes = places.filter((p) => p.boxes > 0 && p.s >= within[0] && p.s <= within[1] && (!p.room || p.room(f)));
+    const boxes = places.filter((p) => p.boxes > 0 && p.s >= within[0] && p.s <= within[1] && (!p.room || p.room(f)) && takesSorts(p.kind, f.themes));
     const own = boxes.filter((p) => !f.themes || f.themes.includes(p.kind));
     const at = own.length ? own[own.length - 1] : boxes[boxes.length - 1];
     if (!at) return f;
     if (own.length) return { ...f, s: at.s - 0.5 };
-    const { themes: _sorts, ...any } = f;
-    return { ...any, s: at.s - 0.5 };
+    return { ...f, s: at.s - 0.5, any: true as const };
   });
   return out.sort((a, b) => a.s - b.s);
 }
@@ -623,12 +659,12 @@ export function placeFinds(finds: readonly PlannedFind[], places: readonly PlanP
     while (from < places.length && places[from].s < f.s - 1) from++;
     let at = -1;
     for (let i = from; i < places.length && places[i].s <= f.s + THEME_WAIT_M; i++) {
-      if (fits(f, places[i]) && (!f.themes || f.themes.includes(places[i].kind))) {
+      if (fits(f, places[i]) && (f.any || !f.themes || f.themes.includes(places[i].kind))) {
         at = i;
         break;
       }
     }
-    if (at < 0) for (let i = from; i < places.length; i++) if (fits(f, places[i]) && places[i].s >= f.s + (f.themes ? THEME_WAIT_M : 0)) {
+    if (at < 0) for (let i = from; i < places.length; i++) if (fits(f, places[i]) && places[i].s >= f.s + (f.themes && !f.any ? THEME_WAIT_M : 0)) {
       at = i;
       break;
     }

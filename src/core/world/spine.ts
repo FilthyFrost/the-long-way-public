@@ -58,6 +58,12 @@ export class BiomeBlend {
   ib = 0;
 }
 
+/**
+ * How wide the band about a border is in which the sky and the weather pass from one country's to the next's (m;
+ * docs/V3/plan/finish.md §十二 4: 4 to 6 km — the ground's own band is under two)
+ */
+export const SKY_BAND = 5000;
+
 export class SpineSample {
   x = 0;
   y = 0;
@@ -161,6 +167,38 @@ export class ChapterPlan {
       out.ia = i - 1;
       out.ib = i;
       out.t = 0.5 + 0.5 * smoothstep(0, 1, fromPrev / left);
+    } else {
+      out.a = out.b = this.biomes[i];
+      out.ia = out.ib = i;
+      out.t = 0;
+    }
+  }
+
+  /**
+   * The mix the sky and the weather take at s (docs/V3/plan/finish.md §十二 4): as blend, over a band `width` wide
+   * about each border — wider than the ground's, so the sky ahead is seen changing long before the ground does —
+   * kept within half of each chapter it lies in.
+   */
+  blendWide(s: number, width: number, out: BiomeBlend): void {
+    while (this.starts[this.starts.length - 1] < s + width) this.extend();
+    let i = this.biomes.length - 1;
+    while (i > 0 && this.starts[i] > s) i--;
+    const len = (c: number): number => (c + 1 < this.starts.length ? this.starts[c + 1] - this.starts[c] : Infinity);
+    const half = (c: number): number => Math.min(width / 2, len(c - 1) / 2, len(c) / 2);
+    const toNext = this.starts[i + 1] - s;
+    const fromPrev = s - this.starts[i];
+    if (i + 1 < this.biomes.length && toNext < half(i + 1)) {
+      out.a = this.biomes[i];
+      out.b = this.biomes[i + 1];
+      out.ia = i;
+      out.ib = i + 1;
+      out.t = 0.5 * smoothstep(0, 1, 1 - toNext / half(i + 1));
+    } else if (i > 0 && fromPrev < half(i)) {
+      out.a = this.biomes[i - 1];
+      out.b = this.biomes[i];
+      out.ia = i - 1;
+      out.ib = i;
+      out.t = 0.5 + 0.5 * smoothstep(0, 1, fromPrev / half(i));
     } else {
       out.a = out.b = this.biomes[i];
       out.ia = out.ib = i;
@@ -609,6 +647,11 @@ export class RoadSpine implements DrivePath {
   /** biome mix at arc length s */
   biomeAt(s: number, out: BiomeBlend): void {
     this.plan.blend(s < 0 ? 0 : s, out);
+  }
+
+  /** the mix the sky and the weather take at arc length s: over a band SKY_BAND wide about each border */
+  skyAt(s: number, out: BiomeBlend): void {
+    this.plan.blendWide(s < 0 ? 0 : s, SKY_BAND, out);
   }
 
   /** FNV-style hash of the first n stations: equal hashes ⇒ identical roads */

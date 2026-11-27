@@ -126,9 +126,10 @@ export interface ItemDef {
   /**
    * It holds other things: how many stacks, of which categories ("food"), tags ("#forage") or anything ("*"),
    * up to what weight; `decay` is how fast things in it go off against the open air (absent 1; a cool box
-   * 0.25; 0 never). Containers do not nest.
+   * 0.25; 0 never). Containers do not nest. `shut`: it is opened to be put into (a drawer pulled out, its list): what
+   * is picked up while it is carried never goes into it by itself, as it does into a basket.
    */
-  readonly holds?: { readonly slots: number; readonly accepts: readonly string[]; readonly maxKg?: number; readonly decay?: number };
+  readonly holds?: { readonly slots: number; readonly accepts: readonly string[]; readonly maxKg?: number; readonly decay?: number; readonly shut?: boolean };
   /** it goes off: game hours in the open air from fresh to turned, and the kind it has become then (absent: it stays what it is, turned) */
   readonly perish?: { readonly hours: number; readonly into?: string };
   /** a drawn picture (its id) instead of a thumbnail of its model */
@@ -510,6 +511,7 @@ function rowProblems(r: ItemRow, seen: ReadonlySet<string>): string[] {
       else for (const a of h.accepts as readonly unknown[]) if (typeof a !== 'string' || (a !== '*' && !(a.startsWith('#') ? TAG_RE.test(a.slice(1)) : ID_RE.test(a)))) say(`holds.accepts "${String(a)}": a category id, "#tag" or "*"`);
       if (h.maxKg !== undefined && !(isAmount(h.maxKg) && h.maxKg > 0)) say('holds.maxKg is a weight in kg');
       if (h.decay !== undefined && !isAmount(h.decay)) say('holds.decay is a rate from 0');
+      if (h.shut !== undefined && typeof h.shut !== 'boolean') say('holds.shut is true or false');
       // (what would become of the things in it when it turned into something that holds nothing?)
       if (r.perish !== undefined) say('a thing that holds things does not go off');
     }

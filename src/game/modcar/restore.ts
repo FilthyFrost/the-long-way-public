@@ -8,8 +8,10 @@
  * save — tolerantly, a thing of a kind this build does not have left out and counted (save.ts).
  */
 import { writableSave, writeSave, type SaveV1 } from './save';
+import { restoreKeyOf } from './slots';
 
-const KEY = 'modcar.restore.v1';
+/** where the points lie: the place's the page goes on with (slots.ts) */
+const key = (): string => restoreKeyOf();
 const KEEP = 6;
 
 export interface RestorePoint {
@@ -22,7 +24,7 @@ export interface RestorePoint {
 
 export function restorePoints(): RestorePoint[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(key());
     const list = raw ? (JSON.parse(raw) as RestorePoint[]) : [];
     return Array.isArray(list) ? list.filter((p) => p && p.save && typeof p.at === 'number') : [];
   } catch {
@@ -42,7 +44,7 @@ export function pushRestore(s: SaveV1): void {
   // (storage full: fewer points rather than none)
   for (let n = list.length; n > 0; n--) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(list.slice(0, n)));
+      localStorage.setItem(key(), JSON.stringify(list.slice(0, n)));
       return;
     } catch {
       // try with one fewer
@@ -60,7 +62,7 @@ export function useRestore(i: number): boolean {
 
 export function clearRestores(): void {
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(key());
   } catch {
     // storage unavailable
   }

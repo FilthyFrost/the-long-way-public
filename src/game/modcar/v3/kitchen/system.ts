@@ -15,7 +15,7 @@ import type { ThingBox } from '../../../../core/modcar/cargo';
 import { countOf, itemDef, newItem, splitStack, type ItemInstance } from '../../../../core/modcar/items';
 import type { Text } from '../../../../core/modcar/types';
 import { dine } from '../../../../core/modcar/vitals';
-import { firstTip, knownFail, note, pinned, asksFor, type BookData } from '../../../../core/v3/kitchen/book';
+import { firstTip, knownFail, meet, newBook, note, pinned, asksFor, type BookData } from '../../../../core/v3/kitchen/book';
 import { POT_MAX } from '../../../../core/v3/kitchen/cook';
 import { DISHES, WAYS, type DishDef, type Way } from '../../../../core/v3/kitchen/dishes';
 import type { BuffId } from '../../../../core/v3/cooking/types';
@@ -24,9 +24,9 @@ import type { BuffId } from '../../../../core/v3/cooking/types';
 const WAY_BUFF: Record<Way, BuffId> = { fry: 'vigor', boil: 'warm', mix: 'hydrated', grill: 'hearty', steam: 'hearty', bake: 'hearty', brew: 'hydrated' };
 /** the dishes by their item */
 const DISH_OF = new Map<string, DishDef>(DISHES.map((d) => [`dish_${d.id}`, d]));
-import { BOARD, dishItem, GAS, GAS_FULL, itemOfPortion, SPICE, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
+import { BOARD, dishItem, GAS, GAS_FULL, itemOfPortion, SPICE, STOVE2, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
 import {
-  addLack, addPortion, asksStir, boardLack, boardPut, boardTake, chop, CHOPS, dishUp, electric, fireOf, gasOf, hasCanister, isStove, kitKind, kitOf, loadCanister, nextSeasoning, phaseOf,
+  addLack, addPortion, asksStir, boardLack, boardPut, boardTake, burnersOf, gasFeed, chop, CHOPS, dishUp, electric, fireOf, gasOf, hasCanister, isStove, kitKind, kitOf, loadCanister, nextSeasoning, phaseOf,
   potOf, putVessel, ready, removePortion, seasonPot, servingsLeft, setFire, steamLack, stir, stoveStep, takeCanister, takeVessel, toss, TOSSES, underOf, vesselOf, wayOf,
   type KitKind, type Missed, type Phase, type StoveTick,
 } from '../../../../core/v3/kitchen/kit';
@@ -40,13 +40,34 @@ import { powerOf, type GameContext } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
 import type { Loose } from '../../loose';
 import { heldOf, type Held } from '../../player';
+import { placeSlots, type SlotAim, type SlotSource } from '../nd-place/slots';
 
 const T = (zh: string, en: string): Text => ({ zh, en });
 
 /** how far from the eye a thing can be set down where one aims (m) */
 const PLACE_REACH = 2.5;
+/** how high the steamer stands over the burner on the pot of water it is set on: the pot's rim (cookware.py kit_pot) */
+export const STEAMER_LIFT = 0.131;
 /** the seasonings on the table reach a pot this near (m) */
 const SPICE_REACH = 1.6;
+/**
+ * At the kitchen (docs/V3/plan/finish.md §八 6: 灶台视角): the mark resting on one of its things from within this (m),
+ * for this long (s), draws the view in so far (things look a fifth bigger); it lets go this long after the mark has
+ * left (s) — in over 0.15 s, out over 0.3. One of its things lying this low against the feet (m): one crouches to it.
+ */
+const LEAN_REACH = 1.3;
+const LEAN_DWELL_S = 0.12;
+const LEAN_ZOOM = 1.22;
+const LEAN_HOLD_S = 0.3;
+const LEAN_LOW = 0.5;
+/** off: the view is never drawn in at the kitchen, nor does one crouch to it by oneself — as on 11-24 (docs/V3/plan/finish.md §十八, 界面恢复) */
+const LEAN_ON = false;
+/**
+ * A lit stove warms the air round it (docs/V3/plan/finish.md §三 2): so many °C on a high flame (seven tenths of it on
+ * a low one) within the first of these distances (m), none beyond the second
+ */
+const STOVE_WARM_C = 10;
+const STOVE_WARM_M: readonly [number, number] = [1.6, 3.2];
 
 /** which of a thing's parts a device is: a stove has three, the rest are one */
 export type Part = 'all' | 'top' | 'knob' | 'bay';
@@ -62,6 +83,9 @@ const STOVE_BOXES: Readonly<Record<Exclude<Part, 'all'>, readonly [number, numbe
     [0.09, 0.14, -0.01, 0.086, 0.02, 0.195],
   ],
 };
+
+/** a two-burner stove's halves: how far each burner's parts lie from the thing's middle along its width (m; the first to its left) */
+const BURNER_DZ = 0.19;
 
 /** what each phase of a pot is called */
 const PHASE: Readonly<Record<Phase, Text>> = {
@@ -138,7 +162,7 @@ export class KitDevice implements GarageDevice {
     readonly unit: Unit,
     readonly part: Part,
   ) {
-    this.id = `kitchen:${unit.loose.uid}:${part}`;
+    this.id = `kitchen:${unit.key}:${part}`;
   }
 
   get loose(): Loose {
@@ -196,14 +220,22 @@ export class KitDevice implements GarageDevice {
 
   /** where the line of sight meets it: its own boxes (a stove's part), or its model's box, a hand's breadth more all round */
   hit(ray: THREE.Ray, reach: number): number | null {
+    const d = this.along(ray, reach);
+    if (d === null) return null;
+    return this.unit.loose.riding ? Math.max(0, d - 1.2) + d * 0.001 : d;
+  }
+
+  /** how far along the line of sight it is met, within reach (null: not) */
+  along(ray: THREE.Ray, reach: number): number | null {
     const l = this.unit.loose;
     this.inv.copy(l.obj.matrixWorld).invert();
     this.lray.copy(ray).applyMatrix4(this.inv);
     let d = Infinity;
     if (this.part !== 'all') {
+      const dz = this.unit.dz;
       for (const b of STOVE_BOXES[this.part]) {
-        this.b3.min.set(b[0], b[2], b[4]);
-        this.b3.max.set(b[1], b[3], b[5]);
+        this.b3.min.set(b[0], b[2], b[4] + dz);
+        this.b3.max.set(b[1], b[3], b[5] + dz);
         const p = this.lray.intersectBox(this.b3, this.hitP);
         if (p) d = Math.min(d, p.distanceTo(this.lray.origin));
       }
@@ -224,8 +256,7 @@ export class KitDevice implements GarageDevice {
         if (p) d = p.distanceTo(ray.origin);
       }
     }
-    if (!(d <= reach)) return null;
-    return l.riding ? Math.max(0, d - 1.2) + d * 0.001 : d;
+    return d <= reach ? d : null;
   }
 }
 
@@ -247,19 +278,32 @@ export class Unit {
   constructor(
     sys: Kitchen,
     readonly loose: Loose,
+    /** a two-burner stove's burner (0, 1), each a unit of its own; −1: the thing itself */
+    readonly burner = -1,
   ) {
-    this.kind = kitKind(loose.item!.item)!;
+    this.kind = burner >= 0 ? 'stove' : kitKind(loose.item!.item)!;
     // (a hob has no bay: its plate and its knob)
     this.devices =
       this.kind === 'stove'
-        ? electric(loose.item!)
+        ? electric(this.item)
           ? [new KitDevice(sys, this, 'top'), new KitDevice(sys, this, 'knob')]
           : [new KitDevice(sys, this, 'top'), new KitDevice(sys, this, 'knob'), new KitDevice(sys, this, 'bay')]
         : [new KitDevice(sys, this, 'all')];
   }
 
+  /** the thing its state is on: its own, or (a two-burner stove's burner) the stove kept on that thing for it */
   get item(): ItemInstance {
-    return this.loose.item!;
+    return this.burner >= 0 ? burnersOf(this.loose.item!)[this.burner] : this.loose.item!;
+  }
+
+  /** a name of its own among the units (a two-burner stove's two share a thing) */
+  get key(): string {
+    return this.burner >= 0 ? `${this.loose.uid}:b${this.burner}` : this.loose.uid;
+  }
+
+  /** how far its parts lie from the thing's middle along its width (m): a two-burner stove's halves */
+  get dz(): number {
+    return this.burner < 0 ? 0 : this.burner === 0 ? BURNER_DZ : -BURNER_DZ;
   }
 }
 
@@ -476,7 +520,14 @@ export class Kitchen implements System<GameContext>, InteractSource {
   time = 0;
   frames = 0;
   /** the recipe book (the module's slice holds this very object) */
-  book: BookData = { made: {}, fails: [] };
+  book: BookData = newBook();
+  /** the thing last seen in the hands (its uid): an ingredient is noted in the book as it comes into them */
+  private metUid = '';
+  /** the view drawn in at the kitchen: how far (0 … 1), how long the mark has rested on it, how long since it left, whether what it rests on is low */
+  private lean = 0;
+  private leanDwell = 0;
+  private leanAway = 9;
+  private leanLow = false;
   private readonly units = new Map<Loose, Unit>();
   readonly list: Unit[] = [];
   private rev = -1;
@@ -498,8 +549,15 @@ export class Kitchen implements System<GameContext>, InteractSource {
   /** the recipe book on screen (bookUi.ts): only on a page */
   private bookUi: { update(): void; dispose(): void; toggle(open?: boolean): void; reveal(r: Reveal): void; readonly open: boolean } | null = null;
 
+  /** the warmth of the lit stoves told to the game (GameContext.warmers): once */
+  private readonly warmer = (x: number, z: number): number => this.warmthAt(x, z);
+
   init(ctx: GameContext): void {
     this.game = ctx;
+    if (!ctx.warmers.includes(this.warmer)) ctx.warmers.push(this.warmer);
+    // (the burners are places a vessel held out to be placed goes onto: nd-place asks them)
+    const slots = placeSlots(ctx);
+    if (!slots.includes(this.burners)) slots.push(this.burners);
     this.units.clear();
     this.list.length = 0;
     this.rev = -1;
@@ -527,7 +585,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
 
   /** is this a thing E sets down where one aims: the kitchen's own — cookware, ingredients, dishes */
   places(item: string): boolean {
-    if (kitKind(item)) return true;
+    if (kitKind(item) || item === STOVE2) return true;
     const cat = itemDef(item).cat;
     return cat === 'ingredient' || cat === 'meal';
   }
@@ -542,16 +600,18 @@ export class Kitchen implements System<GameContext>, InteractSource {
     for (const l of loose.list) {
       const it = l.item;
       if (!it) continue;
-      const kind = kitKind(it.item);
+      const double = it.item === STOVE2;
+      const kind = double ? 'stove' : kitKind(it.item);
       // (a canister lying there is a thing to pick up, no more; a plate or a bowl too — but for a pot with food in
       // the hands, which dishes up onto it where it lies: docs/V3/plan/growth.md §一 4)
       if (!kind || kind === 'gas' || (kind === 'ware' && !this.pourV)) continue;
       seen.add(l);
       l.device = true;
       if (!this.units.has(l)) {
-        const u = new Unit(this, l);
-        this.units.set(l, u);
-        this.list.push(u);
+        // (a two-burner stove: a unit for each burner; the thing itself is found by its first)
+        const us = double ? [new Unit(this, l, 0), new Unit(this, l, 1)] : [new Unit(this, l)];
+        this.units.set(l, us[0]);
+        for (const u of us) this.list.push(u);
       }
     }
     for (let i = this.list.length - 1; i >= 0; i--) {
@@ -591,6 +651,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     // a stove carried off alight goes out: the flame is the thing's, and nothing steps it in the hands
     const held = ctx.player.held;
     if (held?.kind === 'item' && isStove(held.item.item) && fireOf(held.item)) setFire(held.item, 0);
+    if (held?.kind === 'item' && held.item.item === STOVE2) for (const b of burnersOf(held.item)) if (fireOf(b)) setFire(b, 0);
     for (let i = 0; i < this.list.length; i++) {
       const u = this.list[i];
       if (u.busy > 0) u.busy = Math.max(0, u.busy - dt);
@@ -628,8 +689,71 @@ export class Kitchen implements System<GameContext>, InteractSource {
     ctx.ui.say(`${STIR[way].zh}！`, 2);
   }
 
+  /**
+   * An ingredient come into the hands is met (docs/V3/plan/finish.md §八 5): the first of its kind brings into the
+   * recipe book the dishes not made yet that it completes, and that is said in a line
+   */
+  private meetHeld(ctx: GameContext): void {
+    const h = ctx.player.held;
+    const uid = h?.kind === 'item' ? h.item.uid : '';
+    if (uid === this.metUid) return;
+    this.metUid = uid;
+    if (h?.kind !== 'item') return;
+    const p = portionOfItem(h.item.item);
+    const more = p ? meet(this.book, p.id) : [];
+    if (more.length) ctx.ui.say(`菜谱里多了 ${more.length} 道没做过的菜`, 3.5);
+  }
+
+  /** how many °C the lit stoves add to the air at a point (GameContext.warmers): the warmest of them there, by how near it is and how high its flame */
+  warmthAt(x: number, z: number): number {
+    let warm = 0;
+    for (const u of this.list) {
+      if (u.kind !== 'stove') continue;
+      const fire = fireOf(u.item);
+      if (!fire) continue;
+      const d = Math.hypot(u.loose.x - x, u.loose.z - z);
+      if (d >= STOVE_WARM_M[1]) continue;
+      const k = d <= STOVE_WARM_M[0] ? 1 : 1 - (d - STOVE_WARM_M[0]) / (STOVE_WARM_M[1] - STOVE_WARM_M[0]);
+      warm = Math.max(warm, STOVE_WARM_C * k * (fire === 2 ? 1 : 0.7));
+    }
+    return warm;
+  }
+
+  /**
+   * The view at the kitchen (docs/V3/plan/finish.md §八 6): the mark resting on one of its things from close by, the
+   * view is drawn in a little — and, the thing on the ground, one crouches to it; it lets go a moment after the mark
+   * has left. Told to the game every frame (GameContext.workZoom, workCrouch).
+   */
+  private leanIn(dt: number, ctx: GameContext): void {
+    if (!LEAN_ON) {
+      ctx.workZoom = 1;
+      ctx.workCrouch = false;
+      return;
+    }
+    const t = ctx.player.target;
+    const dv = t?.kind === 'device' && t.device.id.startsWith('kitchen:') ? t.device : null;
+    const w = ctx.player.walker;
+    const at = !!dv && !ctx.seated && Math.hypot(dv.x - w.x, dv.z - w.z) < LEAN_REACH;
+    if (at) {
+      this.leanDwell += dt;
+      this.leanAway = 0;
+      this.leanLow = dv!.y - w.y < LEAN_LOW;
+    } else {
+      this.leanDwell = 0;
+      this.leanAway += dt;
+    }
+    const on = (at && this.leanDwell >= LEAN_DWELL_S) || (this.lean > 0.01 && this.leanAway < LEAN_HOLD_S);
+    this.lean += ((on ? 1 : 0) - this.lean) * (1 - Math.exp(-dt / (on ? 0.05 : 0.1)));
+    if (this.lean < 0.002) this.lean = 0;
+    const k = this.lean * this.lean * (3 - 2 * this.lean);
+    ctx.workZoom = 1 + (LEAN_ZOOM - 1) * k;
+    ctx.workCrouch = on && this.leanLow;
+  }
+
   lateUpdate(dt: number, ctx: GameContext): void {
     this.refresh(ctx);
+    this.meetHeld(ctx);
+    this.leanIn(dt, ctx);
     this.findGhosts(ctx);
     this.loops(ctx);
     this.view?.update(dt);
@@ -786,8 +910,10 @@ export class Kitchen implements System<GameContext>, InteractSource {
         const p = this.game ? powerOf(this.game, u.loose) : null;
         return p === 'on' ? null : p === 'flat' ? T('没电了', 'The batteries are flat') : T('放到车里才有电', 'Only in a vehicle is there power');
       }
-      if (!hasCanister(it)) return T('先装燃气罐', 'It needs a canister');
-      return gasOf(it) <= 0 ? T('燃气罐空了', 'The canister is empty') : null;
+      // (a two-burner stove's burner lights from the other bay's canister too: gasFeed)
+      const feed = gasFeed(it);
+      if (!hasCanister(feed)) return T('先装燃气罐', 'It needs a canister');
+      return gasOf(feed) <= 0 ? T('燃气罐空了', 'The canister is empty') : null;
     }
     if (d.part === 'bay') return hasCanister(it) ? null : T('拿着燃气罐', 'Bring a canister');
     if (u.kind === 'board') return kitOf(it).food ? null : T('拿着食材', 'Bring something to cut');
@@ -1262,6 +1388,80 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (u) this.onServed?.(u, { zh: o.zh, stars: o.stars, perfect: o.perfect, fail: !!o.fail, first: noted.first });
   }
 
+  // ------------------------------------------------------------------ the burners as places to put a vessel held out
+
+  /**
+   * A stove's burner as a place a vessel held out to be placed goes onto (nd-place's slots — Nomad Drive's cooking
+   * zones, which take a pan or a pot onto their middle turned any way round, one at a time): the nearest stove's top
+   * the line of sight meets within reach, its burner free, the vessel in the hands one that goes on a flame (the steamer
+   * onto an empty pot of water standing there). Set down, it stands turned as it was held and cooks as any vessel set on.
+   */
+  private readonly burners: SlotSource = { aim: (h, ray, reach) => this.burnerAim(h, ray, reach) };
+  private readonly slot: SlotAim = { dist: 0, pos: new THREE.Vector3(), q: new THREE.Quaternion(), yaw: 0, word: '', put: (turn) => this.setOnBurner(turn) };
+  private slotUnit: Unit | null = null;
+  private slotHeld: NonNullable<Held> | null = null;
+  private readonly ax = new THREE.Vector3();
+
+  private burnerAim(h: NonNullable<Held>, ray: THREE.Ray, reach: number): SlotAim | null {
+    this.slotUnit = null;
+    this.slotHeld = null;
+    if (!this.game || h.kind !== 'item') return null;
+    const id = h.item.item;
+    const way = WAY_OF[id];
+    if (kitKind(id) !== 'vessel' || !way || !WAYS[way].heats) return null;
+    const far = Math.min(reach, PLACE_REACH);
+    // (of the stoves whose top the line of sight goes into, the one whose burner's middle — its model's place for the
+    // vessel, M_pot; a two-burner stove's second M_pot_B — it passes nearest: four hobs in a row along a worktop, looked
+    // at slantwise, the line goes over the next one's top on its way to the one looked at)
+    let best: Unit | null = null;
+    let bd = Infinity;
+    let bm = Infinity;
+    for (let i = 0; i < this.list.length; i++) {
+      const u = this.list[i];
+      if (u.kind !== 'stove' || u.busy > 0 || u.loose.shut) continue;
+      if (way === 'steam' ? steamLack(u.item) : vesselOf(u.item)) continue;
+      const top = u.devices.find((d) => d.part === 'top');
+      const d = top?.along(ray, far) ?? null;
+      if (d === null) continue;
+      const mark = u.loose.obj.getObjectByName(u.burner > 0 ? 'M_pot_B' : 'M_pot');
+      if (!mark) continue;
+      u.loose.obj.updateWorldMatrix(true, true);
+      const m = ray.distanceToPoint(mark.getWorldPosition(this.ax));
+      if (m < bm - 1e-4 || (m < bm + 1e-4 && d < bd)) {
+        bm = m;
+        bd = d;
+        best = u;
+      }
+    }
+    if (!best) return null;
+    const obj = best.loose.obj;
+    const s = this.slot;
+    obj.getObjectByName(best.burner > 0 ? 'M_pot_B' : 'M_pot')!.getWorldPosition(s.pos);
+    obj.getWorldQuaternion(s.q);
+    if (way === 'steam') s.pos.addScaledVector(this.ax.set(0, 1, 0).applyQuaternion(s.q), STEAMER_LIFT);
+    this.ax.set(1, 0, 0).applyQuaternion(s.q);
+    s.yaw = Math.atan2(this.ax.z, this.ax.x);
+    s.dist = bd;
+    s.word = way === 'steam' ? '架上蒸笼' : '放上炉头';
+    this.slotUnit = best;
+    this.slotHeld = h;
+    return s;
+  }
+
+  /** the vessel held out set on the burner aimed at, turned so about the stove's up (rad): the stove's now, out of the hands */
+  private setOnBurner(turn: number): boolean {
+    const ctx = this.game;
+    const u = this.slotUnit;
+    const h = this.slotHeld;
+    if (!ctx || !u || !h || h.kind !== 'item' || u.busy > 0) return false;
+    if (!putVessel(u.item, h.item, turn)) return false;
+    this.spend(ctx, h);
+    u.added++;
+    ctx.sound('pan_place', 1);
+    ctx.loose.touch(u.loose);
+    return true;
+  }
+
   /** the thing in the hands set down at a place, facing the one who puts it there (a stack: one of it) */
   setDown(held: NonNullable<Held>, at: PlaceAt): void {
     const ctx = this.game;
@@ -1334,6 +1534,8 @@ export class Kitchen implements System<GameContext>, InteractSource {
   private findGhosts(ctx: GameContext): void {
     while (this.ghosts.length > 0) this.ghosts.pop();
     const p = ctx.player;
+    // (held out to be placed, the thing itself shows where it goes — onto a burner too: no ghosts of the button's)
+    if (p.placer?.placing) return;
     const held = ctx.seated ? null : p.held;
     if (held?.kind !== 'item') return;
     const id = held.item.item;
@@ -1380,6 +1582,11 @@ export class Kitchen implements System<GameContext>, InteractSource {
   }
 
   dispose(): void {
+    if (this.game) {
+      const slots = placeSlots(this.game);
+      const i = slots.indexOf(this.burners);
+      if (i >= 0) slots.splice(i, 1);
+    }
     this.view?.dispose();
     this.view = null;
     this.bookUi?.dispose();

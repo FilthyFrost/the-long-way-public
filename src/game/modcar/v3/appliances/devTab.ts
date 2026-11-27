@@ -15,17 +15,17 @@ import type { ModVehicle } from '../../vehicle';
 import type { Appliances } from './system';
 
 /** what goes where in a motorhome (its zones: core/modcar/cargo.ts) */
-/** what goes where in a motorhome (its zones: core/modcar/cargo.ts), near which point of it (frame model space), facing which way (0: forward, −π/2: to the right) */
+/** what goes where in a motorhome (its zones: core/modcar/cargo.ts), near which point of it (frame model space — the Whale's since it was lengthened, docs/V3/plan/finish.md §18), facing which way (0: forward, −π/2: to the right) */
 const FURNISH: readonly { id: string; zone: string; at: [number, number]; yaw: number; set?: (it: ItemInstance) => void }[] = [
   // (the coffee machine, its pot under the spout and a bag's worth of beans in it: core/v3/nd/coffee.ts)
-  { id: 'nd_coffee_machine', zone: 'galley', at: [-1.55, -0.85], yaw: -Math.PI / 2, set: (it) => void ((it.state ??= {}).ndCoffee = { fill: 1, cup: newItem(COFFEE_POT) }) },
-  { id: 'nd_coffee_pack', zone: 'galley', at: [-1.38, -0.62], yaw: -Math.PI / 2 },
-  { id: 'nd_mug', zone: 'galley', at: [-0.95, -0.75], yaw: 0 },
-  { id: 'junk_clockradio', zone: 'galley', at: [-1.2, -0.74], yaw: -Math.PI / 2 },
-  { id: 'junk_lamp', zone: 'table', at: [0.43, -0.85], yaw: -Math.PI / 2 },
-  { id: 'junk_tv', zone: 'lounge', at: [-1.0, 0.45], yaw: 0 },
-  { id: 'junk_record', zone: 'lounge', at: [-0.15, 0.1], yaw: Math.PI },
-  { id: 'junk_solar_lamp', zone: 'table', at: [0.235, -0.47], yaw: 0 },
+  { id: 'nd_coffee_machine', zone: 'galley', at: [-2.3, -0.85], yaw: -Math.PI / 2, set: (it) => void ((it.state ??= {}).ndCoffee = { fill: 1, cup: newItem(COFFEE_POT) }) },
+  { id: 'nd_coffee_pack', zone: 'galley', at: [-2.13, -0.62], yaw: -Math.PI / 2 },
+  { id: 'nd_mug', zone: 'galley', at: [-1.7, -0.75], yaw: 0 },
+  { id: 'junk_clockradio', zone: 'galley', at: [-1.95, -0.74], yaw: -Math.PI / 2 },
+  { id: 'junk_lamp', zone: 'table', at: [-0.32, -0.85], yaw: -Math.PI / 2 },
+  { id: 'junk_tv', zone: 'lounge', at: [-1.75, 0.45], yaw: 0 },
+  { id: 'junk_record', zone: 'lounge', at: [-0.9, 0.1], yaw: Math.PI },
+  { id: 'junk_solar_lamp', zone: 'table', at: [-0.515, -0.47], yaw: 0 },
 ];
 
 /** the vehicle with a living space one is in, sits in, or stands nearest to (within 12 m) */

@@ -849,13 +849,13 @@
   "PG_trunk": 180,
   "P_door_FL": 2336,
   "P_door_FR": 2336,
-  "P_door_side": 2809,
+  "P_door_side": 2817,
   "P_hood": 2246,
   "P_trunk": 3302,
   "UNDER": 4072,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 55508
+  "total": 55516
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

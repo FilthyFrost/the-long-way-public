@@ -33,12 +33,13 @@
  */
 import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
+import { blueprintOf } from '../../../../core/modcar/crafting';
 import { countOf, itemDef, itemModelOf, newItem, putInside, takeInside, type ItemInstance } from '../../../../core/modcar/items';
 import type { WeatherState } from '../../../../core/env/weather';
 import { againstOf, GOLD_AT, holdOf, LAND_AT, pullOf, RED_AT } from '../../../../core/v3/fishing/lite/fight';
 import { FISH, FISH_INDEX, kgOf } from '../../../../core/v3/fishing/lite/fish';
 import { BAITS, RODS } from '../../../../core/v3/fishing/lite/gear';
-import { baitOfItem, canGoLive, CRATE, fishItem, fishOfItem, JUNK_ITEM, rodOfItem, BOTTLE, TIER_STARS, type LiveBait } from '../../../../core/v3/fishing/lite/items';
+import { baitOfItem, canGoLive, CRATE, fishItem, fishOfItem, JUNK_ITEM, PANTRY_BAIT, rodOfItem, BOTTLE, TIER_STARS, type LiveBait } from '../../../../core/v3/fishing/lite/items';
 import { bottleNote, crateContents, found, newLog, rigOf, settle, type FishLog, type Hook } from '../../../../core/v3/fishing/lite/log';
 import { Pond, PondShape } from '../../../../core/v3/fishing/lite/pond';
 import { fullMoon, skyMoment } from '../../../../core/v3/fishing/lite/progress';
@@ -55,10 +56,12 @@ import type { GameContext } from '../../kernel/context';
 import type { Gauges, HeldButtons, HeldLook, HeldUse } from '../../kernel/heldUse';
 import type { Loose } from '../../loose';
 import { announce, cutLine, meet } from '../progress/api';
+import { handFrame, type HandTarget } from '../../../character/animator';
 import { FISH_DOMAIN } from './content';
 import { FishBody, swimCurve } from './bend';
 import { FishHold } from './hold';
 import { rawFish } from './models';
+import { JournalUi } from './journalUi';
 import { RodView } from './rodView';
 import { ViewShake } from './shake';
 import { FishAudio } from './sounds';
@@ -112,6 +115,12 @@ const STRAIN_BANDS = [
   { from: onDial(GOLD_AT), to: onDial(RED_AT), colour: RING_GOLD },
   { from: onDial(RED_AT), to: 1, colour: RING_RED },
 ] as const;
+
+/** how near water a shovel turns up worms (m), and how often a stroke there does */
+const WORM_REACH = 7;
+const WORM_ODDS = 0.65;
+/** the water whose lord has the Night Heron's sheet: the third (its index among the waters) */
+const HERON_LORD = 2;
 
 /** a bottle knows which water it came out of (its lord's habits are on the note) */
 declare module '../../../../core/modcar/items' {
@@ -358,7 +367,89 @@ export class Fishing implements System<GameContext> {
     ctx.core.scene.add(this.signs.group);
     this.hold = new FishHold();
     ctx.core.scene.add(this.hold.group);
+    // the journal: a page of the Tab screen
+    this.journal = new JournalUi(ctx, () => this.log);
+    // worms where a shovel turns the ground over by a water
+    ctx.dug?.push(this.onDug);
+    // her hands on the rod
+    if (ctx.her) ctx.her.handsFor = (cam) => this.rodHands(cam);
   }
+
+  private readonly handR: HandTarget = { pos: new THREE.Vector3(), rot: new THREE.Quaternion(), grip: 'bar', w: 1, hold: { kind: 'cyl', c: new THREE.Vector3(), axis: new THREE.Vector3(), r: 0.0165 } };
+  private readonly handL: HandTarget = { pos: new THREE.Vector3(), rot: new THREE.Quaternion(), grip: 'pinch', w: 0, pole: new THREE.Vector3(-0.6, -1, 0).normalize() };
+  private readonly bothHands = { l: this.handL, r: this.handR };
+  private readonly oneHand = { r: this.handR };
+  /** how much the left hand is on the reel's handle (0 … 1) */
+  private windHand = 0;
+  private readonly hv = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+
+  /**
+   * Her hands on the rod as it is drawn (docs/V3/plan/finish.md §九: 握竿、摇轮用她的手): the right round the rear grip,
+   * its fingers over the top; the left on the reel handle's knob while it winds, else under the fore grip. Null: no
+   * rod is drawn in her hands.
+   */
+  private rodHands(cam: THREE.Camera): { l?: HandTarget; r?: HandTarget } | null {
+    const rv = this.rod;
+    if (!rv || !rv.group.visible) return null;
+    const e = cam.matrixWorld.elements;
+    const [right, up, palm, fingers, fwd, t] = this.hv;
+    right.set(e[0], e[1], e[2]).normalize();
+    up.set(e[4], e[5], e[6]).normalize();
+    fwd.set(-e[8], -e[9], -e[10]).normalize();
+    const along = rv.gripAxis;
+    // the right hand: the palm on the grip's right side turned a little under it, the fingers over its top
+    palm.copy(right).multiplyScalar(-0.6).addScaledVector(up, 0.5).normalize();
+    fingers.crossVectors(along, palm).normalize();
+    const r = this.handR;
+    r.pos.copy(rv.gripAt).addScaledVector(palm, -0.03).addScaledVector(fingers, -0.045);
+    r.rot!.copy(handFrame('r', fingers, palm, palm));
+    r.hold!.c.copy(rv.gripAt);
+    r.hold!.axis!.copy(along);
+    // the left: winding, the knob between finger and thumb (the palm toward the reel's face) — coming to it as the
+    // winding begins, letting go as it stops; else it is free (the fore grip is further across her than her left arm
+    // reaches with the rod held out to the right: one hand holds it while it waits)
+    const l = this.handL;
+    const want = rv.winding > 0.02 ? 1 : 0;
+    this.windHand += (want - this.windHand) * (1 - Math.exp(-(want ? 14 : 5) / 60));
+    if (this.windHand < 0.03) return this.oneHand;
+    palm.copy(rv.reelOut).multiplyScalar(-1);
+    fingers.copy(up).multiplyScalar(0.45).addScaledVector(fwd, 0.85).addScaledVector(palm, -fwd.dot(palm) * 0.85).normalize();
+    l.pos.copy(rv.knobAt).addScaledVector(palm, -0.035).addScaledVector(fingers, -0.075);
+    l.rot!.copy(handFrame('l', fingers, palm, palm));
+    l.w = this.windHand;
+    void t;
+    void rv.foreAt;
+    return this.bothHands;
+  }
+
+  journal: JournalUi | null = null;
+  /** worms dug so far (the first are said) */
+  private wormsDug = 0;
+
+  /**
+   * A shovel went into bare ground (GameContext.dug): within WORM_REACH of water there are worms in it, more often
+   * than not — a few, lying where the shovel went in (docs/V3/plan/finish.md §九: 蚯蚓：拿铁锹对着岸边的土挖). One is
+   * never without bait where there is water and a shovel.
+   */
+  private readonly onDug = (x: number, y: number, z: number): void => {
+    const ctx = this.ctx;
+    const world = ctx?.world;
+    // (the bank's own soil: not the bed of the water itself)
+    if (!ctx || !world || waterDepth(world, x, z) > 0.05) return;
+    let wet = false;
+    for (let k = 0; k < 36 && !wet; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const r = WORM_REACH * (k < 12 ? 0.35 : k < 24 ? 0.7 : 1);
+      if (waterDepth(world, x + Math.cos(a) * r, z + Math.sin(a) * r) > 0.05) wet = true;
+    }
+    if (!wet || Math.random() > WORM_ODDS) return;
+    const n = 2 + Math.floor(Math.random() * 3);
+    const l = ctx.loose.addItem(newItem('bait_worm', { n }), x, y + 0.08, z, Math.random() * Math.PI * 2);
+    ctx.loose.drop(l);
+    this.sounds.play('click');
+    if (this.wormsDug === 0) announce(ctx, '土里翻出了蚯蚓', 2.2);
+    this.wormsDug += n;
+  };
 
   step(dt: number, ctx: GameContext): void {
     this.time += dt;
@@ -432,6 +523,7 @@ export class Fishing implements System<GameContext> {
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
+    this.journal?.update();
     this.keepTune(ctx);
     this.afterSky(ctx);
     this.hush();
@@ -476,6 +568,11 @@ export class Fishing implements System<GameContext> {
 
   dispose(): void {
     FISH_HUSH.length = 0;
+    this.journal?.dispose();
+    this.journal = null;
+    const at = this.ctx?.dug?.indexOf(this.onDug) ?? -1;
+    if (at >= 0) this.ctx!.dug!.splice(at, 1);
+    if (this.ctx?.her) this.ctx.her.handsFor = null;
     this.dropLive();
     this.hold?.dispose();
     this.rod?.group.removeFromParent();
@@ -717,10 +814,12 @@ export class Fishing implements System<GameContext> {
   private autoBait(rod: ItemInstance): boolean {
     const ctx = this.ctx;
     const c = this.baitCarried();
+    // (none carried: a loaf or a cob in the hands does)
+    if (ctx && !c) return this.pantryBait(rod);
     if (!ctx || !c) return false;
     const now = itemNow();
     const p = ctx.player;
-    const i = baitOfItem(c.item.item);
+    const name = itemDef(c.item.item).name.zh;
     if (c.box) {
       // (out of the thing it rides in; what the rod does not take, back into it, or into the hands)
       const at = c.box.inside?.indexOf(c.item) ?? -1;
@@ -730,8 +829,36 @@ export class Fishing implements System<GameContext> {
     } else if (putInside(rod, c.item, now) <= 0) p.slots[c.slot] = null;
     if (!this.hookOf(rod)) return false;
     this.sounds.play('click');
-    announce(ctx, `挂上了${BAITS[i].zh}`, 1.4);
+    announce(ctx, `挂上了${name}`, 1.4);
     return true;
+  }
+
+  /**
+   * No bait carried and a bare rod cast (docs/V3/plan/finish.md §九: bread and maize do as a common bait): a loaf of
+   * bread or a cob of maize in the hands' slots is pulled apart into pinches of bait — the rules' common bait under its
+   * own name — and they go onto the hook; false: neither is carried
+   */
+  private pantryBait(rod: ItemInstance): boolean {
+    const ctx = this.ctx;
+    const p = ctx?.player;
+    if (!ctx || !p) return false;
+    for (let s = 0; s < p.slots.length; s++) {
+      const h = p.slots[s];
+      if (h?.kind !== 'item') continue;
+      const made = PANTRY_BAIT[h.item.item];
+      if (!made) continue;
+      const bait = newItem(made.bait, { n: made.n });
+      if (putInside(rod, bait, itemNow()) > 0 || !this.hookOf(rod)) continue;
+      // (one loaf, one cob: the rest of a stack stays where it is)
+      const n = countOf(h.item);
+      if (n > 2) h.item.n = n - 1;
+      else if (n === 2) delete h.item.n;
+      else p.slots[s] = null;
+      this.sounds.play('click');
+      announce(ctx, `掰了些${itemDef(h.item.item).name.zh}，挂上了${itemDef(made.bait).name.zh}`, 1.8);
+      return true;
+    }
+    return false;
   }
 
   /** a bait as the keys down the right say it: its name, how many, and its rarity's stars in its colour */
@@ -739,7 +866,7 @@ export class Fishing implements System<GameContext> {
     const d = BAITS[baitOfItem(b.item)];
     if (!d) return '';
     const n = countOf(b);
-    return `${d.zh}${d.lure || n <= 1 ? '' : ` ×${n}`} <span style="color:${TIER_COLOUR[d.tier] ?? RING_WHITE}">${'★'.repeat(TIER_STARS[d.tier as Tier] ?? 1)}</span>`;
+    return `${itemDef(b.item).name.zh}${d.lure || n <= 1 ? '' : ` ×${n}`} <span style="color:${TIER_COLOUR[d.tier] ?? RING_WHITE}">${'★'.repeat(TIER_STARS[d.tier as Tier] ?? 1)}</span>`;
   }
 
   /** what is on a rod's hook, as the keys say it: a bait (baitLabel), or a fish alive (its lord's stars, if it is a lord's bait) */
@@ -1318,6 +1445,13 @@ export class Fishing implements System<GameContext> {
     const u = ((l.uid * 2654435761) >>> 0) / 4294967296;
     const got = settle(this.log, l, this.rig, (u + this.log.stats.catches * 0.618) % 1);
     const item = newItem(fishItem(l.fish), { state: { fish: got.state } });
+    this.journal?.changed();
+    // (the third water's lord, the first time it is landed: the sheet the Night Heron is made from comes up with it —
+    // docs/V3/plan/finish.md §九; nowhere else on the road)
+    if (got.first && def.tier === 4 && def.spot === HERON_LORD) {
+      this.throwDown(ctx, newItem(blueprintOf('rod_heron')), from, 0.9, false);
+      ctx.ui.say('它嘴里挂着一卷图纸：「夜鹭」夜钓竿', 4);
+    }
     this.sounds.landed(def.tier, got.first);
     meet(ctx, FISH_DOMAIN, def.id, 1, { quiet: true });
     // (one line at most: the news of it)

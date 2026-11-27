@@ -9,7 +9,7 @@
  * side the doors look onto, is −v: it faces the road), y up from its floor; metres. Pure: no three, no DOM.
  */
 import type { ContainerKind } from '../items/loot';
-import type { SiteKind } from './sites';
+import type { PlaceSort, SiteKind } from './sites';
 
 /** an upright box (or a round post: hz = 0, hx its radius) in the card's frame */
 export interface PrefabSolid {
@@ -77,6 +77,12 @@ export interface PrefabCard {
   readonly id: string;
   /** the game's word for a place of it (its prompt line, the junk it has lying about, the plan's sort of place): an existing kind */
   readonly siteKind: SiteKind;
+  /**
+   * (world version 7) the sort of place it is to what is found there, where that is not its kind (sites.ts Site.sort):
+   * the motel — a home to the dice (its ground, its yard, where it stands), a place of its own to the plan and on its
+   * boxes' cards. A world made before version 7 never reads it.
+   */
+  readonly sort?: PlaceSort;
   /** footprint along the road and away from it, and the height of its walls (m) */
   readonly w: number;
   readonly d: number;

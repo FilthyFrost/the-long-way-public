@@ -68,7 +68,7 @@ describe('F6: the sets', () => {
     kitPicked(st, 'kit_gas', 43_000, 7);
     // (the pan and the seasonings come together: either picked up is the step taken)
     const next = kitPicked(st, 'kit_spice', 44_000, 7);
-    expect(next.map((f) => thingKey(f.thing)).sort()).toEqual(['kit_board', 'kit_pot']);
+    expect(next.map((f) => thingKey(f.thing)).sort()).toEqual(['kit_board', 'kit_bowl', 'kit_pot']);
     expect(next[0].s).toBeGreaterThanOrEqual(50_000);
     expect(kitPicked(st, 'kit_pan', 44_100, 7)).toEqual([]);
     const refit: KitsState = {};
@@ -157,8 +157,9 @@ describe('F6: the sets', () => {
     // no place of its sort in those kilometres: the first place with a box in them, whatever its sort — it waits for none
     const none = kitPicked({}, 'nd_coffee_machine', 32_000, 7, () => [{ s: 35_000, kind: 'garage' as const }])[0];
     expect(none.s).toBe(35_000 - 0.5);
-    expect(none.themes).toBeUndefined();
+    expect(none.any).toBe(true);
     expect(pot.themes).toBeDefined();
+    expect(pot.any).toBeUndefined();
     // no place at all in them: the first after
     expect(kitPicked({}, 'nd_coffee_machine', 32_000, 7, () => [{ s: 38_200, kind: 'garage' as const }])[0].s).toBe(38_200 - 0.5);
     // the places not known: somewhere in those kilometres, for the first place that takes it
@@ -188,7 +189,7 @@ describe('F6: the sets', () => {
     // (none within two to five kilometres; the first after is at 41.0 — past its share of the way (32 + 7.25): the
     // lay-by a kilometre on has it, sooner than it should be)
     expect(pot.s).toBe(33_200 - 0.5);
-    expect(pot.themes).toBeUndefined();
+    expect(pot.any).toBe(true);
     const [beans] = kitPicked(st, 'coffee_pot', 33_200, 7, ahead);
     // (the beans: none within two to five of 33.2; the first after, the workshop at 41.0, is within fifteen of the machine)
     expect(beans.s).toBe(41_000 - 0.5);
@@ -302,7 +303,7 @@ describe('F6: the plan fitted to a world\'s places', () => {
     const bare = road.filter((p) => p.kind !== 'house');
     const [fitted] = fitToPlaces([camera], bare);
     expect(fitted.s).toBe(9_620 - 0.5);
-    expect(fitted.themes).toBeUndefined();
+    expect(fitted.any).toBe(true);
     expect(laid([fitted], bare)).toBe('b');
   });
 
@@ -320,7 +321,9 @@ describe('F6: the plan fitted to a world\'s places', () => {
     let moved = 0;
     for (const seed of [7, ...seeds]) {
       const world = modcarWorld(seed, { worldVersion: 7 }).world;
-      const places = planPlaces(world, 0, 150_000);
+      // (the places to the end of the last chapter the plan reaches into: the seventh's new things — the camp oven at
+      // the 144th to the 150th kilometre — are due within it, to the 190th)
+      const places = planPlaces(world, 0, 195_000);
       const raw = placesPlan(seed, 160, 'normal', SCHEDULE_V7);
       const finds = fitToPlaces(raw, places);
       moved += finds.filter((f, i) => f.within && !raw.includes(f)).length;

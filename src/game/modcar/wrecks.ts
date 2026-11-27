@@ -18,6 +18,7 @@ import { isRare, rollFound, rollWreck, type WreckRoll } from '../../core/modcar/
 import { lootRules } from '../../core/modcar/loot';
 import { PAD_FROM, type Site } from '../../core/world/sites';
 import { SitePlanner, vehiclePlan, type VehiclePlanned } from '../../core/modcar/schedule';
+import { roomRev } from '../../core/modcar/aboard';
 import { frameSize } from '../../core/modcar/frames';
 import type { Solid, SolidSource } from '../../core/world/solids';
 import type { World } from '../../core/world/terrain';
@@ -41,6 +42,8 @@ export interface SavedWreck {
   z: number;
   yaw: number;
   loose: SavedLoose[];
+  /** which making of its living space the things in it were put in under (core/modcar/aboard.ts roomRev); absent: the first */
+  room?: number;
 }
 
 /** the wrecks in a save: the ones kept as they were left, the ones taken (vehicles of one's own now) */
@@ -162,7 +165,7 @@ export class VehicleFinds {
     // (a big place with levelled ground and room for a vehicle may take the plan's)
     const room = (x: Site): boolean => BIG_PLACES.has(x.kind) && x.depth > 0 && freeSpot(x, 0, []) !== null;
     // (and ground for this one's size: a big one waits for a place it fits)
-    this.planner.take(sites.map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: room(x) ? 1 : 0, room: (f) => freeSpot(x, 0, [], (f as VehiclePlanned).frame) !== null })));
+    this.planner.take(sites.map((x) => ({ id: x.id, s: x.s, kind: x.sort, boxes: room(x) ? 1 : 0, room: (f) => freeSpot(x, 0, [], (f as VehiclePlanned).frame) !== null })));
     for (const x of sites) {
       const finds = this.planner.findsAt(x.id) as readonly VehiclePlanned[];
       if (!finds.length || this.picked.has(x.id)) continue;
@@ -242,7 +245,8 @@ export interface WreckHost {
   /** what rides in it, as saved (in its frame) */
   ridersOf(v: ModVehicle): SavedLoose[];
   /** put back what rode in it */
-  restoreRiders(v: ModVehicle, list: readonly SavedLoose[]): void;
+  /** (room: which making of its living space they were put in under — SavedWreck.room) */
+  restoreRiders(v: ModVehicle, list: readonly SavedLoose[], room?: number): void;
   /** a kept wreck back: the masks of what was being cleaned on it */
   restoreGrimeOf(v: ModVehicle): void;
 }
@@ -408,7 +412,7 @@ export class Wrecks {
     let v: ModVehicle;
     if (k) {
       v = this.host.addVehicle(k.build, k.x, k.z, k.yaw);
-      this.host.restoreRiders(v, k.loose);
+      this.host.restoreRiders(v, k.loose, k.room);
       this.host.restoreGrimeOf(v);
     } else {
       // (a vehicle to find: its planned frame, bare, its parts beside it — besideAt; the world's wrecks as they roll)
@@ -444,7 +448,8 @@ export class Wrecks {
 
   private keep(l: LiveWreck): void {
     const v = l.v;
-    this.kept.set(l.spot.id, { build: v.build, x: v.sim.px, z: v.sim.pz, yaw: v.sim.yaw, loose: this.host.ridersOf(v) });
+    const rev = roomRev(v.build.frame);
+    this.kept.set(l.spot.id, { build: v.build, x: v.sim.px, z: v.sim.pz, yaw: v.sim.yaw, loose: this.host.ridersOf(v), ...(rev ? { room: rev } : {}) });
   }
 
   private despawn(l: LiveWreck): void {

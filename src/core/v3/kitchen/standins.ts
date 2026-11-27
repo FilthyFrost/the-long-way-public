@@ -29,6 +29,22 @@ export const SAME_AS: Readonly<Record<string, string>> = {
   smelt: 'brookfish', crayfish: 'shrimp',
 };
 
+/** what the modules add to it as they are loaded (addSameAs): an item's id → the ingredient of the pantry it is */
+const ALSO_SAME: Record<string, string> = {};
+
+/**
+ * A module's own things that are one of the sixty to the pot (docs/V3/plan/finish.md §八 4: the rod's fish, each the
+ * kitchen's fish of its rarity): an item's id → the pantry's ingredient. As the module is loaded.
+ */
+export function addSameAs(map: Readonly<Record<string, string>>): void {
+  Object.assign(ALSO_SAME, map);
+}
+
+/** the pantry's ingredient a thing is to the pot though it is not that ingredient's own item (a wild thing, a fish off the rod); null: none */
+export function sameAs(item: string): string | null {
+  return SAME_AS[item] ?? ALSO_SAME[item] ?? null;
+}
+
 /** the class of a thing that is none of the sixty and stands in for a kind; null: it is no ingredient */
 export const classOf: ClassOf = (item) => {
   const i = ingredient(item);
@@ -40,7 +56,7 @@ export const classOf: ClassOf = (item) => {
 export function portionOfItem(item: string): Portion | null {
   const p = portionOf(item);
   if (p) return p;
-  const same = SAME_AS[item];
+  const same = sameAs(item);
   if (same) return { id: same };
   return classOf(item) ? { id: item } : null;
 }

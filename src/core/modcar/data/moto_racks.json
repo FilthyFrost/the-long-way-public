@@ -1,5 +1,5 @@
 {
-  "_doc": "Where the motorcycle stands on its rack (docs/V3/plan/growth.md §六 2, J9e): the middle of the rack's tray (the motorcycle's model origin: under the middle of its wheels) from the hitch mount, x back and y up, frame model space. Further back on the frames whose body stands out behind their rear bumper (the Goat's spare wheel on its door, the Rhino's box, the Snail's, the Fox's tail): the motorcycle across the tray clear of the body's box by 8 cm. The Blender script (tools/blender/parts/body.py build_moto_rack) builds moto_rack@<frame> for each frame named here.",
+  "_doc": "Where the motorcycle stands on its rack (docs/V3/plan/growth.md §六 2, J9e): the middle of the rack's tray (the motorcycle's model origin: under the middle of its wheels) from the hitch mount, x back and y up, frame model space. Further back on the frames whose body stands out behind their rear bumper (the Goat's spare wheel on its door, the Rhino's box, the Snail's, the Fox's tail, the Whale's tail lights and ladder feet since its back grew: docs/V3/plan/finish.md §18): the motorcycle across the tray clear of the body's box by 8 cm. The Blender script (tools/blender/parts/body.py build_moto_rack) builds moto_rack@<frame> for each frame named here.",
   "tray": [-0.48, 0.11],
-  "frames": { "goat": -0.77, "rhino": -0.64, "fox": -0.55, "snail": -0.54 }
+  "frames": { "goat": -0.77, "rhino": -0.64, "fox": -0.55, "snail": -0.54, "rv": -0.58 }
 }

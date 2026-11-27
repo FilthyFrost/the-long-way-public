@@ -25,7 +25,7 @@ import { MergedCar } from '../../../render/carMerge';
 import { cloneModel, itemGlb } from '../../assets';
 import type { GameContext } from '../../kernel/context';
 import { applyMaterials, type CarMaterials, type LookOf } from '../../materials';
-import { KitDevice, type GhostAt, type Kitchen, type Unit } from './system';
+import { KitDevice, STEAMER_LIFT, type GhostAt, type Kitchen, type Unit } from './system';
 import { addLight, Glow, spot, Vapour } from './vapour';
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -40,8 +40,6 @@ const approach = (v: number, to: number, dt: number, k: number): number => to + 
 const FOOD_GLOSS = 0.22;
 /** how a vessel stands on the burner: turned about its upright so that a handle or a spout points to the cook's left */
 const ON_STOVE_YAW: Readonly<Record<string, number>> = { kit_pan: -0.6, kit_kettle: 2.35 };
-/** how high the steamer stands over the burner on the pot of water it is set on: the pot's rim (cookware.py kit_pot) */
-const STEAMER_LIFT = 0.131;
 /** where the kettle's spout ends, in its own frame (cookware.py kit_kettle): its steam comes out there */
 const SPOUT = new THREE.Vector3(-0.147, 0.108, 0);
 /** the room each vessel has for what is in it: how far the portions lie from its middle, how big one may be, how high they lie over its floor, and a soup's surface (0: none) */
@@ -54,6 +52,12 @@ const ROOM: Readonly<Record<Way, { r: number; cell: number; lift: number; liquid
   bake: { r: 0.048, cell: 0.075, lift: 0.0, liquid: 0, liquidR: 0 },
   brew: { r: 0, cell: 0, lift: 0, liquid: 0, liquidR: 0 },
 };
+/** the stove's knob against its model (4 cm across there), and its ring's colours: the flame off, low, high */
+const KNOB_SCALE = 1.6;
+const KNOB_OFF = 0x4a4f56;
+const KNOB_LOW = 0xf2b84a;
+const KNOB_HIGH = 0xff4a22;
+
 /** the doneness the ring runs to */
 const RING_MAX = 1.8;
 
@@ -281,7 +285,8 @@ class Ring {
   };
 
   constructor() {
-    const g = new THREE.RingGeometry(0.88, 1, 48, 1).rotateX(-Math.PI / 2);
+    // (half as thick again as it was: read at a glance from where one stands — docs/V3/plan/finish.md §八 6)
+    const g = new THREE.RingGeometry(0.82, 1, 48, 1).rotateX(-Math.PI / 2);
     const m = new THREE.ShaderMaterial({
       uniforms: this.u,
       transparent: true,
@@ -521,6 +526,7 @@ class UnitView {
   private cover: THREE.Object3D | null = null;
   private lever: THREE.Object3D | null = null;
   private knob: THREE.Object3D | null = null;
+  private knobRing: THREE.Mesh | null = null;
   private ownLid: THREE.Object3D | null = null;
   private knife: THREE.Object3D | null = null;
   private readonly knifeRest = new THREE.Vector3();
@@ -573,9 +579,9 @@ class UnitView {
     private readonly view: KitchenView,
     readonly unit: Unit,
   ) {
-    this.group.name = `kitchen:${unit.loose.uid}`;
+    this.group.name = `kitchen:${unit.key}`;
     this.group.add(this.holder);
-    this.contents = new Contents(view.mats, `kitchen:${unit.loose.uid}:pot`);
+    this.contents = new Contents(view.mats, `kitchen:${unit.key}:pot`);
     this.holder.add(this.contents.group);
     this.seen.chopped = unit.chopped;
     this.seen.stirred = unit.stirred;
@@ -588,9 +594,27 @@ class UnitView {
     const own = obj.children[0] ?? null;
     if (own === this.own) return;
     this.own = own;
-    this.cover = obj.getObjectByName('COVER') ?? null;
-    this.lever = obj.getObjectByName('LEVER') ?? null;
-    this.knob = obj.getObjectByName('KNOB_fire') ?? null;
+    // (a two-burner stove's second burner: its own pieces and places, named with _B — tools/blender/items/cookware.py;
+    // not _1, which a loaded mesh of several materials calls its first piece)
+    const sx = this.unit.burner > 0 ? '_B' : '';
+    this.cover = obj.getObjectByName(`COVER${sx}`) ?? null;
+    this.lever = obj.getObjectByName(`LEVER${sx}`) ?? null;
+    this.knob = obj.getObjectByName(`KNOB_fire${sx}`) ?? null;
+    // (the knob bigger than it is modelled, 4 cm to some 6.5 — docs/V3/plan/finish.md §八 6 — and a ring round it
+    // that says how high the flame is: dark off, amber low, red high)
+    if (this.knob) {
+      this.knob.scale.setScalar(KNOB_SCALE);
+      this.knobRing?.removeFromParent();
+      const box = new THREE.Box3().setFromObject(this.knob);
+      const size = box.getSize(new THREE.Vector3());
+      // (in the stove's own frame the knob's axis is x, its face to the front: the ring round it in y–z)
+      const r = (Math.max(size.y, size.z) / 2) * 1.12;
+      this.knobRing = new THREE.Mesh(new THREE.TorusGeometry(Math.max(0.02, r), 0.0045, 8, 28).rotateY(Math.PI / 2), new THREE.MeshBasicMaterial({ color: KNOB_OFF, toneMapped: false }));
+      this.knobRing.name = 'kitchen:knob-ring';
+      this.knobRing.position.copy(this.knob.position);
+      this.knobRing.position.x += 0.004;
+      this.knob.parent?.add(this.knobRing);
+    }
     this.ownLid = obj.getObjectByName('LID') ?? null;
     this.knife = obj.getObjectByName('P_knife') ?? null;
     if (this.ownLid) {
@@ -602,9 +626,9 @@ class UnitView {
       const n = obj.getObjectByName(name);
       if (n) into.copy(n.position);
     };
-    at('M_pot', this.mPot);
-    at('M_flame', this.mFlame);
-    at('M_can', this.mCan);
+    at(`M_pot${sx}`, this.mPot);
+    at(`M_flame${sx}`, this.mFlame);
+    at(`M_can${sx}`, this.mCan);
     at('M_food', this.mFood);
   }
 
@@ -685,7 +709,8 @@ class UnitView {
       }
       this.holder.position.copy(this.mPot);
       if (under) this.holder.position.y += STEAMER_LIFT;
-      this.holder.rotation.y = v ? (ON_STOVE_YAW[v] ?? 0) : 0;
+      // (turned as it was set down there held out — nd-place's slot — else as the button sets it on)
+      this.holder.rotation.y = v ? (kitOf(it).onYaw ?? ON_STOVE_YAW[v] ?? 0) : 0;
       lid = this.vesselLid;
       lidRest = this.vesselLidRest;
       lidR = this.vesselLidR;
@@ -845,9 +870,10 @@ class UnitView {
     const fire = fireOf(it);
     this.knobA = approach(this.knobA, fire === 2 ? -2.0 : fire === 1 ? -1.0 : 0, dt, 14);
     if (this.knob) this.knob.rotation.x = this.knobA;
+    if (this.knobRing) (this.knobRing.material as THREE.MeshBasicMaterial).color.setHex(fire === 2 ? KNOB_HIGH : fire === 1 ? KNOB_LOW : KNOB_OFF);
     // the canister lying in the bay, its valve to the front
     if (show && !this.can) {
-      this.can = new Model(mats, `kitchen:${u.loose.uid}:can`, itemDef(GAS).model, itemPaint(newItem(GAS)));
+      this.can = new Model(mats, `kitchen:${u.key}:can`, itemDef(GAS).model, itemPaint(newItem(GAS)));
       this.group.add(this.can.obj);
     }
     if (this.can) {
@@ -1075,7 +1101,7 @@ export class KitchenView {
     this.keep.clear();
     for (let i = 0; i < list.length; i++) {
       const g = list[i];
-      const key = `${g.unit ? g.unit.loose.uid : 'world'}:${g.slot}:${g.item}`;
+      const key = `${g.unit ? g.unit.key : 'world'}:${g.slot}:${g.item}`;
       this.keep.add(key);
       let o = this.ghosts.get(key);
       const kind: GhostObj['kind'] = g.slot === 'can' && g.unit && hasCanister(g.unit.item) ? 'replace' : 'empty';

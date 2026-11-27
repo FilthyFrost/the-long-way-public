@@ -168,6 +168,16 @@ export class RodView {
   private readonly tmp2 = new THREE.Vector3();
   private readonly side = new THREE.Vector3();
   private blankColour = -1;
+  /**
+   * Where the hands hold it, as it was last drawn (render space): the rear grip's middle and the rod's line there,
+   * the fore grip's middle, the reel handle's knob and which way the reel's face looks, how fast it winds (0 … 1)
+   */
+  readonly gripAt = new THREE.Vector3();
+  readonly gripAxis = new THREE.Vector3(0, 0, -1);
+  readonly foreAt = new THREE.Vector3();
+  readonly knobAt = new THREE.Vector3();
+  readonly reelOut = new THREE.Vector3(-1, 0, 0);
+  winding = 0;
   // ---- the reel
   private readonly reel = new THREE.Group();
   private readonly handle = new THREE.Group();
@@ -663,6 +673,13 @@ export class RodView {
     this.crank += dt * pose.reel * 2.6 * Math.PI * 2;
     this.handle.rotation.x = -this.crank;
     this.reel.updateMatrixWorld(true);
+    // where her hands go (render space): the rear grip under the right palm, the fore grip, the handle's knob
+    this.gripAt.copy(hold).addScaledVector(dir, 0.012);
+    this.gripAxis.copy(dir);
+    this.foreAt.copy(hold).addScaledVector(dir, REEL_AT + 0.115);
+    this.handle.localToWorld(this.knobAt.set(0.047, CRANK, 0));
+    this.reelOut.copy(axis);
+    this.winding = pose.reel;
     // ---- the line run from the top of the reel's spool up through every guide to the tip
     {
       const pts = this.runPts;

@@ -29,6 +29,29 @@ export interface FrameOptions {
   reversed?: boolean;
 }
 
+/**
+ * A thing drawn alone and laid over the frame, seen through about the mark (the thing carried: modcar/held.ts, as
+ * Nomad Drive does — core/v3/nd/viewFade.ts). It is kept out of the scene's own pass and drawn into a layer of its own
+ * with its own depth, so that only its nearest faces are there (nothing of its inside, its shelves, its doors); laid
+ * over the scene where it stands in front of it (her hands on it, a wall it is pushed into, stay over it), its faces
+ * see-through in an oval about the mark — at full fade to `minOpacity` within `inner` screen heights of it, to
+ * `edgeOpacity` from `outer` on — and its outline left: an inked edge and a band of its own colour inside it, as
+ * opaque as `lineOpacity` (widths in pixels of a frame 1080 high).
+ */
+export interface SeeLayer {
+  readonly root: THREE.Object3D;
+  /** how far it is seen through (0 … 1) */
+  weight: number;
+  minOpacity: number;
+  edgeOpacity: number;
+  inner: number;
+  outer: number;
+  stretch: number;
+  lineOpacity: number;
+  inkPx: number;
+  bandPx: number;
+}
+
 export class Frame {
   readonly rtScene: THREE.WebGLRenderTarget;
   bloom = STYLE.pipeline.bloom.strength;
@@ -70,6 +93,14 @@ export class Frame {
   private readonly finalMat: THREE.ShaderMaterial;
   private width = 0;
   private height = 0;
+  /** the thing laid over the frame this frame (null: none) — set by whoever draws it, each frame */
+  overlay: SeeLayer | null = null;
+  /** its layer (made the first time one is laid over), and the frame's MSAA and depth for it */
+  private rtLayer: THREE.WebGLRenderTarget | null = null;
+  private readonly samples: number;
+  private readonly reversed: boolean;
+  /** (bound in its place while there is no layer) */
+  private readonly noLayer = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -77,6 +108,9 @@ export class Frame {
   ) {
     this.paint = opts.paint;
     this.smaa = opts.smaa ?? false;
+    this.samples = opts.samples;
+    this.reversed = !!opts.reversed;
+    this.noLayer.needsUpdate = true;
     // (made now: its two lookup images decode asynchronously, and the first shot must have them)
     if (this.smaa) this.makeSmaa();
     const hdr = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, colorSpace: THREE.NoColorSpace } as const;
@@ -159,6 +193,11 @@ export class Frame {
       uniform vec3 uShaftColor;
       uniform float uAspect;
       uniform float uNight;
+      uniform sampler2D tLayer;      // the thing laid over the frame (SeeLayer): its colour by how much of the pixel it covers, that in alpha
+      uniform sampler2D tLayerDepth;
+      uniform vec4 uLayer;           // x how far it is seen through (0: no layer), y its faces' least opacity, z its outline's, w its band's width (px)
+      uniform vec4 uLayerWin;        // x, y the window's inner and outer radius (screen heights), z its stretch across, w the inked edge's width (px)
+      uniform float uLayerEdge;      // its faces' opacity outside the window at full fade
       varying vec2 vUv;
 
       // The inked line of a cel-painted thing (the vehicle): its parts write small alphas of their own
@@ -248,6 +287,46 @@ export class Frame {
       vec3 toSrgb(vec3 c) {
         return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
       }
+      // How much of the pixel the thing laid over covers, where it stands in front of the scene (SeeLayer)
+      float layerCover = 0.0;
+      // The thing laid over the frame (SeeLayer; Nomad Drive's view fade): its faces see-through in the window about the
+      // mark, as far as the fade goes; its outline kept — an inked edge where it ends and a band of its own colour inside
+      // that, so that its shape still reads with its inside gone.
+      vec3 overLayer(vec3 c) {
+        vec4 L = texture2D(tLayer, vUv);
+        if (L.a <= 0.002) return c;
+        // (behind what the scene has in front of it — her hand on it, a wall it is pushed into: the scene's)
+        float dl = texture2D(tLayerDepth, vUv).r;
+        float ds = texture2D(tDepth, vUv).r;
+        #ifdef USE_REVERSED_DEPTH_BUFFER
+        if (dl > 0.0 && dl < ds) return c;
+        #else
+        if (dl < 1.0 && dl > ds) return c;
+        #endif
+        vec2 q = (vUv - 0.5) * vec2(uAspect, 1.0);
+        q.x /= max(uLayerWin.z, 0.01);
+        float t = clamp((length(q) - uLayerWin.x) / max(uLayerWin.y - uLayerWin.x, 1e-4), 0.0, 1.0);
+        float face = mix(1.0, mix(uLayerEdge, uLayer.y, 1.0 - t * t * (3.0 - 2.0 * t)), clamp(uLayer.x, 0.0, 1.0));
+        // where it ends: the least of its cover round the pixel, a hair out (the ink) and a band's width out
+        vec2 px = uPaintTexel * max(1.0, 1.0 / (uPaintTexel.y * 1080.0));
+        float m1 = 1.0;
+        float m2 = 1.0;
+        for (int i = 0; i < 8; i++) {
+          float a = float(i) * 0.7853982;
+          vec2 d = vec2(cos(a), sin(a)) * px;
+          m1 = min(m1, texture2D(tLayer, vUv + d * uLayerWin.w).a);
+          m2 = min(m2, texture2D(tLayer, vUv + d * uLayer.w).a);
+        }
+        float ink = clamp((L.a - m1) * 1.6, 0.0, 1.0);
+        float band = clamp((L.a - m2) * 1.6, 0.0, 1.0);
+        float o = max(face, band * uLayer.z);
+        layerCover = L.a * o;
+        // (its colour is drawn by how much of the pixel it covers: its own, over the scene by the opacity there; the
+        // band lifted to a grey where its own is too dark to be seen — more so by night)
+        vec3 rim = max(L.rgb, L.a * vec3(mix(0.06, 0.2, uNight) / max(uExposure, 0.1)));
+        c = c * (1.0 - L.a * o) + mix(L.rgb, rim, band) * o;
+        return mix(c, c * uInkColor, uInk * ink * max(face, uLayer.z));
+      }
       void main() {
         vec3 c = (uPaint > 0.5 ? painted(vUv) : texture2D(tHdr, vUv).rgb) + texture2D(tBloom, vUv).rgb * uBloom;
         vec2 ink = inkAt(vUv);
@@ -266,6 +345,8 @@ export class Frame {
           vec2 q = dir * vec2(uAspect, 1.0);
           c += uShaftColor * (acc / 12.0) * uShaft.z * exp(-dot(q, q) * 2.4);
         }
+        // the thing carried, laid over what is behind it
+        if (uLayer.x > 0.0) c = overLayer(c);
         vec2 d = vUv - 0.5;
         c *= 1.0 - uVignette * dot(d, d) * 1.6;
         c *= uExposure;
@@ -273,7 +354,7 @@ export class Frame {
         if (uNight > 0.01) {
           float a0 = texture2D(tHdr, vUv).a;
           float ln = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          float kn = uNight * (1.0 - smoothstep(0.06, 0.45, ln)) * (1.0 - step(abs(a0 - 0.25), 0.05)) * 0.7;
+          float kn = uNight * (1.0 - smoothstep(0.06, 0.45, ln)) * (1.0 - step(abs(a0 - 0.25), 0.05) * (1.0 - layerCover)) * 0.7;
           c = mix(c, vec3(ln) * vec3(0.6, 0.82, 1.3), kn);
         }
         // a painter's curve: below the knee the colour stays as mixed, only the brightest lights are eased in
@@ -312,8 +393,48 @@ export class Frame {
         uShaftColor: { value: this.shaftColor },
         uAspect: { value: 16 / 9 },
         uNight: { value: 0 },
+        tLayer: { value: this.noLayer },
+        tLayerDepth: { value: this.noLayer },
+        uLayer: { value: new THREE.Vector4(0, 1, 1, 3) },
+        uLayerWin: { value: new THREE.Vector4(0.12, 0.42, 1.4, 1.4) },
+        uLayerEdge: { value: 1 },
       },
     );
+  }
+
+  /**
+   * The layer the thing laid over the frame is drawn into: the scene's size and kind of depth, two samples at most (its
+   * edge is under the outline; the scene's four would double the frame's largest target for it) — made once
+   */
+  private layerTarget(w: number, h: number): THREE.WebGLRenderTarget {
+    let rt = this.rtLayer;
+    if (!rt) {
+      const depth = new THREE.DepthTexture(1, 1, this.reversed ? THREE.FloatType : THREE.UnsignedIntType);
+      depth.minFilter = depth.magFilter = THREE.NearestFilter;
+      rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, colorSpace: THREE.NoColorSpace, samples: Math.min(2, this.samples), depthBuffer: true, stencilBuffer: false, depthTexture: depth });
+      this.rtLayer = rt;
+    }
+    if (rt.width !== w || rt.height !== h) rt.setSize(w, h);
+    return rt;
+  }
+
+  /**
+   * The thing laid over the frame (SeeLayer), drawn alone into its layer: cleared to nothing, its own depth, its
+   * materials writing how much of each pixel they cover (carMaterials.ts drawnAlone) — the final pass lays it over
+   */
+  private drawLayer(lay: SeeLayer, camera: THREE.PerspectiveCamera, w: number, h: number): void {
+    const r = this.renderer;
+    const rt = this.layerTarget(w, h);
+    r.setRenderTarget(rt);
+    r.setClearColor(0x000000, 0);
+    r.clear();
+    const auto = r.autoClear;
+    r.autoClear = false;
+    try {
+      r.render(lay.root, camera);
+    } finally {
+      r.autoClear = auto;
+    }
   }
 
   private makeSmaa(): void {
@@ -352,10 +473,31 @@ export class Frame {
     const r = this.renderer;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     this.fit(size.x, size.y);
+    // (the thing laid over the frame, if it is to be drawn at all: kept out of the scene's pass, drawn alone after it)
+    const ov = this.overlay;
+    const lay = ov && ov.weight > 0 && ov.root.visible ? ov : null;
+    if (lay) lay.root.visible = false;
     r.setRenderTarget(this.rtScene);
     r.setClearColor(0x000000, 0);
     r.clear();
-    r.render(scene, camera);
+    try {
+      r.render(scene, camera);
+    } finally {
+      if (lay) lay.root.visible = true;
+    }
+    if (lay) this.drawLayer(lay, camera, size.x, size.y);
+    const ul = this.finalMat.uniforms;
+    if (lay && this.rtLayer) {
+      ul.tLayer.value = this.rtLayer.texture;
+      ul.tLayerDepth.value = this.rtLayer.depthTexture;
+      (ul.uLayer.value as THREE.Vector4).set(Math.min(1, lay.weight), lay.minOpacity, lay.lineOpacity, lay.bandPx);
+      (ul.uLayerWin.value as THREE.Vector4).set(lay.inner, lay.outer, lay.stretch, lay.inkPx);
+      ul.uLayerEdge.value = lay.edgeOpacity;
+    } else {
+      ul.tLayer.value = this.noLayer;
+      ul.tLayerDepth.value = this.noLayer;
+      (ul.uLayer.value as THREE.Vector4).x = 0;
+    }
 
     // bloom chain
     let src: THREE.WebGLRenderTarget = this.rtScene;

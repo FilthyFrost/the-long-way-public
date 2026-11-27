@@ -2,7 +2,9 @@
  * The recipe book (docs/V3/plan/cooking.md §3): every dish made goes into it by itself — how often, and whether it
  * once came out perfect; a combination that came to nothing is noted too, so that the pot can say so the next time the
  * same things go in. A dish not yet made is a silhouette with its stars and a hint (the kinds of what it is made of,
- * never the names). One dish may be pinned: what it needs is pointed out when it is in the hands.
+ * never the names) — and it is in the book only once one has met what it is made of (docs/V3/plan/finish.md §八 5: 你见过
+ * 哪些食材，本子上才出现用到它们的菜): every ingredient that comes into the hands is noted, and a new one brings the
+ * dishes it completes. One dish may be pinned: what it needs is pointed out when it is in the hands.
  *
  * Pure data and rules; the game's module keeps a book in the save.
  */
@@ -19,6 +21,11 @@ export interface BookData {
   pin?: string;
   /** the kitchen's tips shown once already (game/modcar/v3/kitchen: TIPS) */
   tips?: string[];
+  /**
+   * the ingredients one has had in the hands (the pantry's ids). Absent in a book kept before they were noted: every
+   * dish is in that book, as it always was
+   */
+  seen?: string[];
 }
 
 /** a tip not yet shown: shown now (true), and never again in this book */
@@ -33,7 +40,29 @@ export function firstTip(book: BookData, id: string): boolean {
 export const FAILS_KEPT = 200;
 
 export function newBook(): BookData {
-  return { made: {}, fails: [] };
+  return { made: {}, fails: [], seen: [] };
+}
+
+/**
+ * Is a dish in the book for one to see: made already — or one that could be made of what one has met, every thing it
+ * needs by its name or of its kind (a book kept before the ingredients were noted: every dish)
+ */
+export function shown(book: BookData, d: DishDef): boolean {
+  const seen = book.seen;
+  if (!seen || book.made[d.id]) return true;
+  return d.need.every((t) => (t.startsWith('@') ? seen.some((id) => FOOD[id]?.tags.includes(t.slice(1))) : seen.includes(t)));
+}
+
+/**
+ * An ingredient has come into the hands: met for the first time, it is noted — the dishes not made yet that come into
+ * the book with it (none: met before, no ingredient of the pantry's, or it completes nothing yet)
+ */
+export function meet(book: BookData, food: string): DishDef[] {
+  const seen = book.seen;
+  if (!seen || !FOOD[food] || seen.includes(food)) return [];
+  const before = new Set(DISHES.filter((d) => shown(book, d)));
+  seen.push(food);
+  return DISHES.filter((d) => !before.has(d) && shown(book, d));
 }
 
 /** a combination's name: the way, and what went in, in no order */
@@ -147,7 +176,10 @@ export function fillBook(book: BookData, perfect = false): void {
 export function cleanBook(raw: unknown): BookData {
   const out = newBook();
   if (!raw || typeof raw !== 'object') return out;
-  const r = raw as { made?: unknown; fails?: unknown; pin?: unknown; tips?: unknown };
+  const r = raw as { made?: unknown; fails?: unknown; pin?: unknown; tips?: unknown; seen?: unknown };
+  // (a book kept before the ingredients were noted: it says nothing of them, and shows every dish as it did)
+  if (Array.isArray(r.seen)) out.seen = [...new Set(r.seen.filter((id): id is string => typeof id === 'string' && !!FOOD[id]))];
+  else delete out.seen;
   if (r.made && typeof r.made === 'object' && !Array.isArray(r.made)) {
     for (const [id, e] of Object.entries(r.made as Record<string, unknown>)) {
       if (!DISH[id] || !e || typeof e !== 'object') continue;

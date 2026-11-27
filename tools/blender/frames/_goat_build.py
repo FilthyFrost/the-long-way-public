@@ -617,9 +617,10 @@ def mounts(ex, panels):
     p, d = IN.steering_mount()
     ang = math.radians(28)
     E.append(mount('steering', tuple(p), dict(cat='steering', column_deg=28.0), rot=K.frame_from(d, (math.sin(ang), 0, math.cos(ang)))))
-    fz = IN.FLOOR_Z + 0.03
     for name, x, y, drv, side, note in (('seat_driver', IN.SEAT_X, IN.DRIVER_Y, True, -1, ''), ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, False, 1, ''),
                                         ('seat_rear', IN.REAR_SEAT_X, 0.0, False, 0, 'a bench across the rear, ahead of the rear wheel tubs')):
+        # (the front buckets on runners let into the floor, the rear bench on its rails)
+        fz = IN.FLOOR_Z + (0.03 if name == 'seat_rear' else IN.SEAT_RISE)
         E.append(mount(name, (x, y, fz), dict(cat='seat', driver=drv, floor_z=round(fz, 4), side=side, note=note)))
     for pname, info in panels.items():
         if info['mount'] is None:

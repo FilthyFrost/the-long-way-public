@@ -8,7 +8,8 @@
 //    taken up and fitted by hand at its place on the car;
 //  - the last of the sixteen on: 方糖装齐了, said once; the page says it is whole (and that it could have a radio); the
 //    boot, its lid on, takes the can;
-//  - a world made before (version 6): the workshop as it always was — twenty-nine parts, the board's last group.
+//  - a world made before (version 6): the workshop as it always was — twenty-nine parts, the board's last group;
+//  - an address that names no world: a new game's is of version 7, the rougher start with it.
 //   SHOTS_GPU=1 node harness/shots/f6_start.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -254,6 +255,18 @@ try {
       return { parts: g.loose.list.filter((l) => l.part).length, car: g.tutorialSteps().filter((s) => s.group === 'car').length, lamp: g.tutorialSteps().some((s) => s.id === 'lamp') };
     });
     ok(old.parts === 29 && old.car === 8 && !old.lamp, `a world of version 6: twenty-nine parts about the room, the board's last group there (${JSON.stringify(old)})`);
+    // ---------------------------------------------------------------- no world named: a new game's is the newest
+    // (the page sent on by itself: an address a script opens is given world=1 — lib.mjs withWorld)
+    await ev((seed) => {
+      window.location.href = `/modcar.html?shot=1&kit=j5&time=10&seed=${seed}`;
+    }, SEED).catch(() => {});
+    await page.waitForFunction(() => !/world=/.test(window.location.search) && window.__rt && window.__rt.ready === true, null, { timeout: 180_000 });
+    await ev(() => window.__rt.simulate(1.0));
+    const plain = await ev(() => {
+      const g = window.__rt.game;
+      return { asked: window.location.search, world: g.params.world, rules: g.world.rules.version, parts: g.loose.list.filter((l) => l.part).length, lamp: g.tutorialSteps().some((s) => s.id === 'lamp') };
+    });
+    ok(plain.world === 7 && plain.rules === 7 && plain.parts === 13 && plain.lamp, `no world named in the address: a new game's world is of version 7, its start the rougher one (${JSON.stringify(plain)})`);
     if (errors.length) fail(`page errors: ${errors.slice(0, 5).join(' | ')}`);
     await page.close();
   }

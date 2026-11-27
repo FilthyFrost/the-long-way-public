@@ -46,7 +46,7 @@ D = dict(
     r_rail=0.028, r_header=0.036, r_rheader=0.055,
     # cuts
     gap=0.005, edge_r=0.0022,
-    door_bot=0.268, fd_front=0.725, fd_rear=-0.288, rd_front=-0.298, rd_rear=-1.095,
+    door_bot=0.268, fd_front=0.725, fd_rear=-0.288, rd_front=-0.288, rd_rear=-1.095,
     bp_front=-0.285, bp_rear=-0.345, rail_z=1.336, a_edge=0.026, cp_bot=-1.090, cp_top=-1.000,
     hood_rear=0.93, hood_w=0.752, hood_front_in=0.058, trunk_front=-1.535, trunk_w=0.750, trunk_rear_in=0.050,
     lamp_y=0.585, lamp_z=0.655, lamp_d=0.205,

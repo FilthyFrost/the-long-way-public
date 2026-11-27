@@ -7,8 +7,9 @@ import { CAMERA, filmOf, loadFilm, useFilm, zoomAt, ejected, developed } from '.
 import { coffeeLack, coffeeOf, coffeeStep, ND_COFFEE, pourBag, putCup, startBrew, takeCup, takesBag } from '../../src/core/v3/nd/coffee';
 import { BATTERY, hasBattery, insertBattery } from '../../src/core/v3/nd/battery';
 import { chargeOf, drainGrinder, GRINDER, biteAt, runLeft } from '../../src/core/v3/nd/grinder';
-import { ND_CAMERA, ND_COFFEE_MACHINE, ND_FRIDGE, ND_GRINDER, ND_MUG, ND_POT, ND_SEEDS, registerNdItems } from '../../src/core/v3/nd/items';
-import { cropOfSeeds, fruitsLeft, GROW_S, pick, potOf, potStep, sow, stageOf, water } from '../../src/core/v3/nd/plants';
+import { CROP_IDS, CROP_INFO, ND_CAMERA, ND_COFFEE_MACHINE, ND_FRIDGE, ND_FRUIT, ND_GRINDER, ND_MUG, ND_POT, ND_SEEDS, registerNdItems } from '../../src/core/v3/nd/items';
+import { cropOfSeeds, CROPS, fruitsLeft, grownOf, growSOf, pick, POT, potOf, potStep, sow, stageOf, uproot, waitsFor, water } from '../../src/core/v3/nd/plants';
+import { FOOD } from '../../src/core/v3/kitchen/pantry';
 
 registerNdItems();
 
@@ -69,40 +70,103 @@ describe('ND things', () => {
     expect(coffeeOf(m).fill).toBe(ND_COFFEE.bag);
   });
 
-  it('the plant pot grows four stages of 15 s on a litre, waits dry, bears four apples, is bare again', () => {
+  it('the plant pot grows by day on its water — a quick crop through twenty-one minutes of daylight on two waterings — waits dry and in the dark, bears, and bears again', () => {
     const p = newItem(ND_POT);
     expect(cropOfSeeds(ND_SEEDS.apple)).toBe('apple');
+    expect(cropOfSeeds(ND_SEEDS.strawberry)).toBe('strawberry');
+    expect(cropOfSeeds('nd_mug')).toBeNull();
     expect(stageOf(p)).toBe(-1);
-    expect(sow(p, 'apple')).toBe(true);
-    expect(sow(p, 'tomato')).toBe(false);
+    expect(sow(p, 'tomato')).toBe(true);
+    // (something grows here: another crop only when it is sown over it — never the same one over itself)
+    expect(sow(p, 'apple')).toBe(false);
+    expect(sow(p, 'tomato', true)).toBe(false);
     // dry: nothing grows
-    for (let i = 0; i < 100; i++) potStep(p, 0.1);
+    for (let i = 0; i < 100; i++) potStep(p, 1);
     expect(potOf(p).grown).toBe(0);
-    // a quarter litre: some 15 s, then it waits
-    expect(water(p, 0.25)).toBeCloseTo(0.25, 6);
-    for (let i = 0; i < 300; i++) potStep(p, 0.1);
-    expect(potOf(p).grown).toBeCloseTo(15, 3);
-    expect(stageOf(p)).toBe(1);
-    // the rest: 45 s more and it is ripe
+    expect(waitsFor(p)).toBe('water');
+    // the soil's litre; in the dark nothing grows either
     expect(water(p, 5)).toBeCloseTo(1, 6);
+    for (let i = 0; i < 100; i++) potStep(p, 1, 0);
+    expect(potOf(p).grown).toBe(0);
+    expect(waitsFor(p, 0)).toBe('sun');
+    expect(waitsFor(p, 1)).toBeNull();
+    // by day: a quarter of an hour of growing on that litre, then it waits for more
+    for (let i = 0; i < 2000; i++) potStep(p, 1);
+    expect(potOf(p).grown).toBeCloseTo(POT.lastsS, 3);
+    expect(growSOf('tomato')).toBe(1260);
+    expect(stageOf(p)).toBe(2);
+    expect(waitsFor(p)).toBe('water');
+    // watered again: the rest, and it is ripe
+    water(p, 5);
     let ripe = false;
     let t = 0;
-    while (!ripe && t < 100) {
-      ripe = potStep(p, 0.1);
-      t += 0.1;
+    while (!ripe && t < 5000) {
+      ripe = potStep(p, 1);
+      t += 1;
     }
-    expect(t).toBeCloseTo(GROW_S - 15, 0);
+    expect(t).toBeCloseTo(growSOf('tomato') - POT.lastsS, 0);
     expect(stageOf(p)).toBe(4);
-    expect(potOf(p).water).toBeCloseTo(0.25, 2);
+    expect(waitsFor(p)).toBeNull();
     expect(fruitsLeft(p)).toEqual([0, 1, 2, 3]);
-    // (the kitchen's own apple: docs/V3/plan/growth.md §三)
-    expect(pick(p, 2)).toBe('ing_apple');
+    // (the kitchen's own tomato: docs/V3/plan/growth.md §三)
+    expect(pick(p, 2)).toBe('ing_tomato');
     expect(pick(p, 2)).toBeNull();
-    for (const i of [0, 1, 3]) expect(pick(p, i)).toBe('ing_apple');
+    for (const i of [0, 1, 3]) expect(pick(p, i)).toBe('ing_tomato');
+    // picked bare it is half grown again, and bears once more after the other half
+    expect(potOf(p).crop).toBe('tomato');
+    expect(grownOf(p)).toBeCloseTo(POT.again, 6);
+    expect(potOf(p).borne).toBe(1);
+    expect(fruitsLeft(p)).toEqual([]);
+    ripe = false;
+    t = 0;
+    while (!ripe && t < 5000) {
+      water(p, 5);
+      // (half the sun: half as fast)
+      ripe = potStep(p, 1, 0.5);
+      t += 1;
+    }
+    expect(t).toBeCloseTo(growSOf('tomato') * (1 - POT.again) * 2, -1);
+    expect(fruitsLeft(p)).toEqual([0, 1, 2, 3]);
+    // another crop sown over it takes its place; pulled up, the pot is empty and its soil keeps its water
+    expect(sow(p, 'watermelon', true)).toBe(true);
+    expect(potOf(p)).toMatchObject({ crop: 'watermelon', grown: 0 });
+    expect(potOf(p).left).toBeUndefined();
+    expect(uproot(p)).toBe(true);
     expect(stageOf(p)).toBe(-1);
-    // (the soil keeps its water for the next)
-    expect(potOf(p).water).toBeCloseTo(0.25, 2);
-    expect(sow(p, 'watermelon')).toBe(true);
+    expect(potOf(p).water).toBeGreaterThan(0.5);
+    expect(uproot(p)).toBe(false);
+  });
+
+  it('the seventeen crops: the garden\'s sixteen and the apple — each its packet of seeds, what it bears one of the kitchen\'s ingredients, a day or two of the game to grow', () => {
+    expect(CROP_IDS.length).toBe(17);
+    for (const id of ['tomato', 'potato', 'carrot', 'onion', 'cabbage', 'cucumber', 'corn', 'lettuce', 'pepper', 'eggplant', 'pumpkin', 'broccoli', 'chili', 'garlic', 'strawberry', 'watermelon', 'apple']) expect(CROP_IDS).toContain(id);
+    for (const id of CROP_IDS) {
+      const seeds = itemDef(ND_SEEDS[id]);
+      expect(seeds.model, id).toBe('nd_seed_packet');
+      expect(seeds.name.zh).toBe(`${CROP_INFO[id].zh}种子`);
+      expect(seeds.stars).toBe(CROP_INFO[id].stars);
+      expect(cropOfSeeds(ND_SEEDS[id])).toBe(id);
+      // (what it bears: the pantry's ingredient of the same name)
+      expect(ND_FRUIT[id]).toBe(`ing_${id}`);
+      expect(FOOD[id], id).toBeDefined();
+      expect(CROPS[id].n).toBe(CROP_INFO[id].bears);
+      expect(CROPS[id].n).toBeGreaterThanOrEqual(1);
+      expect(CROPS[id].n).toBeLessThanOrEqual(4);
+      // (a day of the game is forty minutes, some half of it light: 21 to 40 minutes of daylight is one to two days)
+      expect(growSOf(id)).toBeGreaterThanOrEqual(1200);
+      expect(growSOf(id)).toBeLessThanOrEqual(2400);
+      // a pot of it, grown: as many fruits as it bears
+      const p = newItem(ND_POT);
+      sow(p, id);
+      for (let t = 0; t < 4000 && stageOf(p) < 4; t += 10) {
+        water(p, 5);
+        potStep(p, 10);
+      }
+      expect(fruitsLeft(p).length, id).toBe(CROP_INFO[id].bears);
+    }
+    // (the seeds one is likelier to find far down the road are the harder to come by)
+    expect(CROP_IDS.filter((id) => CROP_INFO[id].stars === 1).length).toBeGreaterThanOrEqual(8);
+    expect(CROP_INFO.watermelon.stars).toBe(3);
   });
 
   it('a battery goes into a grinder only once its own is spent, and puts 100 in of its 125', () => {

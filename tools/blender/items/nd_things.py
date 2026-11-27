@@ -28,7 +28,7 @@ TAU = math.tau
 
 COLORS = {
     'nd_camera': (0xe9e1cd, 0x3a3d42), 'nd_film_pack': (0x2e4a6b, 0xf0e8d6), 'nd_photo': (0xf3efe6, 0x2f3236), 'nd_coffee_machine': (0xc8473d, 0x2f3236),
-    'nd_coffee_pack': (0x8a5a3c, 0xe9d8b4), 'nd_mug': (0x3e7f96, 0xf1ece0), 'nd_plant_pot': (0xc0673f, 0xe8d6b0),
+    'nd_coffee_pack': (0x8a5a3c, 0xe9d8b4), 'nd_mug': (0x3e7f96, 0xf1ece0), 'nd_plant_pot': (0xc0673f, 0xe8d6b0), 'nd_planter': (0x7a8f5a, 0xe8d6b0),
     'nd_seed_packet': (0xd8483a, 0xf1e6c8), 'nd_grinder': (0xe0a23a, 0x2f3236), 'nd_battery': (0x2f6b4f, 0xe8d36a), 'nd_apple': (0xc8372f, 0x6f9a3c),
     'nd_tomato': (0xd8452e, 0x5d8a34), 'nd_potato': (0xb8915c, 0x6b4a2f), 'nd_watermelon': (0x2f6b34, 0x9cc46a),
 }
@@ -204,6 +204,37 @@ def nd_mug(P):
     P.tube('handle', pts, 0.0055, 'paint', segs=10, bend=0.4)
     P.empty('M_brim', loc=(0.0, 0.0, h - 0.008))
     P.views = [('a', 35, 25), ('b', 215, 30)]
+
+
+# ------------------------------------------------------------------------------------------------ the planter box
+
+def nd_planter(P):
+    """A planter box (0.78 m long, 0.24 m deep, 0.2 m tall): painted boards (paint) on two battens (wood), a band
+    along its brim (paint_b), its soil (leather) a little short of the brim with a few pebbles; M_soil_0 … M_soil_2
+    where its three plants stand."""
+    P.ao_distance = 0.1
+    L, W, Hh, t = 0.78, 0.24, 0.2, 0.016
+    z0 = 0.02
+    for sx in (-1, 1):
+        P.box('batten', (0.05, W - 0.01, z0), (sx * 0.27, 0.0, z0 / 2), 'wood', bev=0.003, segs=1)
+    P.box('floor', (L - 0.004, W - 0.004, t), (0.0, 0.0, z0 + t / 2), 'paint', bev=0.002, segs=1)
+    hs = Hh - z0
+    for sy in (-1, 1):
+        P.box('side', (L, t, hs), (0.0, sy * (W / 2 - t / 2), z0 + hs / 2), 'paint', bev=0.003, segs=1)
+        P.box('band', (L + 0.006, t + 0.006, 0.022), (0.0, sy * (W / 2 - t / 2), Hh - 0.011), 'paint_b', bev=0.002, segs=1)
+    for sx in (-1, 1):
+        P.box('end', (t, W - 2 * t, hs), (sx * (L / 2 - t / 2), 0.0, z0 + hs / 2), 'paint', bev=0.003, segs=1)
+        P.box('band', (t + 0.006, W - 2 * t, 0.022), (sx * (L / 2 - t / 2), 0.0, Hh - 0.011), 'paint_b', bev=0.002, segs=1)
+    top = Hh - 0.025
+    P.box('soil', (L - 2 * t, W - 2 * t, 0.03), (0.0, 0.0, top - 0.015), 'leather', bev=None)
+    for i in range(12):
+        x = -0.34 + 0.062 * i + 0.012 * jit(i, 1.0)
+        y = 0.07 * jit(i, 2.0)
+        P.sphere('pebble', 0.006 + 0.003 * abs(jit(i, 3.0)), loc=(x, y, top - 0.001), material='ceramic', u=8, v=5,
+                 scale=(1.3, 1.0, 0.6))
+    for i in range(3):
+        P.empty('M_soil_%d' % i, loc=((i - 1) * 0.25, 0.0, top))
+    P.views = [('a', 35, 30), ('b', 215, 25)]
 
 
 # ------------------------------------------------------------------------------------------------ the plant pot
@@ -420,6 +451,7 @@ MODELS = {
     'nd_coffee_pack': nd_coffee_pack,
     'nd_mug': nd_mug,
     'nd_plant_pot': nd_plant_pot,
+    'nd_planter': nd_planter,
     'nd_seed_packet': nd_seed_packet,
     'nd_grinder': nd_grinder,
     'nd_battery': nd_battery,

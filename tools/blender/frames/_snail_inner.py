@@ -27,14 +27,18 @@ PAN_Z = FLOOR_Z - 0.04      # under the cab floor
 BACK_IN = D['xr'] + 0.03    # the cab's back wall, inside
 SEAT_X = 1.44               # the seats' floor attachment (the bucket's back 0.49 behind it, its eye 0.16 behind)
 DRIVER_Y = 0.565
-SEAT_Z = 1.02               # the pedestals' tops: the seat parts stand on them, clear of the doghouse
+SEAT_Z = 0.95               # the pedestals' tops: the seat parts stand on them, clear of the doghouse
 EYE = (SEAT_X - 0.16, DRIVER_Y, SEAT_Z + 0.90)
+# where the driver's view is from: her eye as she sits posed (18 cm ahead of the seat's EYE, 8 cm under it), sitting
+# up 17 cm (her eye 0.75 m over the cushion, frames.ts cabView); the seats 7 cm lower than they were, so that the
+# windscreen's head still stands over her eye
+VIEW = (EYE[0] + 0.18, DRIVER_Y, EYE[2] - 0.08 + 0.17)
 PED = dict(x0=SEAT_X - 0.27, x1=SEAT_X + 0.27, y0=0.348, y1=0.78)        # a seat's pedestal (left), clear of the door card
 DASH_FACE_X = 2.15          # the dash's face towards the cab
 DASH_TOP = 1.285
 GEAR_X = 1.72
 GEAR_Y = 0.20
-COLUMN_DEG = 45.0
+COLUMN_DEG = 55.0           # a cab-over's wheel lies flat, a bus's (its rim 35 degrees from level)
 COLUMN_FOOT_Z = 1.06        # where the column goes into the dash's face
 # the diesel four between the seats: its bottom 0.30 over the ground, its flywheel at the cab's back wall, the front
 # axle's beam passing under its front half; its top 1 cm under the doghouse's lid
@@ -58,15 +62,19 @@ FILLER = dict(x=-2.16, z=0.665, r=0.05)                                   # the 
 BOX_RUN_Z = (RAIL_Z[1], 0.79)  # the box's runners on the rails
 SILL_Z = (0.79, 0.91)          # its cross sills under the floor
 BOX_FLOOR = D['box_floor']
-BOX_WALL = 0.905               # the box's walls inside (plywood)
+# the box's walls inside (plywood): with the kick plate along their foot (6 mm) the room is 1.80 m across at the floor,
+# and 3.10 m from the doors to the front wall's (docs/V3/plan/finish.md section 11.3: whole tenths of a metre)
+BOX_WALL = 0.906
 SILL_XS = (0.62, 0.22, -0.18, -0.58, -0.98, -1.38, -1.78, -2.18)
 GB = D['ax_r']
 
 
 def steering_mount():
-    """(the wheel's hub, the column's direction forward-down): a big wheel tilted back, its column 45 deg down."""
+    """(the wheel's hub, the column's direction forward-down): a big wheel lying back, its column 55 deg down; its hub
+    0.45 m ahead of her eye and 43 degrees under it (Nomad Drive's 0.42-0.51 m, 40-43): her arms reach out to it, not
+    up out of her lap."""
     a = math.radians(COLUMN_DEG)
-    return np.array([EYE[0] + 0.44, DRIVER_Y, EYE[2] - 0.36]), np.array([math.cos(a), 0.0, -math.sin(a)])
+    return np.array([VIEW[0] + 0.45, DRIVER_Y, VIEW[2] - 0.42]), np.array([math.cos(a), 0.0, -math.sin(a)])
 
 
 def knuckle(hx, hy, hz, front=True):
@@ -304,12 +312,13 @@ def dashboard():
 
 
 def binnacle():
-    """The binnacle on the dash's shelf in front of the driver, turned to the eye (seen through the wheel over its
-    hub, under the windscreen's foot): a hooded box with the speedometer and the rev counter, the fuel and
-    temperature dials between them, two tell-tales; its foot on the shelf."""
+    """The binnacle on the dash's shelf in front of the driver, towards the windscreen's foot, turned to her eye (seen
+    through the wheel's upper half, 31 degrees under her eye's level and 0.9 m from it, as Nomad Drive's bus has its
+    pod): a hooded box with the speedometer and the rev counter, the fuel and temperature dials between them, two
+    tell-tales; its foot on the shelf."""
     b = K.Buf()
-    eye = np.array(EYE)
-    pc = np.array([DASH_FACE_X - 0.055, DRIVER_Y, DASH_TOP + 0.095])
+    eye = np.array(VIEW)
+    pc = np.array([2.24, DRIVER_Y, 1.47])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)
@@ -379,15 +388,16 @@ def interior(ex):
     # the gear lever's boot on the floor ahead of the doghouse
     V, N, T = K.lathe(np.array([(0.0, 0.016), (0.04, 0.016), (0.066, 0.005), (0.078, 0.0)])[::-1], (GEAR_X, GEAR_Y, FLOOR_Z + 0.001), (0, 0, 1), 20)
     C.add(V, N, T, 'rubber')
-    # interior mirror on the header, sun visors, the dome lamp
-    mx = float(S.FRONT.to3d(np.array([[0.0, 2.10]]))[0][0, 0]) - 0.05
-    mp = np.array([mx, 0.0, 2.08])
-    C.extend(K.box_buf(mp + (-0.01, -0.012, 0.02), mp + (0.012, 0.012, 0.09), 'plastic_int', 0.004, 2))
+    # interior mirror on the header, sun visors folded up flat under the headliner (the windscreen's head is close
+    # over her eye in a cab-over: nothing more hangs down into it), the dome lamp
+    mx = float(S.FRONT.to3d(np.array([[0.0, 2.14]]))[0][0, 0]) - 0.05
+    mp = np.array([mx, 0.0, 2.12])
+    C.extend(K.box_buf(mp + (-0.01, -0.012, 0.02), mp + (0.012, 0.012, 0.10), 'plastic_int', 0.004, 2))
     C.extend(K.box_buf(mp + (-0.025, -0.13, -0.035), mp + (0.0, 0.13, 0.025), 'plastic_int', 0.012, 3))
     C.extend(K.box_buf(mp + (-0.0262, -0.12, -0.027), mp + (-0.0255, 0.12, 0.017), 'glass_dark', 0.0, 1))
     for sy in (1, -1):
-        vp = np.array([float(S.FRONT.to3d(np.array([[0.45, 2.15]]))[0][0, 0]) - 0.09, sy * 0.46, 2.17])
-        C.extend(K.box_buf(vp + (-0.20, -0.22, -0.012), vp + (0.0, 0.22, 0.008), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 9, vp)))
+        vp = np.array([float(S.FRONT.to3d(np.array([[0.45, 2.20]]))[0][0, 0]) - 0.08, sy * 0.46, 2.222])
+        C.extend(K.box_buf(vp + (-0.18, -0.22, -0.012), vp + (0.0, 0.22, 0.006), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 3, vp)))
     C.extend(K.cyl_buf((1.30, 0.0, D['roof_z'] - 0.028), (1.30, 0.0, D['roof_z'] - 0.055), 0.09, 'emit', 16, r1=0.075))
     # ---------------------------------------------------------------- the box
     L.extend(box_inside())
@@ -399,40 +409,56 @@ def interior(ex):
 
 
 def box_inside():
-    """The box's inside (left half): the plank floor, plywood on the walls and the front wall, two tie-down rails a
-    side, the ceiling and its bows."""
+    """The box's inside (left half), as a real box body's: the hardwood strip floor, plywood on the walls and the front
+    wall in sheets 1.22 m wide (an aluminium batten over each joint), a scuff plate along the foot of the walls with
+    its lip, an aluminium angle along the top of the walls and up the front corners, a tie-down rail a side, the
+    ceiling and its bows."""
     b = K.Buf()
-    xr, xf = EX.X_R + EX.SILL_X, EX.XS - 0.035
-    # the floor: planks (wood) with dark seams between them
+    xr, xf = EX.X_R + EX.SILL_X, EX.XS - 0.016
+    # the floor: hardwood strips (wood) 11 cm wide with thin dark seams between them
     b.extend(K.box_buf((xr, 0.0, BOX_FLOOR - 0.04), (xf, BOX_WALL, BOX_FLOOR), 'wood', 0.0, 1))
-    for k in range(1, 6):
-        y = BOX_WALL * k / 6
-        b.extend(K.box_buf((xr + 0.002, y - 0.003, BOX_FLOOR - 0.002), (xf - 0.002, y + 0.003, BOX_FLOOR + 0.0006), 'trim', 0.0, 1))
+    for k in range(1, 8):
+        y = BOX_WALL * k / 8
+        b.extend(K.box_buf((xr + 0.002, y - 0.0015, BOX_FLOOR - 0.002), (xf - 0.002, y + 0.0015, BOX_FLOOR + 0.0006), 'trim', 0.0, 1))
     # the walls' plywood, facing in
     z0, z1 = BOX_FLOOR, EX.ZR1 + 0.03
     b.extend(EX.flat(np.array([0.0, BOX_WALL, 0.0]), (1, 0, 0), (0, 0, 1), (0, -1, 0), EX.rect2(xr - 0.05, xf, z0, z1), step=0.3, mat='wood'))
     b.extend(EX.flat(np.array([xf, 0.0, 0.0]), (0, 1, 0), (0, 0, 1), (-1, 0, 0), EX.rect2(0.0, BOX_WALL, z0, z1), step=0.3, mat='wood'))
-    # a kick plate along the bottom of the walls
-    b.extend(K.box_buf((xr, BOX_WALL - 0.006, BOX_FLOOR), (xf, BOX_WALL, BOX_FLOOR + 0.20), 'alu', 0.0, 1))
-    b.extend(K.box_buf((xf - 0.006, 0.0, BOX_FLOOR), (xf, BOX_WALL, BOX_FLOOR + 0.20), 'alu', 0.0, 1))
+    # a scuff plate along the bottom of the walls, its top folded over as a lip
+    hk = 0.30
+    b.extend(K.box_buf((xr, BOX_WALL - 0.006, BOX_FLOOR), (xf, BOX_WALL, BOX_FLOOR + hk), 'alu', 0.0, 1))
+    b.extend(K.box_buf((xr, BOX_WALL - 0.014, BOX_FLOOR + hk - 0.012), (xf - 0.006, BOX_WALL, BOX_FLOOR + hk + 0.004), 'alu', 0.003, 1))
+    b.extend(K.box_buf((xf - 0.006, 0.0, BOX_FLOOR), (xf, BOX_WALL, BOX_FLOOR + hk), 'alu', 0.0, 1))
+    b.extend(K.box_buf((xf - 0.014, 0.0, BOX_FLOOR + hk - 0.012), (xf, BOX_WALL - 0.006, BOX_FLOOR + hk + 0.004), 'alu', 0.003, 1))
+    # the plywood's joints (sheets 1.22 m wide from the front wall back), a batten over each, from the scuff plate up
+    zc = EX.Z1 - 0.05
+    for x in (xf - 1.22, xf - 2.44):
+        if x > xr + 0.2:
+            b.extend(K.box_buf((x - 0.018, BOX_WALL - 0.004, BOX_FLOOR + hk + 0.004), (x + 0.018, BOX_WALL, zc), 'alu', 0.002, 1))
+    # the angles along the walls' top and up the front corner
+    b.extend(K.box_buf((xr, BOX_WALL - 0.025, zc - 0.025), (xf, BOX_WALL, zc), 'alu', 0.003, 1))
+    b.extend(K.box_buf((xf - 0.025, 0.0, zc - 0.025), (xf, BOX_WALL - 0.025, zc), 'alu', 0.003, 1))
+    b.extend(K.box_buf((xf - 0.025, BOX_WALL - 0.025, BOX_FLOOR + hk + 0.004), (xf, BOX_WALL, zc - 0.025), 'alu', 0.003, 1))
     # tie-down rails (aluminium tracks with slots)
-    for z in (1.40, 1.95):
+    # (one a side, over head height: a tall cupboard stands against the plywood under it)
+    for z in (2.56,):
         b.extend(K.box_buf((xr + 0.04, BOX_WALL - 0.02, z - 0.03), (xf - 0.04, BOX_WALL, z + 0.03), 'alu', 0.004, 1))
         for k in range(12):
             x = xr + 0.12 + (xf - xr - 0.24) * k / 11
             b.extend(K.box_buf((x - 0.03, BOX_WALL - 0.0205, z - 0.008), (x + 0.03, BOX_WALL - 0.019, z + 0.008), 'trim', 0.0, 1))
     # the ceiling and its bows
-    zc = EX.Z1 - 0.05
-    b.extend(EX.flat(np.array([0.0, 0.0, zc]), (1, 0, 0), (0, 1, 0), (0, 0, -1), EX.rect2(xr - 0.05, xf, 0.0, BOX_WALL), step=0.35, mat='paint_b'))
+    b.extend(EX.flat(np.array([0.0, 0.0, zc]), (1, 0, 0), (0, 1, 0), (0, 0, -1), EX.rect2(xr - 0.05, xf, 0.0, BOX_WALL), step=0.35, mat='lining'))
     for x in np.linspace(xr + 0.25, xf - 0.25, 6):
         b.extend(K.box_buf((x - 0.025, 0.0, zc - 0.045), (x + 0.025, BOX_WALL, zc), 'alu', 0.004, 1))
     return b
 
 
 def box_inside_centre():
-    """The box's lamp in the ceiling (centred)."""
+    """The box's lamp in the ceiling (centred), the batten over the front wall's middle joint."""
     b = K.Buf()
     zc = EX.Z1 - 0.05
+    xf = EX.XS - 0.016
+    b.extend(K.box_buf((xf - 0.004, -0.018, BOX_FLOOR + 0.304), (xf, 0.018, zc - 0.025), 'alu', 0.002, 1))
     x = -0.85 + 0.20
     b.extend(K.box_buf((x - 0.14, -0.06, zc - 0.03), (x + 0.14, 0.06, zc - 0.0), 'trim', 0.006, 2))
     b.extend(K.box_buf((x - 0.12, -0.045, zc - 0.04), (x + 0.12, 0.045, zc - 0.028), 'emit', 0.006, 2))
@@ -440,8 +466,9 @@ def box_inside_centre():
 
 
 def door_extras(ex):
-    """The door's outside handle and lock, its hinges on the front edge, the vent wing's bar, the inside pull and
-    the window crank (left)."""
+    """The door's outside handle and lock, its hinges on the front edge, the inside pull and the window crank (left).
+    (One pane in the door, no vent wing: its bar stood in the driver's view a hand from the A-pillar, a post of its
+    own beside it.)"""
     b = K.Buf()
     x0, x1 = D['cd_x0'], D['cd_x1']
     xh, zh = EX.HANDLE
@@ -455,15 +482,6 @@ def door_extras(ex):
         p0, n0 = S.SIDE.to3d(np.array([[x1 - 0.004, zz]]))
         p0 = p0[0] - n0[0] * 0.03
         b.extend(K.box_buf(p0 + (-0.012, -0.03, -0.035), p0 + (0.004, 0.0, 0.035), 'steel', 0.004, 2))
-    # the vent wing's division bar in the window, the wing's catch
-    w = D['cd_win']
-    zs = np.linspace(w[2] + 0.005, w[3] - 0.005, 6)
-    P, N = S.SIDE.to3d(np.stack([np.full(len(zs), D['vent_x']), zs], 1))
-    prof = np.array([(-0.008, -0.03), (-0.008, 0.004), (-0.004, 0.008), (0.004, 0.008), (0.008, 0.004), (0.008, -0.03)])
-    V, Nn, Tr = K.sweep(P - N * 0.016, N, prof, closed=False)
-    b.add(V, Nn, Tr, 'chrome')
-    pc = S.SIDE.to3d(np.array([[D['vent_x'] + 0.03, 1.60]]))[0][0]
-    b.extend(K.box_buf(pc + (-0.02, -0.05, -0.008), pc + (0.02, -0.018, 0.008), 'chrome', 0.003, 1))
     # inside: the pull, the crank
     pin, nin = S.SIDE.to3d(np.array([[x0 + 0.24, 1.30]]))
     pin = pin[0] - nin[0] * 0.04

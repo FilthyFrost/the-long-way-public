@@ -10,8 +10,9 @@
  *  - The metal detector in the hands, its coil swept over the ground ahead, beeps for the nearest chest not dug at
  *    within 30 m, the faster the nearer, its lamp flashing with each beep; right over it, a steady tone.
  *  - A chest out of the ground is locked: E rattles its padlock, E held half a second with a key in the hands opens
- *    it (the key stays in it, the padlock falls). Then E opens and shuts its lid (0.5 s); open, what is in it is in
- *    the list (three or four things the first time). Shut, F held carries it, locked or not.
+ *    it (the key stays in it, the padlock falls). Then E opens and shuts its lid (0.5 s); open, what is in it (three
+ *    or four things the first time) is seen lying in it and taken out by the mark on it, no list coming up (the
+ *    player's ask, 2026-11-26: v3/nd-store). Shut, F held carries it, locked or not.
  *  - What has been dug, what is out, which keys are taken is kept (the save's slice `nd-dig`).
  */
 import * as THREE from 'three';
@@ -31,11 +32,10 @@ import { itemCardKept, type ItemCard } from '../../itemInfo';
 import { itemNow } from '../../itemTime';
 import type { GameContext } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
-import { boxList, openList } from '../../listSources';
 import type { Loose } from '../../loose';
 import { applyMaterials, CarMaterials } from '../../materials';
 import type { HandsUse, Held } from '../../player';
-import { blenderBox, blip, boxHit, chestDealers, extraOf, markerOf, modelOf, Tone } from '../../nd/kit';
+import { blenderBox, blip, boxHit, chestDealers, extraOf, markerOf, meshHit, modelOf, Tone } from '../../nd/kit';
 
 const T = (zh: string, en: string): Text => ({ zh, en });
 const Y = new THREE.Vector3(0, 1, 0);
@@ -142,7 +142,13 @@ class ChestThing implements GarageDevice {
   }
   hit(ray: THREE.Ray, reach: number): number | null {
     const d = boxHit(this.b.l.obj, ray, BOX_CHEST, reach);
-    return d === null ? null : d + 0.05;
+    if (d === null) return null;
+    // (open: where the line of sight meets the chest itself — its floor, a wall, its lid standing up — so what lies in it is nearer)
+    if (this.sys.isOpen(this.b)) {
+      const m = meshHit(modelOf(this.b.l), ray, reach);
+      return m === null ? null : m + 0.05;
+    }
+    return d + 0.05;
   }
 }
 
@@ -392,6 +398,8 @@ export class NdDig implements System<GameContext>, InteractSource {
     }
     blip('dig', 0.75);
     this.sand(h.x, h.y, h.z);
+    // (bare ground turned over: whoever cares what comes up with it — the fishing's worms by a water)
+    for (const f of ctx.dug ?? []) f(h.x, h.y, h.z);
   }
 
   /** the shovel's stroke: into the ground (0.14 s), up with a scoop (0.18 s), back to the hands */
@@ -749,9 +757,7 @@ export class NdDig implements System<GameContext>, InteractSource {
       for (const id of [...dealt, ...own.slice(dealt.length)]) putInside(it, newItem(id), itemNow());
       ctx.loose.touch(b.l);
     }
-    const l = b.l;
-    const src = boxList(it, { near: () => this.withinReach(l) });
-    if (src) openList(src);
+    // (what is in it lies in it, seen and taken out where it lies: v3/nd-store)
   }
 
   private hashStr(s: string): number {
@@ -761,11 +767,6 @@ export class NdDig implements System<GameContext>, InteractSource {
       h = Math.imul(h, 0x01000193);
     }
     return h | 0;
-  }
-
-  private withinReach(l: Loose): boolean {
-    const w = this.ctx?.player.walker;
-    return !!w && Math.hypot(l.x - w.x, l.z - w.z) < 2.6;
   }
 
   /** a chest's lid as it is (0.5 s a swing), its padlock while it is locked (rattled; falling off) */

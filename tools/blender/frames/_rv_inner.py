@@ -11,6 +11,7 @@ sys.dont_write_bytecode = True
 import numpy as np  # noqa: E402
 
 from frames import _kit as K  # noqa: E402
+from frames import _steps as STP  # noqa: E402
 from frames import rv as S  # noqa: E402
 from frames._sedan_inner import (dial, extrude_y, face_up, flip_down, quad_sheet, recompute_normals,  # noqa: E402
                                  ring_inner, side_out, tub, heat_shield, harness, smooth_path)
@@ -39,7 +40,10 @@ GEAR_X = 1.30
 # the handbrake on the tunnel beside the gear lever, on the driver's half (the tunnel is too short for one behind it)
 HB_X = 1.17
 HB_Y = 0.12
-WALL = -0.03             # inner skin of the living module
+WALL = -0.025            # inner skin of the living module: 2.20 m from wall to wall (a tenth of a metre's squares fit it)
+# the floor's edge along the walls: under the lining (it stopped 1.5 cm short of it, and through the slot the ground
+# showed from inside)
+FLOOR_Y = D['bw'] + WALL + 0.003
 
 
 def frame_zc(x):
@@ -331,6 +335,64 @@ def dashboard():
     return b, gauges
 
 
+# the cab's headliner: Nomad Drive's class C has a closed cab under a flat fabric headliner over the windscreen and
+# the seats. Here the bunk's floor over the cab was the cab's ceiling, a board in a frame of black rail trims, and it
+# ended in front of the driver's head (straight up from her eye the room's roof, 1.36 m over it). The headliner runs
+# under the bunk's floor from the windscreen's header back over the seats to the room's floor one stands on behind
+# them (it ends at 0.85), between the box front's cheeks, rolled down at the sides onto the door frames' tops; as low
+# as the cab's glass lets it (the windscreen's top and the doors' are 0.39-0.41 m over her eye, Nomad Drive's 0.1).
+# All of it ahead of the stretch's cut behind the seats (frames/_stretch.py, 0.82), so it is not moved.
+HL_Z = 2.138             # its underside
+HL_X0 = 0.86             # its back edge, over the seats' backs
+HL_XF = 1.475            # its front edge, on the windscreen header's trim (that slopes from the glass up to 2.151)
+HL_Y = 0.884             # behind the cab, the box front's cheeks either side of the cab's opening
+
+
+def cab_headliner():
+    b = K.Buf()
+    xb = D['bx_f']
+    ys, yr, zr = 0.80, 0.838, 2.068
+    # the field over the cab, and over the seats' backs behind it
+    b.extend(quad_sheet((xb, 0.0, HL_Z), (HL_XF - xb, 0, 0), (0, ys, 0), 6, 4, (0, 0, -1), 'fabric'))
+    b.extend(K.box_buf((HL_X0, 0.0, HL_Z), (xb, HL_Y, HL_Z + 0.008), 'fabric', 0.002, 1))
+    # the rolls down onto the door frames' tops (the rail's trim stood 10 cm tall between the doors and the bunk)
+    th = np.linspace(0.0, 0.5 * PI, 7)
+    sec = np.stack([ys + (yr - ys) * np.sin(th), zr + (HL_Z - zr) * np.cos(th)], 1)
+    xs = np.linspace(xb, HL_XF, 7)
+    V = np.array([(x, y, z) for x in xs for (y, z) in sec])
+    roll = recompute_normals(K.Buf().add(V, np.zeros_like(V), K.grid_tris(len(xs), len(sec)), 'fabric'))
+    Vr, Nr, Tr, _ = roll.arrays()
+    s = np.where((-Vr[:, 1] * Nr[:, 1] + (1.7 - Vr[:, 2]) * Nr[:, 2]) < 0, -1.0, 1.0)[:, None]
+    b.add(Vr, Nr * s, Tr, 'fabric')
+    # the rolls' back ends closed, out to the cheeks: a header over the B pillars
+    end = np.vstack([sec, [(HL_Y, zr), (HL_Y, HL_Z)]])
+    b.extend(K.fill_loop(np.stack([np.full(len(end), xb - 0.001), end[:, 0], end[:, 1]], 1), (-1, 0, 0), 'fabric'))
+    return b
+
+
+def b_pillar_trim():
+    """The B pillar's inner face (left half): the pillar between the cab door's rear edge and the box stood open on
+    its inner side - below the belt all of it, above it the greenhouse's trim began 3 cm ahead of the seal where the
+    cab meets the box - so from the driver's seat two black posts showed on her left with the outside between them
+    (and from the room a green line down the cab's back corner). A black trim from the sill to the rail, 3.5 cm in
+    from the cab's side as the greenhouse's trim is, joins the seal to that trim (above the belt) and to the door's
+    rear edge (below it); its back closed out to the box's side (the box front's wall was hollow behind its cheek)."""
+    b = K.Buf()
+    xr, xb = D['bx_f'] - 0.024, D['belt_z']     # (from the box front's cheek, 1 mm behind its face)
+    for z0, z1, x1, side in ((0.70, xb, D['fd_rear'] - 0.003, lambda z: S.side_w(0.97, z)),
+                             (xb, D['rail_z'] + 0.01, 0.983, lambda z: S.g_side_w(z))):
+        zs = np.linspace(z0, z1, 8)
+        w = np.array([float(side(z)) for z in zs]) - 0.0335
+        V = np.array([(x, wi, z) for z, wi in zip(zs, w) for x in (xr, x1)])
+        b.add(V, np.tile((0.0, -1.0, 0.0), (len(V), 1)), K.grid_tris(len(zs), 2), 'plastic_int')
+        V = np.array([(xr, y, z) for z, wi in zip(zs, w) for y in (wi, D['bw'] - 0.004)])
+        b.add(V, np.tile((-1.0, 0.0, 0.0), (len(V), 1)), K.grid_tris(len(zs), 2), 'plastic_int')
+    # the step at the belt (the greenhouse stands in from the lower body)
+    w0, w1 = float(S.g_side_w(xb)) - 0.0335, float(S.side_w(0.97, xb)) - 0.0335
+    b.extend(quad_sheet((xr, w0, xb), (0.983 - xr, 0, 0), (0, w1 - w0, 0), 1, 1, (0, 0, 1), 'plastic_int'))
+    return b
+
+
 def interior(ex):
     out = {}
     L = K.Buf()      # mirrored
@@ -352,9 +414,14 @@ def interior(ex):
     # sill trims and kick panels
     L.extend(K.box_buf((D['bx_f'] + 0.01, 0.88, FLOOR_Z), (D['fd_front'] - 0.40, 0.94, 0.70), 'plastic_int', 0.012, 2))
     L.extend(K.box_buf((1.76, 0.80, D['hub_z'] + 0.49), (FIREWALL_X - 0.01, 0.93, 1.05), 'plastic_int', 0.02, 2))
-    # bunk floor over the cab (its underside is the cab's headliner) and the mattress on top
+    L.extend(b_pillar_trim())
+    # bunk floor over the cab and the mattress on top; under it the cab's headliner, over the seats too
     L.extend(K.box_buf((D['bx_f'] - 0.02, 0.0, 2.145), (1.77, 1.075, 2.20), 'fabric', 0.01, 2))
     L.extend(K.box_buf((D['bx_f'] + 0.04, 0.0, 2.20), (1.93, 1.03, 2.32), 'fabric', 0.04, 2))
+    L.extend(cab_headliner())
+    # its dome light, over the seats' backs between them
+    C.extend(K.box_buf((HL_X0 + 0.03, -0.085, HL_Z - 0.014), (HL_X0 + 0.15, 0.085, HL_Z + 0.002), 'plastic_int', 0.006, 2))
+    C.extend(K.box_buf((HL_X0 + 0.04, -0.072, HL_Z - 0.018), (HL_X0 + 0.14, 0.072, HL_Z - 0.008), 'emit', 0.005, 2))
     dash, gauges = dashboard()
     C.extend(dash)
     # pedals (automatic: brake and throttle), steering column, gear selector, mirror, visors
@@ -383,7 +450,10 @@ def interior(ex):
         vp = np.array([float(S.ws_x(0.45, 2.10)) - 0.10, sy * 0.47, 2.125])
         C.extend(K.box_buf(vp + (-0.20, -0.21, -0.012), vp + (0.0, 0.21, 0.008), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 8, vp)))
     # ---------------------------------------------------------------- living module
-    L.extend(box_floor())
+    # (the floor's right half without the side door's stairwell: _rv_build.entry_well)
+    from frames import _rv_ext as EX
+    C.extend(box_floor())
+    C.extend(box_floor(hole=(EX.WELL_X[0], EX.WELL_X[1], D['bw'] - len(EX.WELL['tops']) * EX.WELL['depth'], 1.2)).mirrored())
     L.extend(box_furniture_L())
     C.extend(box_furniture_asym())
     out['L'] = L
@@ -392,51 +462,96 @@ def interior(ex):
     return out
 
 
-def box_floor():
-    """Floor slab of the living module (left half): it parts round the rear wheel wells; the wheel tubs inside."""
+def box_floor(hole=None):
+    """Floor slab of the living module (left half): flat from wall to wall, over the rear wheels too (docs/V3/plan/
+    finish.md section 11.1 - the tubs that stood 16 cm out of it over the wells are gone: a cupboard stands anywhere
+    along the walls; the wheels' own liners are under it, UNDER). `hole`: (x0, x1, y0, y1) left out of it - the side
+    door's stairwell, on the right half."""
     b = K.Buf()
     xr, xf = D['bx_r'] + 0.045, D['bx_f'] - 0.005
-    xa = D['ax_r']
-    w0, w1 = xa - 0.50, xa + 0.50
-    for (x0, x1, y1) in ((xr, xf, 0.575), (xr, w0, 1.085), (w1, xf, 1.085)):
-        b.extend(K.box_buf((x0, 0.0, BOX_FLOOR - 0.06), (x1, y1, BOX_FLOOR - 0.006), 'trim', 0.003, 1))
-        b.extend(K.box_buf((x0, 0.0, BOX_FLOOR - 0.006), (x1, y1, BOX_FLOOR), 'wood', 0.002, 1))
-    b.extend(K.box_buf((w0 - 0.02, 0.575, BOX_FLOOR - 0.06), (w1 + 0.02, 1.085, 1.02), 'plastic_int', 0.04, 2))
+    if hole is None:
+        b.extend(K.box_buf((xr, 0.0, BOX_FLOOR - 0.06), (xf, FLOOR_Y, BOX_FLOOR - 0.006), 'trim', 0.003, 1))
+        b.extend(K.box_buf((xr, 0.0, BOX_FLOOR - 0.006), (xf, FLOOR_Y, BOX_FLOOR), 'wood', 0.002, 1))
+        return b
+    b.extend(STP.floor_round(xr, xf, 0.0, FLOOR_Y, BOX_FLOOR - 0.06, BOX_FLOOR - 0.006, 'trim', hole, 0.003))
+    b.extend(STP.floor_round(xr, xf, 0.0, FLOOR_Y, BOX_FLOOR - 0.006, BOX_FLOOR, 'wood', hole))
+    return b
+
+
+# the overhead shelves along both walls (docs/V3/plan/finish.md section 11.2: no doors to them - what stands on one is
+# seen and taken): their runs along the box, the board they stand things on (its top), their top board's underside
+LOCKER_X = ((-2.80, -1.20),)
+# (their second run: over the galley's front end and the dinette on the left; on the right only as far as the side
+# door's frame - no shelf across the doorway's head)
+LOCKER_X_LEFT = (-1.08, 0.70)
+LOCKER_X_RIGHT = (-1.08, -0.68)
+LOCKER_Y = (0.74, 1.085)
+LOCKER_Z = (2.385, 2.80)
+# the bed across the back, where the rear bench stood: its platform's front and the mattress's top
+BED_X = -2.90
+BED_TOP = 1.40
+# the cubby under the sink, open to the aisle: its floor and its clear top
+CUBBY = dict(x0=-1.34, x1=-0.86, y0=0.52, y1=1.04, z0=0.92, z1=1.62)
+
+
+def shelf_run(x0, x1, side):
+    """One run of overhead shelf along a wall (side +1: the left, y > 0; -1: the right): its board with a lip along the
+    front edge, its top board, a panel at each end; open to the room."""
+    b = K.Buf()
+    y0, y1 = LOCKER_Y
+    zf, zt = LOCKER_Z
+    ya, yb = (y0, y1) if side > 0 else (-y1, -y0)
+    lip = (y0 - 0.004, y0 + 0.012) if side > 0 else (-y0 - 0.012, -y0 + 0.004)
+    b.extend(K.box_buf((x0, ya, zf - 0.025), (x1, yb, zf), 'wood', 0.004, 1))
+    b.extend(K.box_buf((x0, ya, zt), (x1, yb, zt + 0.02), 'wood', 0.004, 1))
+    b.extend(K.box_buf((x0, lip[0], zf - 0.025), (x1, lip[1], zf + 0.05), 'wood', 0.005, 2))
+    for xe in (x0, x1 - 0.02):
+        b.extend(K.box_buf((xe, ya, zf), (xe + 0.02, yb, zt), 'wood', 0.004, 1))
     return b
 
 
 def box_furniture_L():
-    """Mirrored furniture: overhead lockers along both walls, the bunk's side panels."""
+    """Mirrored furniture: the overhead shelves along both walls - a board with a lip along its front edge, a top
+    board, a panel at each end; open to the room - and the bed's platform across the back with its mattress."""
     b = K.Buf()
-    for (x0, x1) in ((-3.45, -2.62), (-2.50, -1.20), (-1.08, 0.70)):
-        b.extend(K.box_buf((x0, 0.74, 2.36), (x1, 1.085, 2.82), 'wood', 0.012, 2))
-        b.extend(K.box_buf((x0 + 0.02, 0.735, 2.40), (x1 - 0.02, 0.742, 2.78), 'wood', 0.006, 1))
+    for (x0, x1) in LOCKER_X:
+        b.extend(shelf_run(x0, x1, 1))
+    # the bed: a platform floor to wall with a face board to the room, the mattress and a pillow at the left wall
+    xr = D['bx_r'] + 0.05
+    b.extend(K.box_buf((xr, 0.0, BOX_FLOOR), (BED_X, 1.08, BED_TOP - 0.14), 'wood', 0.008, 2))
+    b.extend(K.box_buf((xr + 0.02, 0.0, BED_TOP - 0.14), (BED_X - 0.02, 1.05, BED_TOP), 'fabric', 0.03, 2))
     return b
 
 
 def box_furniture_asym():
-    """Dinette table (left, ahead of the dinette bench), galley block (left), wardrobe and bath (right), the
-    ceiling lamps."""
+    """Dinette table (left, ahead of the dinette bench), galley block (left) with an open cubby under its sink, the
+    bed's pillow, the ceiling lamps. (The wardrobe and the bath's cubicle that stood on the right are gone - docs/V3/
+    plan/finish.md section 11.1: open floor from the door to the bed.)"""
     b = K.Buf()
     # dinette table on a post
     b.extend(K.box_buf((0.16, 0.36, BOX_FLOOR + 0.70), (0.60, 1.05, BOX_FLOOR + 0.73), 'wood', 0.01, 2))
     b.extend(K.cyl_buf((0.38, 0.70, BOX_FLOOR), (0.38, 0.70, BOX_FLOOR + 0.70), 0.03, 'alu', 12))
-    # galley: cabinet, worktop, sink and hob
-    b.extend(K.box_buf((-1.95, 0.52, BOX_FLOOR), (-0.80, 1.085, BOX_FLOOR + 0.86), 'wood', 0.012, 2))
+    # galley: cabinet (in two, either side of the cubby under the sink, with the cubby's floor, back and top between
+    # them), worktop, sink and hob
+    c = CUBBY
+    b.extend(K.box_buf((-1.95, 0.52, BOX_FLOOR), (c['x0'], 1.085, BOX_FLOOR + 0.86), 'wood', 0.012, 2))
+    b.extend(K.box_buf((c['x1'], 0.52, BOX_FLOOR), (-0.80, 1.085, BOX_FLOOR + 0.86), 'wood', 0.012, 2))
+    b.extend(K.box_buf((c['x0'], 0.52, BOX_FLOOR), (c['x1'], 1.085, c['z0']), 'wood', 0.004, 1))
+    b.extend(K.box_buf((c['x0'], c['y1'], c['z0']), (c['x1'], 1.085, BOX_FLOOR + 0.86), 'wood', 0.004, 1))
+    b.extend(K.box_buf((c['x0'], 0.52, c['z1']), (c['x1'], c['y1'], BOX_FLOOR + 0.86), 'wood', 0.004, 1))
     b.extend(K.box_buf((-1.97, 0.50, BOX_FLOOR + 0.86), (-0.78, 1.085, BOX_FLOOR + 0.89), 'plastic_int', 0.006, 2))
     b.extend(K.box_buf((-1.10, 0.64, BOX_FLOOR + 0.80), (-0.86, 0.96, BOX_FLOOR + 0.892), 'alu', 0.012, 2))
     b.extend(K.box_buf((-1.80, 0.62, BOX_FLOOR + 0.89), (-1.40, 0.98, BOX_FLOOR + 0.90), 'trim', 0.004, 1))
     for cx in (-1.70, -1.50):
         for cy in (0.70, 0.90):
             b.extend(K.cyl_buf((cx, cy, BOX_FLOOR + 0.90), (cx, cy, BOX_FLOOR + 0.912), 0.055, 'steel', 14))
-    # wardrobe and bath block on the right, floor to ceiling
-    b.extend(K.box_buf((-2.45, -1.085, BOX_FLOOR), (-1.35, -0.42, 2.86), 'wood', 0.015, 2))
-    b.extend(K.box_buf((-2.36, -0.425, BOX_FLOOR + 0.10), (-1.92, -0.418, 2.70), 'wood', 0.006, 1))
-    b.extend(K.box_buf((-1.86, -0.425, BOX_FLOOR + 0.10), (-1.44, -0.418, 2.70), 'wood', 0.006, 1))
-    for hx in (-1.95, -1.89):
-        b.extend(K.cyl_buf((hx, -0.418, 1.80), (hx, -0.40, 1.80), 0.012, 'chrome', 10))
+    # the shelves' second runs (not alike on the two sides: the side door is on the right)
+    b.extend(shelf_run(LOCKER_X_LEFT[0], LOCKER_X_LEFT[1], 1))
+    b.extend(shelf_run(LOCKER_X_RIGHT[0], LOCKER_X_RIGHT[1], -1))
+    # the bed's pillow, at the left wall
+    b.extend(K.box_buf((D['bx_r'] + 0.16, 0.56, BED_TOP), (BED_X - 0.14, 1.0, BED_TOP + 0.09), 'fabric', 0.04, 2))
     # ceiling lamps
-    for x in (-2.9, -1.0, 0.3):
+    for x in (-3.2, -1.7, -0.2):
         b.extend(K.box_buf((x - 0.12, -0.10, 2.985), (x + 0.12, 0.10, 3.005), 'emit', 0.008, 2))
     return b
 
@@ -481,8 +596,9 @@ def wheelhouse(xa, y0, y1, r, z_cut=None, th=(None, None)):
     return b
 
 
-def underbody():
-    """UNDER (left half + centre parts with y >= 0 halves)."""
+def underbody(right=False):
+    """UNDER (left half + centre parts with y >= 0 halves; `right`: the half mirrored onto the right, which has the side
+    door's stairwell between the axles - no outrigger and no water tank where it is, the propane bottle's behind it)."""
     b = K.Buf()
     xs = np.concatenate([np.linspace(2.74, -1.20, 6), np.linspace(-1.30, -1.55, 5), np.linspace(-2.30, -2.55, 5), np.linspace(-2.65, -3.86, 3)])[::-1]
     path = np.stack([xs, np.full(len(xs), FRAME_Y), [frame_zc(x) for x in xs]], 1)
@@ -496,7 +612,7 @@ def underbody():
     b.extend(K.box_buf((D['ax_f'] - 0.07, 0.0, 0.20), (D['ax_f'] + 0.07, 0.38, 0.29), 'steel', 0.008, 2))
     b.extend(K.box_buf((D['ax_f'] - 0.07, 0.36, 0.24), (D['ax_f'] + 0.07, FRAME_Y - 0.03, frame_zc(D['ax_f']) - 0.05), 'steel', 0.008, 2))
     # outriggers carrying the living module's floor out to the skirts
-    for x in (0.70, -0.20, -0.95, -2.90, -3.60):
+    for x in (0.70, -0.20, -0.95, -2.90, -3.60) if not right else (0.70, -0.95, -2.90, -3.60):
         b.extend(K.box_buf((x - 0.03, FRAME_Y + 0.035, BOX_FLOOR - 0.13), (x + 0.03, 1.08, BOX_FLOOR - 0.06), 'steel', 0.004, 1))
     # cab floor pan underside
     x_tub = D['ax_f'] - 0.47 - 0.01
@@ -520,7 +636,8 @@ def underbody():
     b.extend(K.cyl_buf((rx, AXLE_IN, hz), (rx, ry - AXLE_END_IN, hz), 0.06, 'steel', 16))
     b.extend(K.cyl_buf((rx, ry - 0.20, hz), (rx, ry - AXLE_END_IN, hz), 0.085, 'steel', 16))
     # fresh water tank between the left rail and the skirt
-    b.extend(K.box_buf((-1.25, FRAME_Y + 0.07, 0.50), (-0.25, 1.02, BOX_FLOOR - 0.14), 'trim', 0.03, 2))
+    if not right:
+        b.extend(K.box_buf((-1.25, FRAME_Y + 0.07, 0.50), (-0.25, 1.02, BOX_FLOOR - 0.14), 'trim', 0.03, 2))
     return b
 
 
@@ -536,8 +653,8 @@ def centre_under():
     for x, z in ((0.74, 0.50), (xe, ze)):
         b.extend(K.cyl_buf((x - 0.025, 0.0, z), (x + 0.025, 0.0, z), 0.06, 'steel', 16))
     # propane bottle on the right between the axles
-    b.extend(K.cyl_buf((-1.25, -0.80, 0.56), (-0.60, -0.80, 0.56), 0.16, 'ceramic', 20))
-    for x in (-1.10, -0.75):
+    b.extend(K.cyl_buf((-1.38, -0.80, 0.56), (-0.73, -0.80, 0.56), 0.16, 'ceramic', 20))
+    for x in (-1.23, -0.88):
         b.extend(K.box_buf((x - 0.02, -0.98, 0.38), (x + 0.02, -0.62, 0.42), 'steel', 0.004, 1))
     # grey water tank on the right behind the rear axle
     b.extend(K.box_buf((-3.55, -1.00, 0.50), (-2.75, -0.53, BOX_FLOOR - 0.14), 'trim', 0.03, 2))

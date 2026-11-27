@@ -41,6 +41,10 @@ MAT_NAMES = {
     'leather': ((0.25, 0.12, 0.07), 0.55, 0.0),
     'wood': ((0.45, 0.28, 0.14), 0.7, 0.0),
     'plastic_int': ((0.18, 0.16, 0.15), 0.7, 0.0),
+    # (a living space's own: the lining of its walls and ceiling, the covering of its floor - the game gives each
+    # vehicle's its colour, src/game/modcar/carView.ts INTERIORS)
+    'lining': ((0.86, 0.80, 0.68), 0.8, 0.0),
+    'lino': ((0.42, 0.43, 0.44), 0.7, 0.0),
     'gauge': ((0.9, 0.88, 0.8), 0.5, 0.0),
     'ceramic': ((0.95, 0.95, 0.93), 0.15, 0.0),
     'rust': ((0.45, 0.2, 0.08), 0.9, 0.3),

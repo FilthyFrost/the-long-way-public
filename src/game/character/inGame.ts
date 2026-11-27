@@ -12,6 +12,7 @@ import { loadClips } from './clips';
 import { DressView } from './dressView';
 import { type HerRig, loadHer } from './her';
 import { type Wear, WardrobeView } from './wardrobeView';
+import { cleanLook, HELMETS, SKINS } from './looks';
 
 export interface WalkerLike {
   x: number; y: number; z: number;
@@ -95,6 +96,7 @@ export class HerInGame {
       const rig = await loadHer();
       const clips = await loadClips(rig);
       this.rig = rig;
+      this.dressLook();
       this.anim = new Animator(rig, clips);
       rig.root.name = 'player:her';
       this.core.scene.add(rig.root);
@@ -118,6 +120,73 @@ export class HerInGame {
    * After the camera is placed: pose her for the frame. `w` on foot, `seat` in a vehicle; `cam` is the view (its
    * position is used to keep her out of a first-person eye); `view` says which way the game is drawn.
    */
+  /**
+   * Her right hand reaching to what the left button works (docs/V3/plan/finish.md §十: 捡和放、开关车门、装拆零件、
+   * 换挡、手刹、拧钥匙): the point (render space), how far gone (0 … 1), and whether a finger presses it (a button, a
+   * key) or the hand goes to take hold. From her own eyes; on foot only with nothing in her hands (what is in them
+   * is what they hold). The game says (ModGame.reachOut).
+   */
+  readonly reach = { at: new THREE.Vector3(), w: 0, press: false };
+  private readonly reachBoth: { l?: HandTarget; r?: HandTarget } = {};
+  private readonly reachHand: HandTarget = { pos: new THREE.Vector3(), rot: new THREE.Quaternion(), grip: 'relaxed', w: 0, pole: new THREE.Vector3(0.55, -1, 0).normalize() };
+  private readonly rv = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+
+  /** the reach as a target for her right arm: the wrist a hand's length short of the point, the fingers toward it, the palm down */
+  private reachTarget(cam: THREE.Camera): HandTarget {
+    const [to, up, palm, eye] = this.rv;
+    const e = cam.matrixWorld.elements;
+    eye.set(e[12], e[13], e[14]);
+    up.set(e[4], e[5], e[6]).normalize();
+    to.copy(this.reach.at).sub(eye);
+    const far = to.length();
+    to.normalize();
+    // (from below and to the right of the line of sight: the hand does not cover what it goes to)
+    palm.copy(up).multiplyScalar(-0.85).addScaledVector(to, 0.3).normalize();
+    const t = this.reachHand;
+    t.pos.copy(this.reach.at).addScaledVector(to, -Math.min(0.09, far * 0.3)).addScaledVector(up, -0.035);
+    t.rot!.copy(handFrame('r', to, palm, palm));
+    t.grip = this.reach.press ? 'press' : 'open';
+    t.w = this.reach.w;
+    return t;
+  }
+
+  /** how she looks: her skin and her helmet (looks.ts), put on as she is loaded and whenever it is chosen */
+  private look = { skin: 0, helmet: 0 };
+
+  /** her skin and her helmet chosen (docs/V3/plan/finish.md §十: 捏人): indices into looks.ts, what is none of them the first */
+  setLook(l: { skin?: number; helmet?: number } | null | undefined): void {
+    this.look = cleanLook(l);
+    this.dressLook();
+  }
+
+  private dressLook(): void {
+    const rig = this.rig;
+    if (!rig) return;
+    const p = SKINS[this.look.skin].paint;
+    for (const m of [rig.skin, rig.arms.l.material as THREE.ShaderMaterial]) {
+      const u = m.uniforms;
+      (u.uLit.value as THREE.Color).copy(p.lit);
+      (u.uShade.value as THREE.Color).copy(p.shade);
+      (u.uDeep.value as THREE.Color).copy(p.deep);
+      (u.uPalmLit.value as THREE.Color).copy(p.palmLit);
+      (u.uPalmShade.value as THREE.Color).copy(p.palmShade);
+      (u.uBlush.value as THREE.Color).copy(p.blush);
+    }
+    const h = HELMETS[this.look.helmet];
+    const hu = (rig.helmet?.material as THREE.ShaderMaterial | undefined)?.uniforms;
+    if (hu) {
+      (hu.uShellLit.value as THREE.Color).copy(h.shellLit);
+      (hu.uShellShade.value as THREE.Color).copy(h.shellShade);
+      (hu.uStripe.value as THREE.Color).copy(h.stripe);
+    }
+  }
+
+  /**
+   * Where her hands go on a thing a system draws in them by itself (the fishing's rod: v3/fishing), on foot from her
+   * own eyes; null: nothing of the sort is in them now (what the game's own held thing says, or free)
+   */
+  handsFor: ((cam: THREE.Camera) => { l?: HandTarget; r?: HandTarget } | null) | null = null;
+
   update(dt: number, w: WalkerLike, seat: SeatLike | null, cam: THREE.Camera, view: 'first' | 'third' | 'outside', held: HeldLike | null = null, wear: Wear[] = []): void {
     if (!this.ready || !this.rig || !this.anim || !this.dress) return;
     const o = this.core.origin;
@@ -203,7 +272,13 @@ export class HerInGame {
       const footY = d.pos.y;
       d.ground = () => footY;
     }
-    if (held && !seat && view === 'first') d.hands = this.handsOn(held, cam);
+    // (a thing a system draws in her hands itself — a fishing rod — says where they go: handsFor)
+    if (!seat && view === 'first') d.hands = this.handsFor?.(cam) ?? (held ? this.handsOn(held, cam) : undefined);
+    // (her right hand out to what the button works: in a seat off the wheel to it, on foot when her hands are empty)
+    if (this.reach.w > 0.02 && view === 'first' && (seat || !d.hands)) {
+      this.reachBoth.r = this.reachTarget(cam);
+      d.hands = this.reachBoth;
+    }
     this.anim.update(dt, d);
     // in a seat, from her own eyes: the view is from where her eyes are as she sits (leaning over a tank, looking round)
     if (seat && view === 'first') this.eyeToHers(seat, cam);
@@ -219,7 +294,16 @@ export class HerInGame {
     // what is drawn: first person hides her head and hair, and draws her arms finer (the body's own are hidden)
     const first = view === 'first';
     const skin = this.rig.skin.uniforms;
-    (skin.uHide.value as THREE.Vector4).set(first ? 1 : 0, first ? 1 : 0, first ? 1 : 0, 0);
+    // (in a seat from her own eyes, only her arms and hands — the player's ask of 2026-11-26: her trunk, her legs and
+    // what she wears on them are not drawn; on foot, what of them stands near the eye over the middle of the view is
+    // seen through, material.ts seeViewFade)
+    const seatFirst = first && !!seat;
+    const fade = first && !seat ? 1 : 0;
+    const rt = this.core.frame.rtScene;
+    (skin.uHide.value as THREE.Vector4).set(first ? 1 : 0, first ? 1 : 0, first ? 1 : 0, seatFirst ? 1 : 0);
+    this.dress.setHidden(seatFirst);
+    for (const m of [this.rig.skin, this.dress.skinnedMat, this.dress.skirtMat]) (m.uniforms.uSeeView.value as THREE.Vector3).set(fade, rt.width, rt.height);
+    this.wardrobe?.firstPersonBody(seatFirst, fade, rt.width, rt.height);
     this.rig.arms.l.visible = this.rig.arms.r.visible = first;
     const armMat = this.rig.arms.l.material as THREE.ShaderMaterial;
     armMat.uniforms.uInCab.value = inCab;
@@ -329,16 +413,45 @@ export class HerInGame {
   }
 
   /**
+   * How far the view on foot stands ahead of her eyes (m): Nomad Drive's first-person view is 0.143 m ahead of its
+   * character's eyes (theirs 1.66 m up, the view 1.60), here as far for hers (1.40 m up): out past her face, so that as
+   * she walks or runs — leaning into it, her chest coming forward — the view stays ahead of her, and looking down it
+   * sees the road and her feet, not the inside of her dress (2026-11-26: walking and looking down, her dress filled the
+   * lower half of the screen; running, all of it).
+   */
+  static readonly EYE_AHEAD = 0.125;
+  /** … and the point behind it the view turns about as she looks up and down (Nomad Drive's 0.0996, for her) */
+  static readonly EYE_TURN = 0.087;
+
+  /**
    * Where her eyes are from the walker's eye on foot (m; m a radian of looking down): 5 cm ahead of it and 10 cm below
    * looking level, 10 cm ahead and 21 cm below looking down at her feet — measured on her standing in the game
    * (2026-11-25, pitches 0 to −1.2: ahead 0.049, 0.070, 0.084, 0.097, 0.104; below 0.099, 0.128, 0.156, 0.186, 0.210).
    * The view on foot is put there by the look alone (Walker.view): it does not chase her head, which follows the look
    * a moment late — a view that came after the head drifted for half a second after the mouse had stopped, and the
-   * mark with it.
+   * mark with it. The view itself stands EYE_AHEAD further out and turns about EYE_TURN (below).
    */
-  static readonly FOOT_VIEW = { ahead: 0.049, aheadDown: 0.046, below: 0.099, belowDown: 0.0925 };
+  static readonly FOOT_VIEW = { ahead: 0.049 + HerInGame.EYE_AHEAD, aheadDown: 0.046, below: 0.099, belowDown: 0.0925, turn: HerInGame.EYE_TURN };
+  /**
+   * … and crouched: squatting she leans over her knees, and her eyes are a quarter of a metre ahead of her feet
+   * (measured on her crouched in the game, 2026-11-26, pitches 0.3 to −1.2: ahead 0.223, 0.253, 0.279, 0.274, 0.269,
+   * 0.276; below 0.041, 0.081, 0.131, 0.153, 0.182, 0.225). With the standing numbers the view stood 20 cm behind her
+   * eyes, inside her: crouched and looking down, the screen was her own back.
+   */
+  static readonly CROUCH_VIEW = { ahead: 0.255 + HerInGame.EYE_AHEAD, aheadDown: 0.018, below: 0.083, belowDown: 0.125, turn: HerInGame.EYE_TURN };
   /** the view at the walker's own eye (she is not there to see from: ?her=0, not loaded yet) */
-  static readonly NO_VIEW = { ahead: 0, aheadDown: 0, below: 0, belowDown: 0 };
+  static readonly NO_VIEW = { ahead: 0, aheadDown: 0, below: 0, belowDown: 0, turn: 0 };
+
+  /**
+   * Where the view on foot stands from her eyes: what is in her hands is drawn from her eyes (modcar/held.ts), the
+   * view this far from them (render space, by the walker's heading and pitch) — a hand's breadth ahead, more and lower
+   * looking down; nothing while she is not there to see from.
+   */
+  static eyeShift(heading: number, pitch: number, out: THREE.Vector3): THREE.Vector3 {
+    const u = Math.max(-0.9, Math.min(1.1, -pitch));
+    const a = HerInGame.EYE_AHEAD + HerInGame.EYE_TURN * (1 - Math.cos(u));
+    return out.set(Math.cos(heading) * a, -HerInGame.EYE_TURN * Math.sin(u), Math.sin(heading) * a);
+  }
 
   /**
    * Her body seen through in a box on the screen (material.ts SEE_GLSL): her hands on the wheel thinned where they

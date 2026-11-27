@@ -92,7 +92,11 @@ describe('J9d: towing', () => {
   it('the Tadpole is towed; every other frame takes a hitch ball', () => {
     const t = frameDef('trailer');
     expect(t.towed).toBeTruthy();
-    expect(t.towed!.coupler.x).toBeCloseTo(2.13, 2);
+    // (the box grew to a room in F8 — docs/V3/plan/finish.md §十一 1 — and the drawbar went forward with its front wall)
+    expect(t.towed!.coupler.x).toBeCloseTo(2.53, 2);
+    // (420 kg empty: with what a room holds, well within the 750 kg a hitch ball tows)
+    expect(t.mass).toBe(420);
+    expect(partDef('hitch_ball').hitch!.maxKg - t.mass).toBeGreaterThanOrEqual(300);
     expect(t.towed!.standY).toBeGreaterThan(0.3);
     // (no engine, nothing to drive it: only a box on two wheels)
     const b = stockBuild('trailer');

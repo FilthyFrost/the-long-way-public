@@ -1,6 +1,6 @@
 /**
  * R2 (docs/V3/plan/rv.md): the Old Elephant and its electricity.
- *   - the frame: a flat-fronted motorhome 8.2 m by 2.4, its V8 at the back under the bed on a three-speed, duals behind,
+ *   - the frame: a flat-fronted motorhome 9.8 m by 2.4 (8.2 until docs/V3/plan/finish.md §18), its V8 at the back under the bed on a three-speed, duals behind,
  *     a roof for a rack with a ladder up the side, a house battery on its own mount, no boot (its back is the bedroom's
  *     window); heavy and slow
  *   - its places for things inside its body under the ceiling: the aisle's floor, the bed, the galley's worktop, the
@@ -60,12 +60,12 @@ function run(r: ReturnType<typeof rig>, seconds: number, env: ModEnv, input: Par
 const charge = (b: Build, mount: string): number => b.parts[mount]?.fluids.charge ?? NaN;
 
 describe('R2: the Old Elephant', () => {
-  it('the frame: a flat-fronted motorhome 8.2 m by 2.4, its V8 at the back on a three-speed, duals behind, a roof and a ladder, a house battery, no boot', () => {
+  it('the frame: a flat-fronted motorhome 9.8 m by 2.4, its V8 at the back on a three-speed, duals behind, a roof and a ladder, a house battery, no boot', () => {
     const f = frameDef('elephant');
     expect(f.kind).toBe('rv');
     const size = frameSize('elephant');
-    expect(size.length).toBeGreaterThan(8.0);
-    expect(size.length).toBeLessThan(8.5);
+    expect(size.length).toBeGreaterThan(9.5);
+    expect(size.length).toBeLessThan(10.0);
     expect(size.width).toBeGreaterThan(2.3);
     expect(size.width).toBeLessThan(2.5);
     expect(f.body.top).toBeGreaterThan(3.0);
@@ -97,7 +97,10 @@ describe('R2: the Old Elephant', () => {
   it('its places for things lie inside its body under the ceiling; it is found with four hobs on the galley’s worktop', () => {
     const f = frameDef('elephant');
     const zones = zonesFor('elephant', stockBuild('elephant'));
-    for (const id of ['cabin', 'bed', 'galley', 'table', 'sofa', 'fridge', 'pass', 'dash', 'wall']) expect(zones.some((z) => z.id === id), id).toBe(true);
+    // (the sofa that was built in is gone — a sofa one can move stands on the floor there — and the corner behind the
+    // driver and the cubby under the sink are places of their own: docs/V3/plan/finish.md §十一 1)
+    for (const id of ['cabin', 'nook', 'bed', 'galley', 'table', 'cubby', 'fridge', 'pass', 'dash', 'wall']) expect(zones.some((z) => z.id === id), id).toBe(true);
+    expect(zones.some((z) => z.id === 'sofa')).toBe(false);
     for (const z of zones) {
       expect(z.x[0], z.id).toBeGreaterThanOrEqual(f.body.rear);
       expect(z.x[1], z.id).toBeLessThanOrEqual(f.body.front);
@@ -111,7 +114,12 @@ describe('R2: the Old Elephant', () => {
     // (the fridge's niche: on a plinth over the front wheel's hump, tall enough for Nomad Drive's fridge, 1.36)
     expect(by('fridge').floor).toBeGreaterThan(by('cabin').floor + 0.25);
     expect(by('fridge').top - by('fridge').floor).toBeGreaterThan(1.4);
-    expect(f.fittings).toEqual([{ item: HOB, zone: 'galley', n: 4, yaw: -Math.PI / 2 }]);
+    expect(f.fittings).toEqual([
+      { item: HOB, zone: 'galley', n: 4, yaw: -Math.PI / 2 },
+      { item: 'nd_sofa_2', zone: 'cabin', n: 1, yaw: Math.PI / 2, at: [-2.22, 0.7] },
+    ]);
+    // (the aisle: a metre and a tenth at the least, all its length — it was 76 cm)
+    for (const r of aboardOf('elephant')!.areas) expect(r.z1 - r.z0, r.name).toBeGreaterThanOrEqual(1.1 - 1e-9);
   });
 
   it('its living space: the aisle and the floor by the entry door inside its body, the door’s inside on it, the bed across the back', () => {
@@ -127,9 +135,9 @@ describe('R2: the Old Elephant', () => {
     expect(a.doors).toHaveLength(1);
     expect(a.doors[0].mount).toBe('door_side');
     expect(inArea(...a.doors[0].inside)).toBe(true);
-    expect(inArea(...a.aft)).toBe(true);
+    expect(inArea(...a.aft!)).toBe(true);
     // (back from the seat: behind the seats, ahead of the bed)
-    expect(a.aft[0]).toBeLessThan(f.mounts.find((m) => m.id === 'seat_driver')!.pos.x);
+    expect(a.aft![0]).toBeLessThan(f.mounts.find((m) => m.id === 'seat_driver')!.pos.x);
     const bed = a.beds![0];
     expect(bed.x1 - bed.x0).toBeGreaterThan(1.9);
     expect(bed.z1 - bed.z0).toBeGreaterThan(2.0);

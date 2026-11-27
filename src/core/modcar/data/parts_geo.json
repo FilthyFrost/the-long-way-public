@@ -2499,6 +2499,28 @@
     "trim"
    ]
   },
+  "moto_rack@rv": {
+   "bbox": [
+    [
+     -0.661,
+     -0.05,
+     -1.046
+    ],
+    [
+     0.006,
+     0.9138,
+     1.04
+    ]
+   ],
+   "triangles": 2244,
+   "materials": [
+    "chrome",
+    "lens_tail",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
   "moto_rack@snail": {
    "bbox": [
     [

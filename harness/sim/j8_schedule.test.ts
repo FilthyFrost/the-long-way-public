@@ -20,15 +20,21 @@ import '../../src/core/v3/nd/cards';
 import.meta.glob('../../src/game/modcar/v3/*/index.ts', { eager: true });
 import { boxesOfFinds, planBoxes, planGround } from '../../src/core/modcar/loot';
 import { pumpFuel } from '../../src/core/v3/nd/fuel';
-import { NEWEST_WORLD } from '../../src/core/world/rules';
 import type { Site } from '../../src/core/world/sites';
 
 const SEEDS = Number(process.env.ROBOT_SEEDS ?? 6);
 const TO_KM = 150;
 
-/** the places of a new game's world down its road (its version the newest: Nomad Drive's buildings among ours), as the plan sees them */
+/**
+ * The world this plan is laid over: version 6's (Nomad Drive's buildings among ours) — the plan here is the one of the
+ * worlds made before version 7 (SCHEDULE); a new game's world, of version 7, has its own by the chapters of the journey
+ * (SCHEDULE_V7: f6_kits.test.ts, f6_journey.test.ts)
+ */
+const WORLD = 6;
+
+/** the places of a world of version 6 down its road, as the plan sees them */
 function placesOf(seed: number, toKm: number): { places: PlanPlace[]; stations: number[] } {
-  const w = modcarWorld(seed, { worldVersion: NEWEST_WORLD }).world;
+  const w = modcarWorld(seed, { worldVersion: WORLD }).world;
   const out: Site[] = [];
   w.sites.between(0, toKm * 1000, out);
   out.sort((a, b) => a.s - b.s);

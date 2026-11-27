@@ -487,7 +487,7 @@
    "on": "steering column shroud, right side",
    "pos": [
     0.81892,
-    1.035,
+    1.0,
     -0.353
    ],
    "quat": [
@@ -650,7 +650,7 @@
    "column_deg": 30.0,
    "pos": [
     0.715,
-    1.095,
+    1.06,
     -0.4
    ],
    "quat": [
@@ -914,16 +914,16 @@
   "PG_door_FR": 62,
   "PG_door_RL": 57,
   "PG_door_RR": 57,
-  "P_door_FL": 2908,
-  "P_door_FR": 2908,
-  "P_door_RL": 2612,
-  "P_door_RR": 2612,
+  "P_door_FL": 3028,
+  "P_door_FR": 3028,
+  "P_door_RL": 2716,
+  "P_door_RR": 2716,
   "P_hood": 3064,
   "P_trunk": 912,
   "UNDER": 5116,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 60561
+  "total": 61009
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

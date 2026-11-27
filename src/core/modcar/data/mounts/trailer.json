@@ -1,18 +1,18 @@
 {
  "bbox": {
   "max": [
-   2.24135,
-   1.878,
-   0.815
+   2.64135,
+   2.618,
+   0.876
   ],
   "min": [
-   -1.322,
+   -1.722,
    0.0,
-   -0.815
+   -0.876
   ]
  },
  "coupler": [
-  2.13,
+  2.53,
   0.445,
   -0.0
  ],
@@ -69,9 +69,9 @@
    "cat": "taillight",
    "on": "the box's rear sill, outboard",
    "pos": [
-    -1.28,
+    -1.68,
     0.625,
-    -0.57
+    -0.732
    ],
    "quat": [
     0.0,
@@ -89,9 +89,9 @@
    "cat": "taillight",
    "on": "the box's rear sill, outboard",
    "pos": [
-    -1.28,
+    -1.68,
     0.625,
-    0.57
+    0.732
    ],
    "quat": [
     0.0,
@@ -112,9 +112,9 @@
    "open_deg": 270.0,
    "panel": "P_trunk",
    "pos": [
-    -1.28,
-    1.26,
-    0.68
+    -1.68,
+    1.63,
+    0.83
    ],
    "quat": [
     0.0,
@@ -136,22 +136,22 @@
     0.0
    ],
    "hinge_pos": [
-    -1.28,
-    1.26,
-    0.68
+    -1.68,
+    1.63,
+    0.83
    ],
    "mount": "trunk",
    "open_deg": 270.0
   }
  },
  "triangles": {
-  "BODY": 4660,
-  "INTERIOR": 500,
+  "BODY": 4736,
+  "INTERIOR": 1086,
   "KNUCKLE_hub_RL": 348,
   "KNUCKLE_hub_RR": 348,
-  "P_trunk": 592,
+  "P_trunk": 636,
   "UNDER": 600,
-  "total": 7048
+  "total": 7754
  },
  "units": "metres, game frame (+x forward, +y up, +z right)"
 }

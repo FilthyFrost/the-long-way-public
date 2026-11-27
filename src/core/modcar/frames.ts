@@ -247,6 +247,9 @@ export const SEDAN: FrameDef = {
   body: { front: 2.02, rear: -2.02, halfWidth: 0.8, bottom: 0.16, top: 1.4 },
   enclosed: 1,
   chase: { dist: 5.6, height: 1.9, look: 0.9 },
+  // (her eyes where a woman of her height sits, 0.73 m over the cushion, the seats 3 cm lower on their runners: the
+  // headliner 0.17 m over them, the windscreen's top 11 deg over the level line — Nomad Drive's driver's view)
+  cabView: { back: 0, up: 0.145 },
   mounts: withAxles(readMounts(sedanMounts as MountTable), (sedanMounts as MountTable).axles),
   rig: readRig(sedanMounts as MountTable),
 };
@@ -268,6 +271,9 @@ export const PICKUP: FrameDef = {
   body: { front: 2.3, rear: -2.3, halfWidth: 0.84, bottom: 0.2, top: 1.6 },
   enclosed: 1,
   chase: { dist: 6.2, height: 2.1, look: 1.0 },
+  // (her eyes 0.73 m over the cushion — a woman's sitting height — the seats 2.5 cm lower on their runners, the view
+  // 5 cm further back: the raised instrument hood's dials 30 deg down)
+  cabView: { back: 0.3, up: 0.145 },
   mounts: withAxles(readMounts(pickupMounts as MountTable), (pickupMounts as MountTable).axles),
   rig: readRig(pickupMounts as MountTable),
   bare: ['seat_rear'],
@@ -291,6 +297,7 @@ export const MOTO: FrameDef = {
   enclosed: 0,
   balance: true,
   chase: { dist: 4.2, height: 1.6, look: 0.9 },
+  cabView: { back: 0.25, up: 0.13 },
   mounts: withAxles(readMounts(motoMounts as MountTable), (motoMounts as MountTable).axles),
   rig: readRig(motoMounts as MountTable),
 };
@@ -299,9 +306,11 @@ export const RV: FrameDef = {
   id: 'rv',
   kind: 'rv',
   name: { zh: '鲸鱼', en: 'Whale' },
-  mass: 2600,
-  cg: { x: -0.1, y: 1.05, z: 0 },
-  inertia: { roll: 2600, yaw: 13000, pitch: 12500 },
+  // (8.0 m long since docs/V3/plan/finish.md §18 — 0.75 m more between the axles, 0.45 m more behind the rear one —
+  // and heavier by as much; its centre of mass back with the longer tail)
+  mass: 3050,
+  cg: { x: -0.7, y: 1.05, z: 0 },
+  inertia: { roll: 3050, yaw: 21000, pitch: 20300 },
   hubRadius: 0.39,
   suspension: { front: susp(1.2, 0.2, 0.6, 11), rear: susp(1.25, 0.2, 0.45, 10) },
   steering: { maxDeg: 38, ackermann: 0.85, rateLow: 1.4, rateHigh: 0.5, smoothTime: 0.12, returnScale: 1.4, gripLimitG: 0.6, slipMarginDeg: 6 },
@@ -309,9 +318,11 @@ export const RV: FrameDef = {
   brakeFront: 0.62,
   cdA: 4.2,
   finalDrive: 4.1,
-  body: { front: 3.4, rear: -3.4, halfWidth: 1.12, bottom: 0.3, top: 3.05 },
+  body: { front: 2.85, rear: -5.2, halfWidth: 1.12, bottom: 0.3, top: 3.05 },
   enclosed: 1,
-  chase: { dist: 10, height: 3.2, look: 1.6 },
+  chase: { dist: 11.8, height: 3.2, look: 1.6 },
+  // (her eye 0.75 m over the cushion, a normal sitting posture — the player's choice of 2026-11-26: it sat 0.6 over it)
+  cabView: { back: 0.25, up: 0.15 },
   mounts: withAxles(readMounts(rvMounts as MountTable), (rvMounts as MountTable).axles),
   rig: readRig(rvMounts as MountTable),
 };
@@ -334,6 +345,8 @@ export const VAN: FrameDef = {
   body: { front: 2.0, rear: -2.22, halfWidth: 0.85, bottom: 0.32, top: 1.96 },
   enclosed: 1,
   chase: { dist: 6.8, height: 2.5, look: 1.2 },
+  // (her eye 0.75 m over the cushion, a normal sitting posture — the player's choice of 2026-11-26: it sat 0.6 over it)
+  cabView: { back: 0.25, up: 0.15 },
   mounts: withAxles(readMounts(vanMounts as MountTable), (vanMounts as MountTable).axles),
   rig: readRig(vanMounts as MountTable),
 };
@@ -342,32 +355,37 @@ export const VAN: FrameDef = {
  * The Turtle (海龟): a camper van (docs/V3/plan/rv.md, R1) on the Loaf's way of building, longer and wider, its nose
  * round, its roof an elevating shell (POPUP_roof: up only standing, the engine off; one stands up in the room under it,
  * and it must be down to drive), a galley along the left wall, the bed across the back over the engine. The Loaf's
- * engine at the back, its running gear; a little heavier for the furniture.
+ * engine at the back, its running gear; a little heavier for the furniture. 5.7 m by 2.2 since docs/V3/plan/finish.md
+ * §18 (0.9 m longer between the axles, 0.3 m wider: its track too).
  */
 export const TURTLE: FrameDef = {
   id: 'turtle',
   kind: 'rv',
   name: { zh: '海龟', en: 'Turtle' },
-  mass: 900,
-  cg: { x: -0.1, y: 0.9, z: 0 },
-  inertia: { roll: 520, yaw: 2100, pitch: 2150 },
+  // (heavier for its new length and width, its centre back with the room; its yaw inertia that of its ends, the cab and
+  // the engine — braked with one side on snow it holds its line as it did, harness/sim/f3_stability.test.ts)
+  mass: 1100,
+  cg: { x: -0.46, y: 0.9, z: 0 },
+  inertia: { roll: 860, yaw: 4400, pitch: 4500 },
   hubRadius: 0.32,
   suspension: { front: susp(1.25, 0.2, 0.85, 10.5, 0.3), rear: susp(1.35, 0.2, 0.45, 9, 0.3) },
   steering: { maxDeg: 36, ackermann: 0.8, rateLow: 1.6, rateHigh: 0.6, smoothTime: 0.11, returnScale: 1.6, gripLimitG: 0.62, slipMarginDeg: 6 },
-  brakeN: 11500,
-  brakeFront: 0.6,
+  brakeN: 15200,
+  brakeFront: 0.62,
   cdA: 1.9,
   finalDrive: 4.86,
-  body: { front: 2.3, rear: -2.42, halfWidth: 0.92, bottom: 0.32, top: 2.12 },
+  body: { front: 2.3, rear: -3.32, halfWidth: 1.07, bottom: 0.32, top: 2.12 },
   enclosed: 1,
-  chase: { dist: 7.2, height: 2.6, look: 1.25 },
+  chase: { dist: 8.5, height: 2.6, look: 1.25 },
+  // (her eye 0.75 m over the cushion, a normal sitting posture — the player's choice of 2026-11-26: it sat 0.6 over it)
+  cabView: { back: 0.22, up: 0.15 },
   mounts: withAxles(readMounts(turtleMounts as MountTable), (turtleMounts as MountTable).axles),
   rig: readRig(turtleMounts as MountTable),
 };
 
 /**
  * The Old Elephant (老象): a flat-fronted 1986 motorhome (docs/V3/plan/rv.md, R2) on the Loaf's and the Turtle's way of
- * building, 8.2 m by 2.4: the driver's seat at the front of the room (turn round from it and one is in the living
+ * building, 9.8 m by 2.4 (8.3 m until docs/V3/plan/finish.md §18 added 1.5 m between the dinette and the cab): the driver's seat at the front of the room (turn round from it and one is in the living
  * room), a dinette and a galley along the left wall, the fridge's niche, the entry door and a sofa on the right, the
  * bedroom across the back over its petrol V8 (a pusher, under the bed), duals at the back. Heavy, slow and thirsty; its
  * long wheelbase turns wide. Its house battery (生活电瓶) on the floor in the dinette's footwell.
@@ -376,9 +394,9 @@ export const ELEPHANT: FrameDef = {
   id: 'elephant',
   kind: 'rv',
   name: { zh: '老象', en: 'Old Elephant' },
-  mass: 4500,
-  cg: { x: -0.35, y: 1.25, z: 0 },
-  inertia: { roll: 4750, yaw: 33000, pitch: 32400 },
+  mass: 5300,
+  cg: { x: -1.05, y: 1.25, z: 0 },
+  inertia: { roll: 5600, yaw: 54300, pitch: 53300 },
   hubRadius: 0.39,
   // (a coach on soft springs: it leans in the bends and pitches over the bumps, slow to settle)
   suspension: { front: susp(1.15, 0.2, 0.62, 11, 0.34), rear: susp(1.25, 0.2, 0.45, 10, 0.34) },
@@ -387,18 +405,24 @@ export const ELEPHANT: FrameDef = {
   brakeFront: 0.62,
   cdA: 5.9,
   finalDrive: 4.56,
-  body: { front: 4.1, rear: -4.12, halfWidth: 1.2, bottom: 0.5, top: 3.12 },
+  body: { front: 4.1, rear: -5.62, halfWidth: 1.2, bottom: 0.5, top: 3.12 },
   enclosed: 1,
-  chase: { dist: 12.5, height: 3.9, look: 1.9 },
+  chase: { dist: 14.7, height: 3.9, look: 1.9 },
+  // (her eye 0.75 m over the cushion, a normal sitting posture — the player's choice of 2026-11-26: it sat 0.6 over it)
+  cabView: { back: 0.22, up: 0.15 },
   mounts: withAxles(readMounts(elephantMounts as MountTable), (elephantMounts as MountTable).axles),
   rig: readRig(elephantMounts as MountTable),
-  // (its range: four electric hobs on the galley's worktop, drawing on the house battery)
-  fittings: [{ item: 'kit_hob', zone: 'galley', n: 4, yaw: -Math.PI / 2 }],
+  // (its range: four electric hobs on the galley's worktop, drawing on the house battery; and a sofa against the right
+  // wall — one that can be moved, where one was built in: docs/V3/plan/finish.md §十一 1)
+  fittings: [
+    { item: 'kit_hob', zone: 'galley', n: 4, yaw: -Math.PI / 2 },
+    { item: 'nd_sofa_2', zone: 'cabin', n: 1, yaw: Math.PI / 2, at: [-2.22, 0.7] },
+  ],
 };
 
 /**
  * The Camel (骆驼): a school bus made a motorhome (docs/V3/plan/rv.md, R3) — the Elephant's way of building for its long
- * box, its hood a shell of its own in front with the engine and the front wheels under it: 9.5 m by 2.4, yellow with its
+ * box, its hood a shell of its own in front with the engine and the front wheels under it: 10.6 m by 2.4 (9.5 until its back grew by 1.1 m, docs/V3/plan/finish.md §18), yellow with its
  * roof white, black rub rails, a row of windows down both sides, the entry door behind the cowl on the right, the
  * emergency door in the tail. Found emptied: the floor, the walls, the windows, the driver's seat — the beds, the
  * cupboards, the stove are found by the road and put in. A diesel six; heavy and slow; its roof a deck for a long rack,
@@ -408,9 +432,9 @@ export const CAMEL: FrameDef = {
   id: 'camel',
   kind: 'rv',
   name: { zh: '骆驼', en: 'Camel' },
-  mass: 5200,
-  cg: { x: -0.4, y: 1.15, z: 0 },
-  inertia: { roll: 5400, yaw: 47000, pitch: 46000 },
+  mass: 5800,
+  cg: { x: -0.9, y: 1.15, z: 0 },
+  inertia: { roll: 6000, yaw: 65200, pitch: 63800 },
   hubRadius: 0.39,
   // (a bus on leaf springs: it rolls in the bends and pitches over the bumps, slow to settle)
   suspension: { front: susp(1.25, 0.2, 0.6, 11, 0.36), rear: susp(1.35, 0.2, 0.45, 10, 0.36) },
@@ -419,9 +443,11 @@ export const CAMEL: FrameDef = {
   brakeFront: 0.6,
   cdA: 6.2,
   finalDrive: 3.9,
-  body: { front: 4.46, rear: -5.07, halfWidth: 1.22, bottom: 0.48, top: 3.05 },
+  body: { front: 4.46, rear: -6.16, halfWidth: 1.22, bottom: 0.48, top: 3.05 },
   enclosed: 1,
-  chase: { dist: 14, height: 4.2, look: 2.0 },
+  chase: { dist: 15.6, height: 4.2, look: 2.0 },
+  // (her eye 0.75 m over the cushion, a normal sitting posture — the player's choice of 2026-11-26: it sat 0.6 over it)
+  cabView: { back: 0.25, up: 0.15 },
   mounts: withAxles(readMounts(camelMounts as MountTable), (camelMounts as MountTable).axles),
   rig: readRig(camelMounts as MountTable),
   // (emptied: the seat behind the entry door gone with the rest)
@@ -446,6 +472,9 @@ export const GOAT: FrameDef = {
   body: { front: 2.21, rear: -2.22, halfWidth: 0.92, bottom: 0.2, top: 1.84 },
   enclosed: 1,
   chase: { dist: 6.4, height: 2.3, look: 1.1 },
+  // (her eyes 0.73 m over the cushion — a woman's sitting height — the front seats 2.5 cm lower on their runners, the
+  // view about where her eyes are leaning against the seat's back)
+  cabView: { back: 0.35, up: 0.145 },
   mounts: withAxles(readMounts(goatMounts as MountTable), (goatMounts as MountTable).axles),
   rig: readRig(goatMounts as MountTable),
 };
@@ -468,6 +497,8 @@ export const WAGON: FrameDef = {
   body: { front: 2.24, rear: -2.6, halfWidth: 0.86, bottom: 0.16, top: 1.44 },
   enclosed: 1,
   chase: { dist: 6.2, height: 2.0, look: 0.9 },
+  // (her eyes 0.73 m over the cushion, the seats 3 cm lower on their runners: as the Sugar Cube's, the same cab)
+  cabView: { back: 0, up: 0.145 },
   mounts: withAxles(readMounts(wagonMounts as MountTable), (wagonMounts as MountTable).axles),
   rig: readRig(wagonMounts as MountTable),
 };
@@ -490,6 +521,9 @@ export const FOX: FrameDef = {
   body: { front: 2.06, rear: -2.06, halfWidth: 0.82, bottom: 0.11, top: 1.235 },
   enclosed: 1,
   chase: { dist: 5.2, height: 1.7, look: 0.8 },
+  // (her eyes 0.65 m over the cushion — a sports car's reclined sitting height — the seats 4.5 cm lower in wells in
+  // the floor: 0.15 m from her eyes to the low roof's headliner)
+  cabView: { back: 0, up: 0.065 },
   mounts: withAxles(readMounts(foxMounts as MountTable), (foxMounts as MountTable).axles),
   rig: readRig(foxMounts as MountTable),
 };
@@ -509,9 +543,11 @@ export const SNAIL: FrameDef = {
   brakeFront: 0.6,
   cdA: 3.2,
   finalDrive: 5.1,
-  body: { front: 2.55, rear: -2.52, halfWidth: 0.95, bottom: 0.3, top: 2.75 },
+  // (its box 15 cm higher since docs/V3/plan/finish.md §十一 1: 1.9 m clear inside, a room one walks into)
+  body: { front: 2.55, rear: -2.52, halfWidth: 0.95, bottom: 0.3, top: 2.9 },
   enclosed: 1,
-  chase: { dist: 8.5, height: 3.0, look: 1.5 },
+  chase: { dist: 8.5, height: 3.1, look: 1.5 },
+  cabView: { back: 0, up: 0.17 },
   mounts: withAxles(readMounts(snailMounts as MountTable), (snailMounts as MountTable).axles),
   rig: readRig(snailMounts as MountTable),
 };
@@ -534,6 +570,7 @@ export const BUFFALO: FrameDef = {
   body: { front: 2.45, rear: -2.48, halfWidth: 0.9, bottom: 0.18, top: 1.96 },
   enclosed: 1,
   chase: { dist: 7.0, height: 2.4, look: 1.1 },
+  cabView: { back: 0.3, up: 0.11 },
   mounts: withAxles(readMounts(buffaloMounts as MountTable), (buffaloMounts as MountTable).axles),
   rig: readRig(buffaloMounts as MountTable),
 };
@@ -556,33 +593,36 @@ export const RHINO: FrameDef = {
   body: { front: 2.84, rear: -3.35, halfWidth: 1.12, bottom: 0.27, top: 2.89 },
   enclosed: 1,
   chase: { dist: 9.5, height: 3.3, look: 1.6 },
+  cabView: { back: 0.2, up: 0.17 },
   mounts: withAxles(readMounts(rhinoMounts as MountTable), (rhinoMounts as MountTable).axles),
   rig: readRig(rhinoMounts as MountTable),
   bare: ['seat_rear'],
 };
 
 /**
- * The Tadpole (蝌蚪): a small single-axle box trailer (docs/V3/plan/growth.md §六 2, J9d) — towed behind a car by the
+ * The Tadpole (蝌蚪): a single-axle box trailer (docs/V3/plan/growth.md §六 2, J9d) — towed behind a car by the
  * coupling on its drawbar, its jockey wheel under it when it stands; the Sugar Cube's wheels, a rear door, a box one
  * fills with things and furniture. Never driven: posed behind what tows it (game/modcar/tow.ts).
+ * A room on wheels (docs/V3/plan/finish.md §十一 1, F8): the box 3.0 × 1.7 m and 1.9 m clear inside, walked into by its
+ * rear door (aboard.ts); 420 kg empty (280 before it grew) — well within what a hitch ball tows (parts.ts: 750 kg).
  */
 export const TRAILER: FrameDef = {
   id: 'trailer',
   kind: 'trailer',
   name: { zh: '蝌蚪', en: 'Tadpole' },
-  mass: 280,
-  cg: { x: -0.1, y: 0.95, z: 0 },
-  inertia: { roll: 120, yaw: 380, pitch: 380 },
+  mass: 420,
+  cg: { x: -0.1, y: 1.25, z: 0 },
+  inertia: { roll: 340, yaw: 1060, pitch: 1060 },
   hubRadius: 0.285,
   suspension: { front: susp(2.2, 0.12, 0.5, 9, 0.35), rear: susp(2.2, 0.12, 0.5, 9, 0.35) },
   steering: { maxDeg: 0, ackermann: 0, rateLow: 1, rateHigh: 1, smoothTime: 0.1, returnScale: 1, gripLimitG: 0.6, slipMarginDeg: 6 },
   brakeN: 0,
   brakeFront: 0.5,
-  cdA: 1.4,
+  cdA: 2.4,
   finalDrive: 1,
-  body: { front: 0.96, rear: -1.29, halfWidth: 0.82, bottom: 0.5, top: 1.88 },
+  body: { front: 1.37, rear: -1.72, halfWidth: 0.88, bottom: 0.5, top: 2.62 },
   enclosed: 0,
-  chase: { dist: 6.5, height: 2.6, look: 1.0 },
+  chase: { dist: 8.0, height: 3.2, look: 1.3 },
   towed: { coupler: { x: (trailerMounts as unknown as { coupler: number[] }).coupler[0], y: (trailerMounts as unknown as { coupler: number[] }).coupler[1], z: 0 }, standY: 0.445 },
   mounts: withAxles(readMounts(trailerMounts as MountTable), (trailerMounts as MountTable).axles),
   rig: readRig(trailerMounts as MountTable),

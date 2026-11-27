@@ -169,9 +169,9 @@ describe('ModCar factory builds', () => {
     // (the Loaf's flat four in a longer camper with its galley and its bed: slower still)
     turtle: { mass: [1250, 1750], cg: [0.68, 1.05], t100: [20, 42], vmax: [95, 122] },
     // (a petrol V8 at the back of a five-tonne motorhome on a three-speed: it gets going, slowly, and drinks)
-    elephant: { mass: [4800, 5800], cg: [0.95, 1.4], t100: [18, 40], vmax: [100, 135] },
+    elephant: { mass: [5600, 6600], cg: [0.95, 1.4], t100: [18, 40], vmax: [100, 135] },
     // (a diesel six in a nine-and-a-half-metre school bus: slow to get going, and it goes on)
-    camel: { mass: [5800, 6800], cg: [0.9, 1.35], t100: [25, 50], vmax: [95, 115] },
+    camel: { mass: [6300, 7400], cg: [0.9, 1.35], t100: [25, 50], vmax: [95, 115] },
   };
   for (const f of FRAMES.filter((x) => !x.towed)) {
     it(`${f.id}: derives a sane spec and drives off`, () => {

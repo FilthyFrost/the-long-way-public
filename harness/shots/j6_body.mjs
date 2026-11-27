@@ -42,30 +42,26 @@ try {
       g.rightButton = false;
       for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
     }, seconds);
-  // (in a seat sleep is the left button held on nothing of the cab's, as on a bed: docs/V3/plan/finish.md §十三)
-  const leftHold = (seconds) =>
-    ev((s) => {
-      const g = window.__rt.game;
-      g.leftButton = true;
-      for (let t = 0; t < s; t += 1 / 60) g.step(1 / 60, 1);
-      g.leftButton = false;
-      for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
-    }, seconds);
   await sim(1);
 
-  // ---- 1. the marks top left: one bar — full, nothing lost of it — and the three needs, none shown while they are full
-  const hud = await ev(() => ({
-    tiles: [...document.querySelectorAll('.mc-vit .tile')].map((t) => t.getAttribute('data-k')).join(','),
-    shown: document.querySelectorAll('.mc-vit .tile.on').length,
-    hp: parseFloat(document.querySelector('.mc-vit .bar .hp')?.style.width ?? ''),
-    lost: parseFloat(document.querySelector('.mc-vit .bar .lost')?.style.width ?? ''),
-    dial: !!document.querySelector('.mc-vit .dial'),
-  }));
-  ok(hud.tiles === 'food,water,energy' && hud.shown === 0 && hud.hp === 100 && hud.lost === 0 && !hud.dial, `one bar, full; the needs kept back while they are full (${JSON.stringify(hud)})`);
-  // (hungry: its tile comes)
+  // ---- 1. the marks top left, as they were 11-24: the dial — life full round its left half, no health lost — and the
+  // three needs' tiles, always there (docs/V3/plan/finish.md §十八, 界面恢复)
+  const hud = await ev(() => {
+    const d = document.querySelector('.mc-vit .dial');
+    return {
+      tiles: [...document.querySelectorAll('.mc-vit .tile')].map((t) => t.getAttribute('data-k')).join(','),
+      hp: parseFloat(d?.dataset.hp ?? ''),
+      cap: parseFloat(d?.dataset.cap ?? ''),
+      lost: document.querySelector('.mc-vit path.lost')?.getAttribute('d') ?? 'none',
+      dial: !!d,
+      bar: !!document.querySelector('.mc-vit .bar'),
+    };
+  });
+  ok(hud.tiles === 'food,water,energy' && hud.hp === 100 && hud.cap === 100 && hud.lost === '' && hud.dial && !hud.bar, `the dial: life full, no health lost; the three needs (${JSON.stringify(hud)})`);
+  // (hungry: its tile's bar goes down)
   await ev(() => (window.__rt.game.body.food = 40));
   await sim(0.2);
-  ok((await ev(() => [...document.querySelectorAll('.mc-vit .tile.on')].map((t) => t.getAttribute('data-k')).join(','))) === 'food', 'food under six tenths: its tile is there');
+  ok(Math.abs((await ev(() => parseFloat(document.querySelector('.mc-vit .tile[data-k="food"] .b i').style.width))) - 40) <= 1, "food at four tenths: its tile's bar at 40 %");
   await ev(() => (window.__rt.game.body.food = 100));
   await sim(0.2);
   await rt('look', 0.1, -0.1);
@@ -126,7 +122,7 @@ try {
   b = await body();
   await shot('03_ill.png');
   // (it takes health — the bar's grey end, with the stomach's mark — and life only as far as health comes down on it)
-  const grey = await ev(() => ({ lost: parseFloat(document.querySelector('.mc-vit .bar .lost').style.width), why: document.querySelector('.mc-vit .bar .why').style.display, sap: document.querySelector('.mc-vit .bar .lost').classList.contains('sap') }));
+  const grey = await ev(() => ({ lost: 100 - parseFloat(document.querySelector('.mc-vit .dial').dataset.cap), why: document.querySelector('.mc-vit .dial .why').style.display, sap: document.querySelector('.mc-vit path.lost').classList.contains('sap') }));
   ok(b.cap < cap0 && b.capWhy === 'sick' && b.hp <= b.cap && grey.lost > 0 && grey.why === 'block' && grey.sap && (await badges()).some((t) => t.includes('肚子疼')), `ill a while: health ${cap0.toFixed(0)} → ${b.cap.toFixed(0)}, life ${b.hp.toFixed(0)}, the bar's grey ${JSON.stringify(grey)}, sick up: ${vomited}, the badges ${JSON.stringify(await badges())}`);
   await rt('hold', 'item:nd_pills');
   await rightHold(2.6);
@@ -182,7 +178,7 @@ try {
     g.body.hp = 70;
   });
   await sim(0.5);
-  ok(await ev(() => document.querySelector('.mc-vit .tile[data-k="energy"]').className.includes('on') && document.querySelector('.mc-vit .tile[data-k="energy"]').className.includes('low')), 'sleepy: the moon is there, red');
+  ok(await ev(() => document.querySelector('.mc-vit .tile[data-k="energy"]').className.includes('low') && [...document.querySelectorAll('.mc-vit .fx span')].some((e) => e.textContent.includes('困了'))), 'sleepy: the moon red, 困了 among the states');
   const keys = await ev(() => [...document.querySelectorAll('.mc-keys, .mc-acts')].map((e) => e.textContent).join(' '));
   // the view dims for a moment now and then
   let dimmed = 0;
@@ -193,7 +189,8 @@ try {
   await shot('05_sleepy.png');
   ok(dimmed >= 0.3, `the view dims now and then (${dimmed.toFixed(2)})`);
   const hour0 = await ev(() => window.__rt.game.env.clock.hourAt(window.__rt.game.time));
-  await leftHold(1.2);
+  // (in a seat sleep is the right button held, as on 11-24: docs/V3/plan/finish.md §十八, 界面恢复)
+  await rightHold(1.2);
   await sim(1.0);
   await shot('06_asleep.png');
   await sim(2.5);
@@ -248,7 +245,7 @@ try {
     await sim(1);
   }
   b = await body();
-  const sun = await ev(() => ({ lost: parseFloat(document.querySelector('.mc-vit .bar .lost').style.width), glow: Number(document.querySelector('.mc-fx .glow').style.opacity) }));
+  const sun = await ev(() => ({ lost: 100 - parseFloat(document.querySelector('.mc-vit .dial').dataset.cap), glow: Number(document.querySelector('.mc-fx .glow').style.opacity) }));
   await shot('09_heat.png');
   ok(!!b.effects.heat && b.cap <= 98 && b.capWhy === 'heat' && sun.lost >= 2 && sun.glow > 0.3 && (await badges()).some((t) => t.includes('中暑')), `heat-struck: health ${b.cap.toFixed(0)} (${b.capWhy}), the grey ${sun.lost} %, the glow ${sun.glow}, ${JSON.stringify(await badges())}`);
   // (the first-aid box used: thirty of health back; the same box carried gets one up again)

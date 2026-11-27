@@ -1,8 +1,8 @@
 /**
  * The few words on screen while working on a vehicle (docs/MODCAR.md §5): the mark in the middle and its
  * progress ring, the item cards, the hotbar and the keys (hudItems.ts), the vehicle's own messages, the
- * garage's checklist (as a quest in the top right corner), the cluster while driving,
- * the key card and the loading card.
+ * garage's checklist (as a quest in the top right corner), the key card and the loading card. (What the vehicle
+ * reads is on its own instruments in the cab: cluster.ts — no readings in the corner of the screen.)
  *
  * Plain DOM over the canvas, laid out and coloured as Arctic Drive's HUD is (dark smoky glass, white words
  * with a shadow where they stand on the scene), in a cartoon frame: a cream rim, an ink line round it and a
@@ -96,36 +96,6 @@ const CSS = `
 .mc-list .now { display: flex; justify-content: flex-end; align-items: center; gap: 9px; margin-top: 8px; font-size: 16px; }
 .mc-list .ring { position: relative; flex: none; width: 32px; height: 32px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid var(--rim); box-shadow: 0 0 0 2px var(--ink); text-shadow: none; }
 .mc-list .ring b { position: absolute; inset: 4px; border-radius: 50%; background: rgba(20,18,16,0.95); font-size: 9.5px; font-weight: 700; line-height: 19px; text-align: center; }
-.mc-dash { position: absolute; left: 24px; bottom: 24px; display: flex; align-items: center; gap: 14px; padding: 11px 18px 12px 16px; }
-.mc-dash .sp { display: flex; flex-direction: column; align-items: flex-end; min-width: 66px; }
-.mc-dash .spd { font-size: 40px; line-height: 0.95; font-weight: 700; letter-spacing: -0.02em; }
-.mc-dash .unit { margin-top: 3px; font-size: 12px; color: var(--tx-2); }
-.mc-dash .gear { min-width: 32px; padding: 4px 6px; border-radius: 8px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 19px/1 var(--key-font); text-align: center; }
-.mc-dash .col { display: flex; flex-direction: column; gap: 7px; min-width: 150px; }
-.mc-dash .row { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--tx-2); }
-.mc-dash .rpmT, .mc-dash .tempT { min-width: 34px; text-align: right; color: #fff; font-weight: 700; }
-.mc-dash .bar { position: relative; flex: 1; height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; }
-.mc-dash .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: #f2efe8; }
-.mc-dash .bar.red i { background: #ff6b5a; }
-.mc-dash .bar.fuelBar i { background: #ff9a2a; }
-.mc-dash .bar.temp i { background: #4f9cf2; }
-.mc-dash .bar.low i { background: #ff6b5a; }
-.mc-dash .lamps { display: flex; gap: 5px; min-height: 19px; }
-.mc-dash .lamps span { padding: 0 8px; border-radius: 999px; background: rgba(255,255,255,0.09); color: var(--tx-3); font-size: 12px; line-height: 19px; }
-.mc-dash .lamps span.on { background: #f2efe8; color: var(--ink); font-weight: 700; }
-.mc-dash .lamps span.warn { background: #ff6b5a; color: #fff; font-weight: 700; }
-.mc-dash .tyres { display: grid; grid-template-columns: 9px 9px; grid-template-rows: 15px 15px; column-gap: 12px; row-gap: 10px; padding: 3px 6px; border-radius: 9px; background: rgba(255,255,255,0.06); position: relative; }
-.mc-dash .tyres::before { content: ''; position: absolute; left: 50%; top: 6px; bottom: 6px; width: 8px; margin-left: -4px; border-radius: 3px; background: rgba(255,255,255,0.13); }
-.mc-dash .tyres i { display: block; border-radius: 3px; border: 1.5px solid var(--ink); box-shadow: 0 1px 0 var(--ink); }
-.mc-dash .tyres i.s0 { background: #55cf6a; }
-.mc-dash .tyres i.s1 { background: #b9d94f; }
-.mc-dash .tyres i.s2 { background: #f0b43a; }
-.mc-dash .tyres i.s3 { background: #ff6b5a; }
-.mc-dash .tyres i.flat { background: #2a1512; border-color: #ff6b5a; animation: mc-blink 0.8s steps(2) infinite; }
-.mc-dash .tyres i.none { background: transparent; border-style: dashed; opacity: 0.5; }
-.mc-dash.compact { gap: 10px; padding: 9px 14px 10px 14px; }
-.mc-dash.compact .gear, .mc-dash.compact .tyres, .mc-dash.compact .lamps, .mc-dash.compact .revs, .mc-dash.compact .wl, .mc-dash.compact .temp, .mc-dash.compact .tempT { display: none; }
-.mc-dash.compact .col { min-width: 96px; }
 @keyframes mc-blink { 50% { opacity: 0.35; } }
 .mc-fade { position: absolute; z-index: 5; inset: 0; background: #0b0a09; opacity: 0; transition: opacity 0.6s; }
 .mc-help, .mc-assist { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); max-height: calc(100% - 40px); overflow: auto; font-size: 14.5px; line-height: 1.55; }
@@ -163,19 +133,28 @@ const CSS = `
 `;
 
 /** the keys (docs/MODCAR.md §5.1), as the help card shows them: a key and a word (docs/V3/plan/prompts.md §五) */
+// (laid out as on 11-24 — the mouse, the keyboard, the car — with the keys there are now: docs/V3/plan/finish.md §十八, 界面恢复)
 export const HELP = `<h3>按键</h3>
-<table>
-<tr><td class="k">左键</td><td class="v">拿 · 开 · 用　按住：装 · 拆 · 倒 · 喷</td></tr>
-<tr><td class="k">右键</td><td class="v">用手里的东西</td></tr>
-<tr><td class="k">滚轮</td><td class="v">换格 · 调</td></tr>
-<tr><td class="k"><b>Q</b></td><td class="v">放下 · 收起来　按住：下车</td></tr>
-<tr><td class="k"><b>R</b></td><td class="v">仔细摆　摆的时候 <b>Q</b> <b>E</b> 转</td></tr>
-<tr><td class="k"><b>Tab</b></td><td class="v">身上 · 车上 · 菜谱</td></tr>
-<tr><td class="k"><b>V</b></td><td class="v">换视角</td></tr>
-<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>空格</b> · <b>Shift</b> · <b>C</b></td><td class="v">走、开车 · 跳、手刹 · 跑 · 蹲</td></tr>
-<tr><td class="k"><b>Esc</b></td><td class="v">菜单</td></tr>
+<h5>鼠标</h5><table>
+<tr><td class="k">左键</td><td class="v">拿 · 开 · 用</td></tr>
+<tr><td class="k">按住左键</td><td class="v">装 · 拆 · 倒 · 喷 · 刮</td></tr>
+<tr><td class="k">右键</td><td class="v">吃 · 喝 · 手电 · 相机 · 学图纸</td></tr>
+<tr><td class="k">滚轮</td><td class="v">调 · 换格</td></tr>
 </table>
-<div class="foot">点击开始 · <b>F1</b> 按键</div>`;
+<h5>键盘</h5><table>
+<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>Shift</b> · <b>空格</b> · <b>C</b></td><td class="v">走 · 跑 · 跳 · 蹲</td></tr>
+<tr><td class="k"><b>Q</b> · <b>R</b></td><td class="v">放下 · 摆放</td></tr>
+<tr><td class="k">摆放时 <b>Q</b> <b>E</b></td><td class="v">转 90°</td></tr>
+<tr><td class="k"><b>1</b> <b>2</b> · <b>Tab</b> · <b>J</b></td><td class="v">快捷栏 · 背包 · 食谱</td></tr>
+<tr><td class="k"><b>V</b></td><td class="v">换视角</td></tr>
+</table>
+<h5>开车</h5><table>
+<tr><td class="k"><b>W</b> <b>S</b> · <b>A</b> <b>D</b> · <b>空格</b></td><td class="v">油门 / 刹车 · 转向 · 手刹</td></tr>
+<tr><td class="k">按住左键（钥匙）</td><td class="v">打火</td></tr>
+<tr><td class="k"><b>L</b> · <b>H</b> · <b>V</b> · 按住 <b>Q</b></td><td class="v">车灯 · 喇叭 · 视角 · 下车</td></tr>
+<tr><td class="k">熄火停稳，按住右键</td><td class="v">睡觉</td></tr>
+</table>
+<div class="foot">点击开始 · <b>F1</b> 按键 · <b>F2</b> 辅助 · <b>Esc</b> 菜单</div>`;
 
 /** the marker's flag: a gold pennant on a pole, in the cartoon ink */
 const FLAG = '<svg viewBox="0 0 22 26"><path d="M5 24.5V2.5" stroke="#17120f" stroke-width="3.2" stroke-linecap="round" fill="none" /><path d="M5 24.5V2.5" stroke="#efe6d3" stroke-width="1.4" stroke-linecap="round" fill="none" /><path class="f" d="M6 3h13l-3.6 4.6L19 12.2H6z" fill="#e9c14a" stroke="#17120f" stroke-width="2.2" stroke-linejoin="round" /></svg>';
@@ -185,28 +164,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
   e.className = cls;
   parent.appendChild(e);
   return e;
-}
-
-/** what the little instrument cluster shows */
-export interface DashView {
-  kmh: number;
-  gear: string;
-  /** 0…1 of the redline */
-  rpm: number;
-  rpmText: string;
-  fuel: number;
-  /** 0…1 from cold to the seizing point */
-  temp: number;
-  tempText: string;
-  battery: number;
-  running: boolean;
-  handbrake: boolean;
-  lights: 'off' | 'low' | 'high';
-  warn: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
-  /** the four tyres (FL, FR, RL, RR, as seen from above): their stage (0 new … 3 "good luck", tyres.ts), −1 none, 4 blown */
-  tyres?: number[];
-  /** the speed and the fuel alone (seen from outside the vehicle, the instruments in the cab out of sight) */
-  compact?: boolean;
 }
 
 export class ModUI {
@@ -219,7 +176,6 @@ export class ModUI {
   private readonly place: HTMLDivElement;
   private placeT = 0;
   private readonly list: HTMLDivElement;
-  private readonly dash: HTMLDivElement;
   private readonly fade: HTMLDivElement;
   private readonly help: HTMLDivElement;
   private readonly pause: HTMLDivElement;
@@ -312,7 +268,6 @@ export class ModUI {
     this.toast = el('div', 'mc-toast mc-frame', this.root);
     this.place = el('div', 'mc-place', this.root);
     this.list = el('div', 'mc-list', this.root);
-    this.dash = el('div', 'mc-dash mc-frame', this.root);
     this.marker = el('div', 'mc-marker', this.root);
     this.pause = el('div', 'mc-pause mc-frame', this.root);
     this.pause.innerHTML = '点击画面继续 <i>·</i> <b>F1</b> 按键';
@@ -323,7 +278,7 @@ export class ModUI {
     this.load = el('div', 'mc-load', this.root);
     this.load.innerHTML = '<div class="box"><h2>公路旅行</h2><div class="sub">前方三百公里，再无修理厂</div><div class="bar mc-frame"><i></i></div><div class="what">正在把零件搬进车库……</div></div>';
     this.load.style.display = 'none';
-    for (const e of [this.word, this.toast, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
+    for (const e of [this.word, this.toast, this.list, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
     this.ring.style.display = 'none';
   }
 
@@ -510,55 +465,6 @@ export class ModUI {
       `<span class="ring" style="background: conic-gradient(#8ad46a 0 ${pct}%, rgba(20,18,16,0.88) ${pct}% 100%)"><b>${pct}%</b></span></div>`;
     // (the held card keeps below it)
     this.items.topRight = this.list.offsetTop + this.list.offsetHeight;
-  }
-
-  private dashEls: { spd: HTMLElement; gear: HTMLElement; rpm: HTMLElement; rpmT: HTMLElement; fuel: HTMLElement; fuelBar: HTMLElement; temp: HTMLElement; tempT: HTMLElement; lamps: HTMLElement; tyres: HTMLElement } | null = null;
-  private lastLamps = '';
-  private lastTyres = '';
-
-  /** the cluster in the corner while driving (the real gauges are on the dash in the cab) */
-  showDash(d: DashView | null): void {
-    this.dash.style.display = d ? '' : 'none';
-    if (!d) return;
-    this.dash.classList.toggle('compact', !!d.compact);
-    if (!this.dashEls) {
-      this.dash.innerHTML =
-        '<div class="spd"></div><div class="unit">km/h</div><div class="gear"></div>' +
-        '<div class="col"><div class="row revs"><div class="bar rpm"><i></i></div><span class="rpmT"></span></div>' +
-        '<div class="row">油<div class="bar fuelBar"><i></i></div><span class="wl">水</span><div class="bar temp"><i></i></div><span class="tempT"></span></div>' +
-        '<div class="lamps"></div></div><div class="tyres" title="轮胎"></div>';
-      const q = (sel: string): HTMLElement => this.dash.querySelector(sel) as HTMLElement;
-      this.dashEls = { spd: q('.spd'), gear: q('.gear'), rpm: q('.rpm i'), rpmT: q('.rpmT'), fuel: q('.fuelBar i'), fuelBar: q('.fuelBar'), temp: q('.temp i'), tempT: q('.tempT'), lamps: q('.lamps'), tyres: q('.tyres') };
-    }
-    const e = this.dashEls;
-    e.spd.textContent = Math.abs(d.kmh).toFixed(0);
-    e.gear.textContent = d.gear;
-    e.rpm.style.width = `${(Math.min(1, Math.max(0, d.rpm)) * 100).toFixed(1)}%`;
-    e.rpmT.textContent = d.rpmText;
-    e.fuel.style.width = `${(Math.min(1, Math.max(0, d.fuel)) * 100).toFixed(1)}%`;
-    e.fuelBar.classList.toggle('low', d.fuel < 0.12);
-    e.temp.style.width = `${(Math.min(1, Math.max(0, d.temp)) * 100).toFixed(1)}%`;
-    e.tempT.textContent = d.tempText;
-    const lamp = (on: boolean, text: string, cls = 'on'): string => `<span class="${on ? cls : ''}">${text}</span>`;
-    const lamps =
-      lamp(d.handbrake, '手刹') +
-      lamp(d.lights !== 'off', d.lights === 'high' ? '远光' : '车灯') +
-      lamp(!d.running, '熄火', 'warn') +
-      (d.warn.battery ? lamp(true, '电瓶', 'warn') : '') +
-      (d.warn.oil ? lamp(true, '机油', 'warn') : '') +
-      (d.warn.temp ? lamp(true, '水温', 'warn') : '') +
-      (d.warn.fuel ? lamp(true, '油量', 'warn') : '');
-    if (lamps !== this.lastLamps) {
-      e.lamps.innerHTML = lamps;
-      this.lastLamps = lamps;
-    }
-    // the four tyres from above, in their stages' colours (a blown one blinks)
-    const ty = (d.tyres ?? []).map((s) => (s < 0 ? 'none' : s >= 4 ? 'flat' : `s${s}`)).join(' ');
-    if (ty !== this.lastTyres) {
-      this.lastTyres = ty;
-      e.tyres.style.display = d.tyres ? '' : 'none';
-      e.tyres.innerHTML = (d.tyres ?? []).map((s) => `<i class="${s < 0 ? 'none' : s >= 4 ? 'flat' : `s${s}`}"></i>`).join('');
-    }
   }
 
   /** the assists (F2): their names and whether each is on; null = hide */

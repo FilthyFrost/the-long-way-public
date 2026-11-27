@@ -10,8 +10,8 @@
  * the plan of what turns up (schedule.ts PlannedFind).
  */
 import { hash2, Rng } from '../math/rng';
-import type { SiteKind } from '../world/sites';
-import { thingKey, type PlannedFind, type ScheduledThing } from './schedule';
+import type { PlaceSort, SiteKind } from '../world/sites';
+import { takesSorts, thingKey, type PlannedFind, type ScheduledThing } from './schedule';
 import type { Text } from './types';
 
 // (a thing's key: schedule.ts thingKey — an item's id, a part's with `part:` before it, a tool's with `tool:`)
@@ -21,7 +21,7 @@ export interface KitStep {
   /** what comes at this step, together (picking up any of them is the step taken) */
   things: readonly ScheduledThing[];
   /** the sorts of place it is found at (absent: the set's own) */
-  themes?: readonly SiteKind[];
+  themes?: readonly PlaceSort[];
   /** never before this far down the road (km): the chapter it belongs to */
   fromKm?: number;
   /** things one has other uses for (a battery, a shovel, a bucket): never kept back, wherever the set stands */
@@ -36,7 +36,7 @@ export interface KitDef {
   /** what comes after it, in order */
   steps: readonly KitStep[];
   /** the sorts of place its steps are found at */
-  themes: readonly SiteKind[];
+  themes: readonly PlaceSort[];
   /** what else of it a place's own keeps back until the main thing has been picked up (what it uses up, its other pieces) */
   held?: readonly string[];
 }
@@ -44,6 +44,8 @@ export interface KitDef {
 const I = (item: string): ScheduledThing => ({ item });
 const HOME: readonly SiteKind[] = ['house'];
 const WORKSHOP: readonly SiteKind[] = ['garage', 'works'];
+/** a world of version 7's motel (sites.ts Site.sort): what a traveller leaves — film, a tape, a key */
+const MOTEL: readonly PlaceSort[] = ['motel'];
 
 /** the sets (§二 3's table; the vehicles' own — a trailer after its hitch, a find's missing panels — are the vehicles' plan's: schedule.ts vehicleExtras) */
 export const KITS: readonly KitDef[] = [
@@ -58,7 +60,8 @@ export const KITS: readonly KitDef[] = [
     id: 'cooking',
     name: { zh: '做饭', en: 'Cooking' },
     main: I('kit_stove'),
-    steps: [{ things: [I('kit_gas')] }, { things: [I('kit_pan'), I('kit_spice')] }, { things: [I('kit_pot'), I('kit_board')], fromKm: 50 }],
+    // (the garden's chapter: the pot, the board and its knife, the bowl things are tossed in)
+    steps: [{ things: [I('kit_gas')] }, { things: [I('kit_pan'), I('kit_spice')] }, { things: [I('kit_pot'), I('kit_board'), I('kit_bowl')], fromKm: 50 }],
     themes: [...HOME, 'camp', 'shop'],
     held: ['kit_plate', 'kit_dish'],
   },
@@ -68,7 +71,8 @@ export const KITS: readonly KitDef[] = [
     main: I('nd_plant_pot'),
     steps: [{ things: [I('nd_seeds_tomato')] }, { things: [I('nd_bucket')], free: true }, { things: [I('nd_seeds_potato')] }],
     themes: [...HOME, 'camp'],
-    held: ['nd_seeds_apple', 'nd_seeds_watermelon'],
+    // (every other packet of seeds: docs/V3/plan/finish.md §八 2 — none before the pot is one's own)
+    held: ['apple', 'watermelon', 'carrot', 'onion', 'cabbage', 'cucumber', 'corn', 'lettuce', 'garlic', 'pepper', 'eggplant', 'pumpkin', 'broccoli', 'chili', 'strawberry'].map((id) => `nd_seeds_${id}`),
   },
   {
     id: 'fishing',
@@ -83,7 +87,7 @@ export const KITS: readonly KitDef[] = [
     name: { zh: '寻宝', en: 'Treasure' },
     main: I('nd_metal_detector'),
     steps: [{ things: [I('nd_key_1')] }],
-    themes: [...WORKSHOP, ...HOME],
+    themes: [...WORKSHOP, ...HOME, ...MOTEL],
     held: ['nd_key_2'],
   },
   {
@@ -98,14 +102,14 @@ export const KITS: readonly KitDef[] = [
     name: { zh: '拍照', en: 'Photographs' },
     main: I('nd_camera'),
     steps: [{ things: [I('nd_film_pack')] }],
-    themes: [...HOME, 'shop', 'lookout'],
+    themes: [...HOME, 'shop', 'lookout', ...MOTEL],
   },
   {
     id: 'music',
     name: { zh: '音乐', en: 'Music' },
     main: { part: 'radio_old' },
     steps: [{ things: [I('nd_tape_01')] }],
-    themes: [...HOME, ...WORKSHOP, 'station'],
+    themes: [...HOME, ...WORKSHOP, 'station', ...MOTEL],
   },
 ];
 
@@ -147,7 +151,7 @@ export type KitsState = Record<string, KitState>;
 /** how far on from where the step before was picked up the next comes (km) */
 export const KIT_AFTER_KM: readonly [number, number] = [2, 5];
 /** the places with a box of their own between two points of the road (m), in road order: where a step may be put */
-export type PlacesAhead = (from: number, to: number) => readonly { readonly s: number; readonly kind: SiteKind }[];
+export type PlacesAhead = (from: number, to: number) => readonly { readonly s: number; readonly kind: PlaceSort }[];
 /** how far past where a step was due one is before it is taken as missed and put out again (m) */
 export const KIT_MISSED_M = 3000;
 /**
@@ -166,8 +170,8 @@ function stateOf(st: KitsState, id: string): KitState {
 /** the finds of a set's step, due at `s` (m) */
 function stepFinds(kit: KitDef, step: number, s: number, anywhere = false): PlannedFind[] {
   const def = kit.steps[step - 1];
-  // (anywhere: put at a place chosen for it that is not of its sorts — it waits for none)
-  return def.things.map((thing) => ({ entry: `kit:${kit.id}:${step}`, thing, s, ...(anywhere ? {} : { themes: def.themes ?? kit.themes }), novelty: false }));
+  // (anywhere: put at a place chosen for it that is not of its sorts — it waits for none: PlannedFind.any)
+  return def.things.map((thing) => ({ entry: `kit:${kit.id}:${step}`, thing, s, themes: def.themes ?? kit.themes, ...(anywhere ? { any: true as const } : {}), novelty: false }));
 }
 
 /**
@@ -200,7 +204,8 @@ function putOut(st: KitState, kit: KitDef, s: number, seed: number, ahead?: Plac
     const by = !missed && def.fromKm === undefined && st.main !== undefined ? st.main + ((KIT_WHOLE_M - 500) * Math.min(step, core)) / core : Infinity;
     const deadline = by > s + KIT_NEAR_M ? by : Infinity;
     const to = Math.min(from + span, deadline);
-    const all = ahead(s + KIT_NEAR_M, Math.max(from + span, Math.min(deadline, s + KIT_WHOLE_M))).filter((p) => p.s >= s + KIT_NEAR_M);
+    // (never a place that keeps to its own and is not one of the step's sorts: schedule.ts OWN_SORTS — no pan in a motel)
+    const all = ahead(s + KIT_NEAR_M, Math.max(from + span, Math.min(deadline, s + KIT_WHOLE_M))).filter((p) => p.s >= s + KIT_NEAR_M && takesSorts(p.kind, sorts));
     const inIts = all.filter((p) => p.s >= from && p.s <= to);
     const own = inIts.filter((p) => sorts.includes(p.kind));
     // (just before it: the place takes what is due from a metre before it on)

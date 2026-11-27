@@ -209,7 +209,8 @@ try {
   // ---- 4. the cooler
   await k('empty');
   const on = await k('aimLoose', 'kit_cooler');
-  ok(/^loose:/.test(on), `the mark on the cooler (${on})`);
+  // (from above, the mark is on its lid — the lid's own, v3/lids: a press opens it — and Tab lists what is in it the same)
+  ok(/^(loose:|device:lids:)/.test(on), `the mark on the cooler or its lid (${on})`);
   await page.keyboard.press('Tab');
   await k('sim', 0.3);
   const list = await k('listOpen');

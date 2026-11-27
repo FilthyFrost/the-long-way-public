@@ -49,6 +49,11 @@ export interface KitState {
   fire?: 0 | 1 | 2;
   /** a stove: the vessel standing on it (its kind) */
   on?: string;
+  /**
+   * a stove: how the vessel on it is turned about its upright (rad, the stove's own frame, three's way round: + to the
+   * left seen from above), as it was set down there held out (nd-place); absent: as a vessel set on with the button stands
+   */
+  onYaw?: number;
   /** a stove with the steamer on it: the pot of water the steamer stands on (its kind) — the steamer never stands on the flame itself */
   under?: string;
   /** a vessel, or a stove with one on it: what is in the vessel */
@@ -68,6 +73,8 @@ declare module '../../modcar/items' {
   interface ItemState {
     kit?: KitState;
     meal?: MealState;
+    /** a two-burner stove's burners: each a stove with its own state (never a thing by itself) */
+    burners?: ItemInstance[];
   }
 }
 
@@ -83,6 +90,8 @@ export const cutItem = (id: string): string => `cut_${id}`;
 export const dishItem = (id: string): string => `dish_${id}`;
 
 export const STOVE = 'kit_stove';
+/** the two-burner camp stove (docs/V3/plan/finish.md §八 6): two burners in one body, each a stove of its own in the rules (kit.ts burnersOf) */
+export const STOVE2 = 'kit_stove2';
 /** the electric hob (docs/V3/plan/rv.md R2): a stove that draws on a vehicle's batteries instead of a canister */
 export const HOB = 'kit_hob';
 export const GAS = 'kit_gas';
@@ -224,7 +233,8 @@ export function keepHours(id: string): number | null {
 const RAW_EAT: Readonly<Record<string, { food: number; hp: number; water?: number }>> = {
   tomato: { food: 5, hp: 1, water: 3 },
   apple: { food: 6, hp: 1 },
-  watermelon: { food: 12, hp: 2, water: 25 },
+  // (its portion's worth and no more: a dish of it is to feed more than the melon eaten as it is — docs/V3/plan/finish.md §八 3)
+  watermelon: { food: 7, hp: 2, water: 25 },
   banana: { food: 6, hp: 1 },
   orange: { food: 4, hp: 1, water: 5 },
 };
@@ -309,6 +319,7 @@ const T = (zh: string, en: string): Text => ({ zh, en });
 
 export const COOKWARE_ITEMS: readonly ItemRow[] = [
   { id: STOVE, cat: COOKWARE_CAT, name: T('卡式炉', 'Cassette stove'), stars: 2, mass: 1.8, carry: 'medium', salvage: { scrap: 6 }, blurb: '便携的卡式炉。右边的仓里装一罐燃气，锅往炉头上一放就能开火。', paint: 0x3e8e87, paint2: 0xede3c8 },
+  { id: STOVE2, cat: COOKWARE_CAT, name: T('双头野营炉', 'Two-burner stove'), stars: 3, mass: 3.4, carry: 'medium', salvage: { scrap: 12 }, blurb: '两个炉头并排的野营炉，一边装一罐燃气，两口锅能同时开火。', paint: 0xc8553d, paint2: 0xede3c8 },
   { id: HOB, cat: COOKWARE_CAT, name: T('电炉', 'Hotplate'), stars: 2, mass: 2.4, carry: 'medium', salvage: { scrap: 8 }, blurb: '一块电炉盘，用的是车上的电：放在房车里、电瓶有电才热，锅往上一放就能做饭。老象的厨房台面上有四块。', paint: 0xede3c8, paint2: 0x2f3236 },
   { id: GAS, cat: COOKWARE_CAT, name: T('燃气罐', 'Gas canister'), stars: 1, mass: 0.35, carry: 'small', salvage: { scrap: 2 }, blurb: '一罐卡式炉用的燃气。', paint: 0xc8323a, paint2: 0xf4efe2 },
   { id: BOARD, cat: COOKWARE_CAT, name: T('案板和刀', 'Board and knife'), stars: 1, mass: 0.9, carry: 'small', salvage: { scrap: 2 }, blurb: '一块案板，刀就搁在上面。食材放上去，按三下 E 切好。', paint: 0xc9a26b, paint2: 0x8a6a48 },

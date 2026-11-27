@@ -22,7 +22,6 @@ import { partDef } from '../../src/core/modcar/parts';
 import { placesPlan, SitePlanner } from '../../src/core/modcar/schedule';
 import { rollWreck } from '../../src/core/modcar/wrecks';
 import { pumpFound, pumpFuel } from '../../src/core/v3/nd/fuel';
-import { NEWEST_WORLD } from '../../src/core/world/rules';
 import type { Site } from '../../src/core/world/sites';
 import { modcarWorld } from '../../src/game/modcar/seamless';
 import { VehicleFinds, wreckSpots } from '../../src/game/modcar/wrecks';
@@ -100,9 +99,15 @@ export interface Stop {
   pump: boolean;
 }
 
-/** one world down KM (a new game's: its version the newest, Nomad Drive's buildings among ours): what there is by where, the places with petrol to be had, the vehicles to find, each stop's share */
+/**
+ * The world this balance is of: version 6's (Nomad Drive's buildings among ours), with the plan of the worlds made
+ * before version 7 — a new game's world, of version 7, is balanced by its own traveller (f6_journey.test.ts)
+ */
+const WORLD = 6;
+
+/** one world of version 6 down KM: what there is by where, the places with petrol to be had, the vehicles to find, each stop's share */
 export function travel(seed: number): { t: Tally; petrolAt: number[]; finds: number[]; stops: Stop[] } {
-  const w = modcarWorld(seed, { worldVersion: NEWEST_WORLD }).world;
+  const w = modcarWorld(seed, { worldVersion: WORLD }).world;
   const sites: Site[] = [];
   w.sites.between(0, KM * 1000, sites);
   sites.sort((a, b) => a.s - b.s);

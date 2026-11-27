@@ -49,6 +49,8 @@ interface Entry {
   w: number;
   /** only from this far down the road (m): before it the entry is not in the table */
   from?: number;
+  /** only at these sorts of place (sites.ts Site.sort): a cool box's shellfish on a jetty, under a lighthouse */
+  at?: readonly string[];
 }
 
 interface Table {
@@ -57,9 +59,11 @@ interface Table {
   /** the chance of nothing at all (somebody was here first) */
   empty: number;
   entries: readonly Entry[];
+  /** one thing more now and then, over its picks (a packet of seeds in a kitchen's cupboard): each by its own chance, from so far down the road */
+  also?: readonly { pick: Pick; chance: number; from?: number }[];
 }
 
-const E = (pick: Pick, w: number, from?: number): Entry => (from === undefined ? { pick, w } : { pick, w, from });
+const E = (pick: Pick, w: number, from?: number, at?: readonly string[]): Entry => ({ pick, w, ...(from === undefined ? {} : { from }), ...(at ? { at } : {}) });
 
 /** the small parts a toolbox keeps */
 const SMALL_PARTS = ['ignition', 'horn', 'gearLever', 'handbrake', 'headlight', 'taillight', 'mirror', 'radio'];
@@ -119,8 +123,16 @@ export const LOOT_TABLES: Record<ContainerKind, Table> = {
   // a place's refrigerator, long without power but shut: what keeps — eggs, a cabbage, a cheese, a joint; drinks
   fridge: { picks: [2, 4], empty: 0.12, entries: [E({ larder: 'fresh' }, 4.5), E({ larder: 'meat' }, 2), E({ cat: 'drink' }, 1.6), E({ cat: 'food' }, 1)] },
   // a camp's cool box
-  coolbox: { picks: [1, 3], empty: 0.18, entries: [E({ cat: 'drink' }, 2.2), E({ larder: 'fresh' }, 2.4), E({ larder: 'meat' }, 1), E({ cat: 'food' }, 1.2)] },
+  // (by the water — on a jetty, under a lighthouse — from the fishing's chapter on: what the shore gives, on ice)
+  coolbox: { picks: [1, 3], empty: 0.18, entries: [E({ cat: 'drink' }, 2.2), E({ larder: 'fresh' }, 2.4), E({ larder: 'meat' }, 1), E({ cat: 'food' }, 1.2), E({ larder: 'sea' }, 4.5, 75_000, ['jetty', 'lighthouse']), E({ one: ['bait_shrimp'] }, 1.6, 110_000, ['jetty', 'lighthouse']), E({ one: ['bait_squid_strip'] }, 1, 150_000, ['jetty', 'lighthouse'])] },
 };
+
+/**
+ * The packets of seeds (core/v3/nd/items.ts CROP_INFO; docs/V3/plan/finish.md §八 2: 种子在房子的抽屉、信箱里，高星的种子
+ * 越远越多): found from the garden's chapter on in a kitchen's cupboard, a desk's drawer, on a house's mailbox — the
+ * plainer ones first, the better further down the road (a pick of a list takes the ones up to its grade)
+ */
+const SEEDS: readonly string[] = ['tomato', 'potato', 'carrot', 'onion', 'cabbage', 'cucumber', 'corn', 'lettuce', 'garlic', 'pepper', 'eggplant', 'pumpkin', 'broccoli', 'chili', 'strawberry', 'apple', 'watermelon'].map((id) => `nd_seeds_${id}`);
 
 /** how far down the road the first rod is found in a tackle box (m): the fishing's chapter (crafting.ts CHAPTER_KM[5]) */
 const ROD_FROM_M = 75_000;
@@ -136,14 +148,23 @@ const LOOT_TABLES_V7: Partial<Record<ContainerKind, Table>> = {
     entries: [
       E({ one: ['rod_willow'] }, 1.4, ROD_FROM_M),
       E({ one: ['bait_worm'] }, 2.2, ROD_FROM_M),
-      E({ one: ['bait_spoon'] }, 1, 100_000),
+      E({ one: ['bait_spoon'] }, 1, 95_000),
       E({ one: ['junk_rod'] }, 1.2),
       E({ one: ['food_fish_can', 'food_nuts_old'] }, 1.3),
       E({ one: ['drink_beer', 'drink_water'] }, 0.9),
       E({ cat: 'lamp' }, 0.3),
     ],
   },
+  // a kitchen's cupboard, a desk: as they were, and from the garden's chapter on a packet of seeds now and then
+  // (one thing more, not one of its picks: what there is to eat in it stays as much as ever)
+  cupboard: { ...LOOT_TABLES.cupboard, also: [{ pick: { one: SEEDS }, chance: 0.22, from: 50_000 }] },
+  desk: { ...LOOT_TABLES.desk, also: [{ pick: { one: SEEDS }, chance: 0.16, from: 50_000 }] },
+  // a hunter's bag at his stand: as it was, and from the garden's chapter on a joint of what he shot (docs/V3/plan/finish.md §八 1: 鹿肉在猎人小屋)
+  gamebag: { picks: [1, 2], empty: 0.1, entries: [E({ cat: 'food' }, 2), E({ cat: 'wear' }, 1.5), E({ one: ['drink_spirit', 'drink_water'] }, 1), E({ cat: 'lamp' }, 0.5), E({ one: ['flare_gun'] }, 0.08), E({ larder: 'game' }, 1.6, 50_000)] },
 };
+
+/** from where a garden gone wild behind a house still has something in its bed (m: the garden's chapter, crafting.ts CHAPTER_KM[4]) */
+export const BED_FROM_M = 50_000;
 
 // ------------------------------------------------------------------ the rules of what is found, by the world's version
 
@@ -195,13 +216,18 @@ export const THICK_WARMTH = 7;
 
 // ------------------------------------------------------------------ the larder
 
-/** a shelf of the larder: what keeps in a cupboard (rice, beans, an onion), what wants the cold (eggs, greens, cheese), the meat */
-export type LarderShelf = 'dry' | 'fresh' | 'meat';
+/**
+ * a shelf of the larder: what keeps in a cupboard (rice, beans, an onion), what wants the cold (eggs, greens, cheese),
+ * the meat — and what is no cupboard's: a hunter's game, a shore's shellfish, what still comes up in a garden's bed
+ */
+export type LarderShelf = 'dry' | 'fresh' | 'meat' | 'game' | 'sea' | 'bed';
 
 interface LarderRow {
   item: string;
   star: number;
   shelf: LarderShelf;
+  /** the country it is likelier in (absent: any): a warm one's bananas and oranges, a cold one's potatoes and cabbage */
+  likes?: 'hot' | 'cold';
 }
 
 const LARDER: LarderRow[] = [];
@@ -211,25 +237,30 @@ const LARDER: LarderRow[] = [];
  * loaded — the kitchen's pantry: each an item, how hard it is to come by (1–5) and the shelf it is found on. With
  * nothing registered a pick of the larder finds nothing, and a place holds what it always did.
  */
-export function addLarder(rows: readonly { item: string; star: number; shelf: LarderShelf }[]): void {
-  for (const x of rows) if (!LARDER.some((y) => y.item === x.item)) LARDER.push({ item: x.item, star: x.star, shelf: x.shelf });
+export function addLarder(rows: readonly { item: string; star: number; shelf: LarderShelf; likes?: 'hot' | 'cold' }[]): void {
+  // (a thing may be on two shelves — a tomato in a refrigerator and in a garden's bed: once on each)
+  for (const x of rows) if (!LARDER.some((y) => y.item === x.item && y.shelf === x.shelf)) LARDER.push({ item: x.item, star: x.star, shelf: x.shelf, ...(x.likes ? { likes: x.likes } : {}) });
 }
 
 /** the larder as registered (for the tests and the robot traveller) */
-export function larder(): readonly { item: string; star: number; shelf: LarderShelf }[] {
+export function larder(): readonly { item: string; star: number; shelf: LarderShelf; likes?: 'hot' | 'cold' }[] {
   return LARDER;
 }
 
 /** how many of an ingredient are found together: a bag of rice is several meals, a joint one or two */
-const LARDER_N: Record<LarderShelf, readonly [number, number]> = { dry: [1, 3], fresh: [1, 3], meat: [1, 2] };
+const LARDER_N: Record<LarderShelf, readonly [number, number]> = { dry: [1, 3], fresh: [1, 3], meat: [1, 2], game: [1, 2], sea: [1, 3], bed: [1, 3] };
+/** how much likelier a thing is in the country it likes, and how much less in the other (docs/V3/plan/finish.md §八 1: 食材按地区有偏好) */
+const LIKED = 2.6;
+const UNLIKED = 0.3;
 /** the plainer the likelier: ★1 … ★5 */
 const LARDER_W = [1, 0.75, 0.45, 0.25, 0.12];
 
 /** an ingredient of a shelf, no better than `top` stars (null: none registered, or none so plain) */
-function larderOf(r: Rng, shelf: LarderShelf, top: number): Found | null {
+function larderOf(r: Rng, shelf: LarderShelf, top: number, climate: Climate = 'mild'): Found | null {
   const list = LARDER.filter((x) => x.shelf === shelf && x.star <= top);
   if (!list.length) return null;
-  const row = list[r.weighted(list.map((x) => LARDER_W[Math.max(0, Math.min(4, x.star - 1))]))];
+  // (by the country: in a warm one or a cold one, what it likes likelier and what the other likes rarer; a mild one has all alike)
+  const row = list[r.weighted(list.map((x) => LARDER_W[Math.max(0, Math.min(4, x.star - 1))] * (climate === 'mild' || !x.likes ? 1 : x.likes === climate ? LIKED : UNLIKED)))];
   const [lo, hi] = LARDER_N[shelf];
   return { item: row.item, n: lo + r.int(hi - lo + 1) };
 }
@@ -244,13 +275,16 @@ const JUNK: Record<string, readonly string[]> = {
   jetty: ['junk_rod', 'junk_bucket_old', 'junk_bag_s', 'junk_chair_fold', 'junk_mug'],
   works: ['junk_bucket_paint', 'junk_fax', 'junk_chair_office', 'junk_transceiver', 'junk_lamp', 'junk_bag', 'junk_crate_plastic', 'junk_camera'],
   lighthouse: ['junk_lamp', 'junk_camera', 'junk_clockradio', 'junk_trumpet', 'junk_mug', 'junk_plate', 'junk_pillow_s'],
+  // (a world of version 7's motel, a sort of place of its own — sites.ts Site.sort: what its rooms leave)
+  motel: ['junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_mug', 'junk_plate', 'junk_candle', 'junk_hanger', 'junk_vinyl', 'junk_bag_s', 'junk_bin', 'junk_tv'],
   other: ['junk_bag_s', 'junk_bucket_old', 'junk_crate_plastic', 'junk_mug', 'junk_cone', 'junk_ball'],
 };
 
 /** what systems added to the places' junk (addJunk), by the sort of place: read after the place's own */
 const ADDED: Record<string, string[]> = {};
 
-function junkOf(siteKind: string): readonly string[] {
+/** the junk a sort of place has about it: its own list (the other sorts' for one that has none) with what systems added to it */
+export function junkOf(siteKind: string): readonly string[] {
   const own = JUNK[siteKind] ?? JUNK.other;
   const more = ADDED[JUNK[siteKind] ? siteKind : 'other'];
   return more ? MERGED[siteKind] ??= [...own, ...more] : own;
@@ -415,10 +449,17 @@ export function rollContainer(kind: ContainerKind, seed: number, s: number, site
   const n = t.picks[0] + r.int(t.picks[1] - t.picks[0] + 1);
   const out: Found[] = [];
   // (an entry that begins further down the road is not in the table yet)
-  const w = t.entries.map((x) => (x.from !== undefined && s < x.from ? 0 : x.w));
+  // (… nor one that is another sort of place's)
+  const w = t.entries.map((x) => ((x.from !== undefined && s < x.from) || (x.at && !x.at.includes(siteKind)) ? 0 : x.w));
   for (let i = 0; i < n; i++) {
     const e = t.entries[r.weighted(w)];
     const f = foundOf(r, e.pick, s, siteKind, rules, climate, kind === 'fridge' || kind === 'coolbox' ? 'fresh' : 'dry');
+    if (f) out.push(f);
+  }
+  // (one thing more now and then: asked after its picks, so that they are what they were)
+  for (const b of t.also ?? []) {
+    if ((b.from !== undefined && s < b.from) || !r.chance(b.chance)) continue;
+    const f = foundOf(r, b.pick, s, siteKind, rules, climate);
     if (f) out.push(f);
   }
   return out;
@@ -467,6 +508,55 @@ export function foundKey(f: Found): string {
 export function ownFound(c: { readonly kind: ContainerKind; readonly seed: number; readonly plan?: boolean }, s: number, siteKind: string, rules: LootRules, climate: Climate, keep: number, withheld?: (key: string) => boolean, factors?: Stocks): Found[] {
   const all = thinOut(ownRoll(c, s, siteKind, rules, climate), c.seed, keepOf(c.kind, keep), factors);
   return withheld ? all.filter((f) => !withheld(foundKey(f))) : all;
+}
+
+/**
+ * What a piece of a place's furniture holds inside as one finds it (a world of version 7; docs/V3/plan/finish.md §二 6:
+ * 床头柜里的小东西), by the piece and the sort of place: a motel's nightstand — in its drawer none, one or two small
+ * things a traveller left (a medicine, a battery, a torch, a pack of film, a tape, a key, something sweet, a compass,
+ * an odd or end).
+ */
+const INSIDE: Readonly<Record<string, Readonly<Record<string, Table>>>> = {
+  motel: {
+    nd_nightstand: {
+      picks: [1, 2],
+      empty: 0.3,
+      entries: [
+        E({ one: ['med_bandage', 'med_pain_2', 'nd_pills'] }, 2.2),
+        E({ one: ['nd_battery'] }, 1.1),
+        E({ one: ['nd_flashlight'] }, 0.6),
+        E({ one: ['nd_film_pack'] }, 0.8),
+        E({ one: ['nd_tape_01'] }, 0.6),
+        E({ one: ['nd_key_1'] }, 0.5),
+        E({ one: ['nd_chocolate_1', 'food_licorice', 'food_nuts_old'] }, 1.4),
+        E({ one: ['nd_compass'] }, 0.5),
+        E({ one: ['junk_clockradio', 'junk_mug', 'junk_vinyl'] }, 1.5),
+      ],
+    },
+  },
+};
+
+/**
+ * What a piece of furniture standing at a place holds inside (INSIDE), by its seed — the same every time: its roll,
+ * no thing twice, what is still there of what one lives on (thinOut: as a box's own, by what one is short of), and
+ * nothing that is kept back for now (`withheld`: a piece of a set whose main thing has not been picked up, a new
+ * thing of the plan's before its first). Null: this piece holds nothing of its own at a place of this sort (every
+ * piece of a world made before version 7).
+ */
+export function insideFound(item: string, sort: string, seed: number, s: number, rules: LootRules, keep: number, withheld?: (key: string) => boolean, factors?: Stocks): Found[] | null {
+  const t = rules.version >= 7 ? INSIDE[sort]?.[item] : undefined;
+  if (!t) return null;
+  const r = new Rng(hash2(seed | 0, 0x9157, 0x4d));
+  if (r.chance(t.empty)) return [];
+  const n = t.picks[0] + r.int(t.picks[1] - t.picks[0] + 1);
+  const w = t.entries.map((x) => (x.from !== undefined && s < x.from ? 0 : x.w));
+  const all: Found[] = [];
+  for (let i = 0; i < n; i++) {
+    const f = foundOf(r, t.entries[r.weighted(w)].pick, s, sort, rules);
+    if (f && 'item' in f && hasItem(f.item) && !all.some((x) => 'item' in x && x.item === f.item)) all.push(f);
+  }
+  const left = thinOut(all, seed, keep, factors);
+  return withheld ? left.filter((f) => !withheld(foundKey(f))) : left;
 }
 
 /** is it one of what one lives on: food (what fills one), drink, a can of petrol or of oil — the medicines are not */
@@ -573,13 +663,13 @@ function foundOf(r: Rng, p: Pick, s: number, siteKind: string, rules: LootRules 
     // an ingredient in its place, of the shelf the box is — one that keeps, in a cupboard; one that wants the cold, in
     // a refrigerator — where the kitchen has registered any so plain)
     if (p.cat === 'food' && rules.ready(s) < 1 && !r.chance(rules.ready(s))) {
-      const raw = larderOf(r, shelf, rules.larderTop(s));
+      const raw = larderOf(r, shelf, rules.larderTop(s), climate);
       if (raw) return raw;
     }
     const id = itemOf(r, p.cat, gradeRoll(r, s, rules), rules, s, climate);
     return id ? { item: id } : null;
   }
-  if ('larder' in p) return larderOf(r, p.larder, rules.larderTop(s));
+  if ('larder' in p) return larderOf(r, p.larder, rules.larderTop(s), climate);
   if ('one' in p) {
     // (the better of a list further on: a pick of grade g takes the ones up to it)
     const g = gradeRoll(r, s, rules);
@@ -598,11 +688,30 @@ function foundOf(r: Rng, p: Pick, s: number, siteKind: string, rules: LootRules 
  * sort, to recycle. Null: nothing (bait, ammunition).
  * A kind of ModCar's own (an id without a dot: the old game's all have one) is itself — a prefab building's
  * furniture and what lies on it (core/world/prefabs.ts, docs/ND/PLAN.md).
+ * A world of version 7 (docs/V3/plan/finish.md §二 4, §八 1): an ingredient lying at a place is not there before the
+ * road allows one so hard to come by (a cabin's steak waits for the 70th kilometre as a refrigerator's does); and a
+ * garden's bed behind a house (`plot.bed`, and the potatoes the old game left on it) still has a vegetable or two in
+ * it from the garden's chapter on — by the country's warmth (`climate`).
  */
-export function looseFound(old: string, seed: number, s: number, siteKind: string, rules: LootRules = LOOT_V6): Found | null {
-  if (!old.includes('.') && hasItem(old)) return { item: old };
+export function looseFound(old: string, seed: number, s: number, siteKind: string, rules: LootRules = LOOT_V6, climate: Climate = 'mild'): Found | null {
+  if (!old.includes('.') && hasItem(old)) {
+    if (rules.version >= 7 && ITEMS_BY_ID(old).tags?.includes('ingredient')) {
+      const row = LARDER.find((x) => x.item === old);
+      if (rules.larderTop(s) < (row ? row.star : 1)) return null;
+    }
+    return { item: old };
+  }
   const r = new Rng(hash2(seed | 0, 0x1005e, 0x77));
   const head = old.split('.')[0];
+  if (old === 'plot.bed' || (old === 'food.potato' && rules.version >= 7 && s >= BED_FROM_M)) return rules.version >= 7 && s >= BED_FROM_M ? larderOf(r, 'bed', rules.larderTop(s), climate) : null;
+  // (a packet of seeds left on a house's mailbox: the plainer the likelier, the better further on)
+  if (old === 'plot.seeds') {
+    if (rules.version < 7 || s < BED_FROM_M) return null;
+    const g = gradeRoll(r, s, rules);
+    const known = SEEDS.filter((id) => hasItem(id));
+    const ok = known.filter((id) => ITEMS_BY_ID(id).stars <= Math.max(g, 1));
+    return known.length ? { item: r.pick(ok.length ? ok : known) } : null;
+  }
   if (old.startsWith('tyre.')) {
     const t = newInstance('tire_road', { tread: 0.15 + 0.6 * r.next() });
     t.cond = 0.4 + 0.5 * r.next();

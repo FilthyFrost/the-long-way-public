@@ -35,6 +35,16 @@ export const APPLIANCE_W: Readonly<Record<ApplianceKind, number>> = { radio: 8, 
 export const FRIDGE_W = 60;
 /** a hob at each heat: off, low, high (W) */
 export const HOB_W: readonly number[] = [0, 500, 1000];
+/**
+ * The ceiling lamps of a living space (docs/V3/plan/finish.md §十一 1): lit by themselves while one is in it after dark,
+ * drawing this (W) on what its appliances draw on; they come up and go down in about this long (s). No switch: a
+ * room one walks into at night is lit, as long as there is a battery to light it.
+ */
+export const CEILING_W = 15;
+const CEILING_EASE_S = 0.35;
+/** the night from which they light (env.sky.night, 0 day … 1 night) */
+const CEILING_NIGHT = 0.35;
+
 /** how near the vehicle one hears 没电了 said, standing by it (m) */
 const SAY_NEAR = 9;
 
@@ -71,6 +81,31 @@ export class Power implements System<GameContext> {
   private readonly byVehicle = new Map<ModVehicle, Loose[]>();
   /** what has happened (the harness's) */
   private runOuts = 0;
+  /** how far each living space's ceiling lamps are lit (0 … 1) */
+  private readonly ceiling = new Map<ModVehicle, number>();
+
+  /** how far a vehicle's ceiling lamps are lit (0 … 1): the appliances' system adds their light to its cabin's */
+  ceilingOf(v: ModVehicle): number {
+    return this.ceiling.get(v) ?? 0;
+  }
+
+  /** the ceiling lamps of the living space one stands in, after dark, while there is something to draw on */
+  private stepCeiling(dt: number, ctx: GameContext): void {
+    const home = ctx.player.aboard?.v ?? null;
+    if (home && !this.ceiling.has(home)) this.ceiling.set(home, 0);
+    const dark = (ctx.env.sky?.night ?? 0) > CEILING_NIGHT;
+    for (const [v, k] of this.ceiling) {
+      if (!ctx.vehicles.includes(v)) {
+        this.ceiling.delete(v);
+        continue;
+      }
+      let want = 0;
+      if (v === home && dark) want = dt > 0 ? (v.sys.drawAppliances(CEILING_W / 1000, dt) ? 1 : 0) : (v.sys.applianceLevel() ?? 0) > 0 ? 1 : 0;
+      const next = k + (want - k) * (1 - Math.exp(-Math.max(dt, 0) / CEILING_EASE_S));
+      if (want === 0 && next < 0.004) this.ceiling.delete(v);
+      else this.ceiling.set(v, next);
+    }
+  }
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -96,6 +131,7 @@ export class Power implements System<GameContext> {
 
   step(dt: number, ctx: GameContext): void {
     const now = itemNow();
+    this.stepCeiling(dt, ctx);
     for (const list of this.byVehicle.values()) list.length = 0;
     this.levelOf.clear();
     for (const l of ctx.loose.list) {

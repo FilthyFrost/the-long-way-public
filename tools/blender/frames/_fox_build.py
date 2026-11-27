@@ -348,7 +348,7 @@ def centre_trims(ex):
 
 
 def mirror_mount_point():
-    p, n = S.CT.to3d(np.array([[0.445, 0.748]]))
+    p, n = S.CT.to3d(np.array([[0.47, 0.748]]))
     return p[0], n[0]
 
 

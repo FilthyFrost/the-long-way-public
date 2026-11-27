@@ -1,6 +1,6 @@
 /**
- * ND9 (docs/V3/plan/growth.md §三, its last paragraph): Nomad Drive's buildings in the places' dice of a new game's
- * world — world version 6 (core/world/rules.ts), version 5's road and land with them (core/world/sites.ts, the dice's
+ * ND9 (docs/V3/plan/growth.md §三, its last paragraph): Nomad Drive's buildings in the places' dice of a world of
+ * version 6 (core/world/rules.ts), version 5's road and land with them (core/world/sites.ts, the dice's
  * cards core/world/prefabs.ts PREFAB_DICE, their boxes and yards core/v3/nd/cards.ts):
  *   - a world of version 5 is the world it was (its places hash as they did before ND9); one of version 6 is its road
  *     and its land, the same seed the same world however it is asked
@@ -19,7 +19,6 @@ import { ND_BOXES, ND_BUILDINGS } from '../../src/core/v3/nd/cards';
 import { boxesOfFinds, ownRoll, planBoxes, planGround } from '../../src/core/modcar/loot';
 import { heldBackUntil, placesPlan, SitePlanner, THEME_WAIT_M, VEHICLE_PLACES, type PlannedFind } from '../../src/core/modcar/schedule';
 import { PREFAB_DICE, prefabCard } from '../../src/core/world/prefabs';
-import { NEWEST_WORLD } from '../../src/core/world/rules';
 import type { Site } from '../../src/core/world/sites';
 import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, type World } from '../../src/core/world/terrain';
@@ -27,6 +26,12 @@ import { modcarWorld } from '../../src/game/modcar/seamless';
 import { VehicleFinds } from '../../src/game/modcar/wrecks';
 
 const SEEDS = Array.from({ length: 24 }, (_, k) => (k === 0 ? 7 : 1000 + k * 7919));
+/**
+ * The world these are of: version 6, the one Nomad Drive's buildings came into the dice with, under the plan of the
+ * worlds made before version 7 (a new game's world is of version 7: its places' boxes, its motel a sort of place of
+ * its own and its plan by chapters are F6's — f6_loot.test.ts, f6_motel.test.ts, f6_kits.test.ts)
+ */
+const ND_WORLD = 6;
 
 function sitesOf(w: World, km: number): Site[] {
   const out: Site[] = [];
@@ -100,7 +105,7 @@ describe('ND9: Nomad Drive’s buildings in the places’ dice (world version 6)
     let nd = 0;
     const per = (x: number): number => (x / SEEDS.length) * (100 / KM);
     for (const seed of SEEDS) {
-      for (const s of sitesOf(modcarWorld(seed, { worldVersion: NEWEST_WORLD }).world, KM)) {
+      for (const s of sitesOf(modcarWorld(seed, { worldVersion: ND_WORLD }).world, KM)) {
         if (isVerge(s)) continue;
         places++;
         if (s.prefab) nd++;
@@ -108,7 +113,7 @@ describe('ND9: Nomad Drive’s buildings in the places’ dice (world version 6)
       }
     }
     const rows = [...count.entries()].sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${per(v).toFixed(1)}`);
-    console.info(`${SEEDS.length} worlds of version ${NEWEST_WORLD}, ${KM} km each: ${per(places).toFixed(1)} places a hundred kilometres, ${per(nd).toFixed(1)} of them Nomad Drive's (${((nd / places) * 100).toFixed(0)} %) — ${rows.join(', ')}`);
+    console.info(`${SEEDS.length} worlds of version ${ND_WORLD}, ${KM} km each: ${per(places).toFixed(1)} places a hundred kilometres, ${per(nd).toFixed(1)} of them Nomad Drive's (${((nd / places) * 100).toFixed(0)} %) — ${rows.join(', ')}`);
     // every card the dice name, each a few times a hundred kilometres at most
     for (const d of PREFAB_DICE) {
       expect(count.get(`nd:${d.id}`) ?? 0, d.id).toBeGreaterThan(0);
@@ -134,7 +139,7 @@ describe('ND9: Nomad Drive’s buildings in the places’ dice (world version 6)
     let checked = 0;
     let yards = 0;
     for (const seed of SEEDS.slice(0, 8)) {
-      const w = modcarWorld(seed, { worldVersion: NEWEST_WORLD }).world;
+      const w = modcarWorld(seed, { worldVersion: ND_WORLD }).world;
       const sites = sitesOf(w, 200);
       for (const site of sites.filter((s) => s.prefab)) {
         checked++;
@@ -178,7 +183,7 @@ describe('ND9: Nomad Drive’s buildings in the places’ dice (world version 6)
     let themed = 0;
     let total = 0;
     for (const seed of SEEDS.slice(0, 12)) {
-      const w = modcarWorld(seed, { worldVersion: NEWEST_WORLD }).world;
+      const w = modcarWorld(seed, { worldVersion: ND_WORLD }).world;
       const sites = sitesOf(w, 150);
       const planner = new SitePlanner(placesPlan(seed, 160));
       planner.take(sites.map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: planBoxes(x).length, ground: planGround(x) })));
@@ -220,8 +225,8 @@ describe('ND9: Nomad Drive’s buildings in the places’ dice (world version 6)
       expect(held.get('pack_hike')).toBe(first('pack'));
       for (const id of ['nd_chair', 'nd_table', 'nd_fridge', 'nd_wall_shelf', 'nd_mug', 'nd_battery', 'drink_water']) expect(held.has(id), id).toBe(false);
     }
-    // (a new game's: the first Nomad Drive cabins of the default world hold back their coffee machines and cameras)
-    const w = modcarWorld(7, { worldVersion: NEWEST_WORLD }).world;
+    // (the first Nomad Drive cabins of the world of seed 7 hold back their coffee machines and cameras)
+    const w = modcarWorld(7, { worldVersion: ND_WORLD }).world;
     const held = heldBackUntil(placesPlan(7, 4000));
     let back = 0;
     for (const site of sitesOf(w, 300).filter((s) => s.prefab)) for (const l of site.loose) if ((held.get(l.item) ?? -Infinity) + THEME_WAIT_M > site.s) back++;
@@ -231,7 +236,7 @@ describe('ND9: Nomad Drive’s buildings in the places’ dice (world version 6)
   it('a vehicle to find at one of their big places stands in its yard, clear of the building and of its things', () => {
     let atNd = 0;
     for (const seed of SEEDS.slice(0, 12)) {
-      const w = modcarWorld(seed, { worldVersion: NEWEST_WORLD }).world;
+      const w = modcarWorld(seed, { worldVersion: ND_WORLD }).world;
       const finder = new VehicleFinds(w);
       const sites = sitesOf(w, 150);
       for (const x of finder.extraSpots(0, 150_000)) {

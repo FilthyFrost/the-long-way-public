@@ -5,6 +5,7 @@
  * game has none.
  */
 import * as THREE from 'three';
+import { castMesh } from '../../render/triGrid';
 import type { Loose } from '../loose';
 
 /** a box in a model's own frame (the game's: x forward, y up, z = −Blender y), metres */
@@ -42,6 +43,23 @@ export function boxHit(obj: THREE.Object3D, ray: THREE.Ray, box: PartBox, reach:
   // (back in render space: the frame is rigid, its scale one)
   const d = p.applyMatrix4(obj.matrixWorld).distanceTo(ray.origin);
   return d <= reach ? d : null;
+}
+
+/**
+ * Where the line of sight (render space) first meets one of a model's own meshes (null: none within reach): what of a
+ * thing one can look into one sees — the back of an open cupboard, the floor of an open chest — and not its box, which
+ * would stand in front of what is in it.
+ */
+export function meshHit(model: THREE.Object3D | null, ray: THREE.Ray, reach: number): number | null {
+  if (!model) return null;
+  let best = Infinity;
+  model.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const h = castMesh(m, ray.origin, ray.direction, Math.min(reach, best));
+    if (h && h.dist < best) best = h.dist;
+  });
+  return best <= reach ? best : null;
 }
 
 /** the model drawn for a thing lying about (its own GLB once that is in), null while it is a stand-in or merged away */

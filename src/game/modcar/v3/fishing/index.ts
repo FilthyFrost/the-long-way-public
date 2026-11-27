@@ -15,6 +15,8 @@
 import type { SaveSlice } from '../../../../core/kernel/slices';
 import { itemDef, registerItemCat, registerItemModelOf, registerItems, registerRetiredItems } from '../../../../core/modcar/items';
 import { registerIngredients } from '../../../../core/v3/cooking/ingredients';
+import { FOOD } from '../../../../core/v3/kitchen/pantry';
+import { addSameAs, sameAs } from '../../../../core/v3/kitchen/standins';
 import { FISH } from '../../../../core/v3/fishing/lite/fish';
 import { BAITS, REC_ROD, RODS, STAR_TIER } from '../../../../core/v3/fishing/lite/gear';
 import {
@@ -52,6 +54,9 @@ import { fmtCm, Fishing } from './system';
 // (a fish caught goes off into the kitchen's spoiled food: its kinds first)
 import '../kitchen';
 
+/** the kitchen's fish a fish off the rod is to the pot, by its rarity (0 common … 3 epic, 4 a water's lord, 5 a fish of the sky) */
+const KITCHEN_FISH: readonly string[] = ['brookfish', 'trout', 'salmon', 'tuna', 'tuna', 'tuna'];
+
 // ------------------------------------------------------------------ content, as the module is loaded
 
 registerItemCat(FISH_CAT);
@@ -65,6 +70,10 @@ registerItems(FISHING_ITEMS);
 registerRetiredItems(baitItemNow);
 registerRetiredItems(rodItemNow);
 registerIngredients(FISH_INGREDIENTS);
+// (to the pot each is the kitchen's fish of its rarity — docs/V3/plan/finish.md §八 4: a common one the brook fish, an
+// uncommon one the trout, a rare one the salmon, an epic one, a lord or a fish of the sky the tuna; a crayfish the
+// shrimp. A frog and a turtle stay what they are: meat of a kind.)
+addSameAs(Object.fromEntries(FISH.filter((f) => f.family !== 'frog' && f.family !== 'turtle').map((f) => [`fish_${f.id}`, f.family === 'crayfish' ? 'shrimp' : KITCHEN_FISH[f.tier]])));
 registerDomain({
   id: FISH_DOMAIN,
   name: { zh: '鱼', en: 'Fish' },
@@ -95,6 +104,9 @@ registerItemCardLines({ cat: FISH_CAT.id }, (inst, card) => {
   if (i < 0) return;
   const def = FISH[i];
   card.cat = `鱼 · ${TIERS[def.tier].zh}`;
+  // (what it is to the pot: the kitchen's fish of its rarity)
+  const pot = sameAs(inst.item);
+  if (pot && FOOD[pot]) card.rows.push({ value: FOOD[pot].zh, label: '下锅当' });
   const s = inst.state?.fish;
   if (!s) return;
   card.rows.unshift({ value: fmtCm(s.cm), label: '体长' });

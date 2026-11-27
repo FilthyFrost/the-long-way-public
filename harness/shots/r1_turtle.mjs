@@ -60,11 +60,11 @@ try {
   const edge = await page.evaluate(() => {
     const v = window.__v;
     const s = v.sim;
-    // (the shell's right edge over the sliding door: model (0.1, 2.06, 0.84) — through the centre of gravity)
+    // (the shell's right edge over the sliding door: model (-0.8, 2.06, 0.99) — through the centre of gravity)
     const cg = v.sys.derived.cg;
-    const lx = 0.1 - cg.x;
+    const lx = -0.8 - cg.x;
     const ly = 2.06 - cg.y;
-    const lz = 0.84 - cg.z;
+    const lz = 0.99 - cg.z;
     const q = new (window.__rt.game.core.scene.position.constructor)(lx, ly, lz);
     const Q = v.view.root.quaternion;
     q.applyQuaternion(Q);

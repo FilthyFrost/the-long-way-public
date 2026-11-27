@@ -30,8 +30,24 @@ APRON_Y = 0.465          # engine bay side wall (inboard of the front wheelhouse
 POD_WALL_Y = 0.412       # the bay's side wall ahead of the wheelhouse, inboard of the pop-up pod's well
 SEAT_X = -0.29           # seat floor attachment x: the stock bucket's head restraint is under the roof's rear
 DRIVER_Y = 0.38
-SEAT_Z = FLOOR_Z + 0.010  # the seats' floor attachment (on low rails)
+# the seats stand in wells pressed into the floor pan, as a low sports car's do: the cushion 4.5 cm lower than on the
+# floor (the stock bucket is a saloon's seat), her head with its room under the low roof with her eyes raised to a
+# sports car's reclined sitting height (Nomad Drive's driver's view, 2026-11-26)
+WELL = 0.045
+WELL_X = (SEAT_X - 0.27, SEAT_X + 0.27)
+SEAT_Z = FLOOR_Z - WELL + 0.005  # the seats' floor attachment (on low runners in the wells)
 EYE = (SEAT_X - 0.16, DRIVER_Y, SEAT_Z + 0.90)   # the stock bucket seat's eye (parts_geo: -0.16 back, 0.90 up)
+# where the view is from: her eyes as the game seats her (0.18 ahead of and 0.08 under the seat's eye point), raised by
+# the frame's cabView (core/modcar/frames.ts: 0.065): 0.65 m over the cushion, 0.15 m under the headliner
+VIEW = (EYE[0] + 0.183, DRIVER_Y, EYE[2] - 0.079 + 0.065)
+
+
+def well_depth(x):
+    """How far the floor is let down at x: the seats' wells (their walls 2 cm long fore and aft)."""
+    return WELL * float(np.clip((x - WELL_X[0] + 0.02) / 0.02, 0.0, 1.0) * np.clip((WELL_X[1] + 0.02 - x) / 0.02, 0.0, 1.0))
+
+
+WELL_XS = [WELL_X[0] - 0.02, WELL_X[0], WELL_X[1], WELL_X[1] + 0.02]
 DASH_FACE_X = 0.34
 STACK_X = 0.30           # the centre stack's face (the radio's slot), proud of the dash face
 GEAR_X = 0.02
@@ -583,12 +599,14 @@ def underbody():
     axles' parts."""
     b = K.Buf()
     # floor pan underside with the tunnel (extruded section), from the bulkhead to the firewall
-    xs = np.linspace(BULK_X, FIREWALL_X, 12)
+    # (the seats' wells pressed down out of it, 1.2 cm under the carpet in them)
+    xs = np.unique(np.concatenate([np.linspace(BULK_X, FIREWALL_X, 12), WELL_XS]))
     V = []
     for x in xs:
         th = tunnel_h(x)
         tw = tunnel_w(x)
-        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.025, th - 0.05), (tw + 0.045, PAN_Z), (0.64, PAN_Z), (0.66, 0.15)]),
+        pz = min(PAN_Z, FLOOR_Z - well_depth(x) - 0.012)
+        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.025, th - 0.05), (tw + 0.045, pz), (0.64, pz), (0.66, 0.15)]),
                               [0, 0.03, 0.03, 0.03, 0.02, 0], 2)
         V += [(x, y, z) for (y, z) in sec]
     V = np.array(V)
@@ -720,12 +738,14 @@ def interior(ex):
     L = K.Buf()   # mirrored
     C = K.Buf()   # centre / asymmetric (not mirrored)
     # floor carpet with the tunnel (left half section, extruded) from the bulkhead to the toe board
-    xs = np.linspace(BULK_X + 0.01, FIREWALL_X - 0.02, 14)
+    # (down into the seats' wells between the tunnel and the sill)
+    xs = np.unique(np.concatenate([np.linspace(BULK_X + 0.01, FIREWALL_X - 0.02, 14), WELL_XS]))
     V = []
     for x in xs:
         th = tunnel_h(x) + 0.04
         tw = tunnel_w(x) + 0.008
-        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.025, th - 0.05), (tw + 0.045, FLOOR_Z), (0.635, FLOOR_Z), (0.645, 0.20)]),
+        fz = FLOOR_Z - well_depth(x)
+        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.025, th - 0.05), (tw + 0.045, fz), (0.635, fz), (0.645, 0.20)]),
                               [0, 0.03, 0.03, 0.03, 0.02, 0], 2)
         V += [(x, y, z) for (y, z) in sec]
     V = np.array(V)
@@ -788,10 +808,10 @@ def interior(ex):
     C.extend(K.cyl_buf(p_bot, p_top, 0.044, 'plastic_int', 20, r1=0.036))
     # centre console with the radio's slot, the gear lever's boot ring and the handbrake's slot
     C.extend(console())
-    # low seat rails at the seat mounts
+    # low seat runners at the seat mounts, in the wells
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
         for dy in (-0.17, 0.17):
-            C.extend(K.box_buf((sx - 0.24, sy + dy - 0.014, FLOOR_Z - 0.002), (sx + 0.24, sy + dy + 0.014, SEAT_Z), 'steel', 0.003, 1))
+            C.extend(K.box_buf((sx - 0.24, sy + dy - 0.014, SEAT_Z - 0.012), (sx + 0.24, sy + dy + 0.014, SEAT_Z), 'steel', 0.003, 1))
     # interior mirror on a pad glued to the windscreen under its top edge (the glass lies 30 degrees from level,
     # so the pad lies along it), its stem down to the head; sun visors flat under the headliner (rolled with the
     # roof's crown), clear of the roof skin
@@ -834,7 +854,8 @@ def steering_mount():
     """(position of the steering wheel hub, column direction pointing forward-down)."""
     ang = math.radians(COLUMN_DEG)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([0.13, DRIVER_Y, 0.745])
+    # (3 cm lower than it was: from her eyes the rim's centre 40 deg under the level line, as Nomad Drive's wheels are)
+    p = np.array([0.13, DRIVER_Y, 0.715])
     return p, d
 
 
@@ -850,12 +871,12 @@ def dashboard():
     fx = DASH_FACE_X
 
     def pad_sec(y):
-        # over the cluster the pad rises and reaches out into a brow that shades the dials
+        # over the cluster the pad reaches out into a brow that shades the dials; its top 2 cm lower than it was and
+        # level across (it rose 4.5 cm over the binnacle, a hump 6 deg under her eyes' level straight ahead)
         ay = abs(y - DRIVER_Y)
-        lift = 0.045 * float(K.sstep(0.27, 0.19, ay)) if y > 0 else 0.0
         brow = 0.040 * float(K.sstep(0.25, 0.18, ay)) if y > 0 else 0.0
-        pts = np.array([(0.53, 0.835), (0.49, 0.862 + lift * 0.3), (0.42, 0.888 + lift), (fx + 0.005 - brow, 0.893 + lift),
-                        (fx - 0.014 - brow, 0.880 + lift), (fx - 0.010 - brow, 0.858 + lift * 0.9), (fx + 0.012, 0.848), (0.53, 0.822)])
+        pts = np.array([(0.53, 0.835), (0.49, 0.852), (0.42, 0.868), (fx + 0.005 - brow, 0.873),
+                        (fx - 0.014 - brow, 0.860), (fx - 0.010 - brow, 0.838), (fx + 0.012, 0.828), (0.53, 0.822)])
         return K.round_profile(pts, [0, 0.03, 0.03, 0.012, 0.01, 0.008, 0.01, 0], 1)
     ys = np.array([-0.66, -0.33, 0.0, 0.06, 0.09, 0.12, 0.15, 0.19, 0.34, 0.49, 0.53, 0.56, 0.59, 0.62, 0.66])
     b.extend(extrude_y(None, ys, 'plastic_int', inside=(0.45, 0.0, 0.86), sec_fn=pad_sec))
@@ -863,12 +884,12 @@ def dashboard():
     fas = K.round_profile(np.array([(fx, 0.852), (fx, 0.60), (fx + 0.04, 0.565), (0.46, 0.565), (0.46, 0.852)]), [0, 0.03, 0.02, 0, 0], 2)
     b.extend(extrude_y(fas, np.linspace(-0.62, 0.62, 3), 'plastic_int', inside=(0.40, 0.0, 0.70)))
     for sy in (1.0, -1.0):
-        b.extend(K.box_buf((fx - 0.004, min(sy * 0.62, sy * 0.69), 0.57), (0.50, max(sy * 0.62, sy * 0.69), 0.875), 'plastic_int', 0.02, 2))
+        b.extend(K.box_buf((fx - 0.004, min(sy * 0.62, sy * 0.69), 0.57), (0.50, max(sy * 0.62, sy * 0.69), 0.862), 'plastic_int', 0.02, 2))
     # glovebox lid and its button (passenger side)
     b.extend(K.box_buf((fx - 0.006, -0.56, 0.63), (fx + 0.004, -0.20, 0.78), 'plastic_int', 0.012, 2))
     b.extend(K.cyl_buf((fx - 0.006, -0.38, 0.76), (fx - 0.014, -0.38, 0.76), 0.009, 'chrome', 12))
-    # the binnacle: a rounded box tilted towards the driver's eye with a deep hood over the dials
-    eye = np.array(EYE)
+    # the binnacle: a rounded box tilted towards the driver's view with a deep hood over the dials
+    eye = np.array(VIEW)
     pc = np.array([fx - 0.010, DRIVER_Y, 0.788])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))

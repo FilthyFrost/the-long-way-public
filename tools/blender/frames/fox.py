@@ -48,11 +48,13 @@ D = dict(
     ws_x=0.5646, ws_bow=0.07, ws_rake=30.0,      # windscreen base centre x, plan bow at |y| = 0.70, rake from horizontal
     rw_x=-1.6879, rw_bow=0.05, rw_rake=25.0,   # rear window: a fastback's, long and flat
     roof_z=1.222, roof_crown_y=0.024, roof_crown_x=0.008, roof_xc=-0.46,
-    rho_a=0.075, rho_c=0.12,                   # A / C pillar plan radii
+    # A / C pillar plan radii (the A pillar's 5 cm, and the door 4 cm longer at its front, so that the pillar between the
+    # windscreen and the door glass is one slim band from the driver's seat: it was 18 deg wide, 7.5 cm round)
+    rho_a=0.05, rho_c=0.12,
     r_rail=0.030, r_header=0.040, r_rheader=0.20,
     # cuts
     gap=0.005, edge_r=0.0022,
-    door_bot=0.175, fd_front=0.38, fd_rear=-0.74,
+    door_bot=0.175, fd_front=0.42, fd_rear=-0.74,
     rail_z=1.152, cp_bot=-0.74, cp_top=-0.635,
     # bonnet: full width behind the pods, between them in front of hood_step
     hood_rear=0.60, hood_w=0.728, hood_step=1.478, hood_front_w=0.398,

@@ -183,12 +183,12 @@ def shell():
     b = K.Buf()
     b.add(V, vnormals(V, T), T, 'paint')
     # the underside: the domed top (not the skirt) lowered by the shell's thickness, facing down — the stood-up
-    # room's ceiling
+    # room's ceiling, in its lining (lit as the room is: in paint, over grass, it went green round the lamp)
     top_rows = len(rings) * n
     Tu = np.array([t for t in T if (t < top_rows).all() or (t == ci).any()])
     Vu = V.copy()
     Vu[:, 2] -= 0.022
-    b.add(Vu, vnormals(Vu, Tu[:, ::-1]), Tu[:, ::-1], 'paint_b')
+    b.add(Vu, vnormals(Vu, Tu[:, ::-1]), Tu[:, ::-1], 'lining')
     # the scutes' seams: a spine down the middle, a line each side, cross seams between (dark beads, a few mm proud)
     seams = []
     xs = np.linspace(x0 + 0.35, x1 - 0.35, 5)
@@ -443,7 +443,8 @@ class Exterior:
             V, N, Tr = K.mesh_region(S.CT, [K.Loop(P[:, :2], P, Nn)], [], g, spacing=sp)
             return K.Buf().add(V, N, Tr, 'paint_b')
         V, N, Tr = K.mesh_region(S.CT, [K.Loop(P[:, :2])], [], g, spacing=sp, level=level)
-        return K.Buf().add(V, -N, Tr, 'paint_b')
+        # (the headliner: the room's lining, a warm dark grey over the walls' cream as Nomad Drive's - carMaterials.ts)
+        return K.Buf().add(V, -N, Tr, 'lining')
 
     def opening_lip(self):
         """The lip round the elevating roof's opening (all of it): an upstand the shell sits down on, its inside
@@ -481,7 +482,7 @@ class Exterior:
             z[t > t_roll] = 3                                  # the headliner
             return z
         V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines, zone_fn=zf, spacing=sp, level=WALL, line_step=0.12)
-        return K.add_zones(K.Buf(), V, N, Tr, Z, {0: 'plastic_int', 1: 'wood', 2: 'paint', 3: 'paint_b'}, flip=True)
+        return K.add_zones(K.Buf(), V, N, Tr, Z, {0: 'plastic_int', 1: 'wood', 2: 'paint', 3: 'lining'}, flip=True)
 
     # ------------------------------------------------------------------ panel skins
     def door_skin(self, key):
@@ -839,7 +840,10 @@ class Exterior:
         s = self.cut[key].side('in')
         w = self.win['door' if key == 'door' else 'side']
         outer = K.offset_loop2(s['uv'], 0.004, True)
-        hole = K.offset_loop2(w['uv'], -0.004, True)
+        # (the hole 8 mm inside the window's outline, under the end of its reveal's flange: 4 mm outside it the card
+        # left a slot between the two, and from the driver's seat the outside showed through the door's front frame
+        # as a line between two posts)
+        hole = K.offset_loop2(w['uv'], 0.008, True)
         us = S.v_u_samples(0.08, 0.08, 0.08)
         pts, sp = S.grid_from(us, S.v_t_samples(0.08, 3))
         V, N, Tr = K.mesh_region(S.CV, [K.Loop(K.resample_keep(outer, 0.05))], [K.Loop(K.resample_keep(hole, 0.05))], pts, spacing=sp, level=level)

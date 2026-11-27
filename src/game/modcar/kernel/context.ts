@@ -39,7 +39,9 @@ import type { HeldThing } from '../held';
 import type { ScrubHit } from '../player';
 import type { Cleaner, Tool } from '../../../core/modcar/tools';
 import type * as THREE from 'three';
+import type { HandTarget } from '../../character/animator';
 import type { Loose, LooseThings } from '../loose';
+import type { JournalSection } from '../journal';
 import type { ModParams } from '../ModGame';
 import type { ModPlayer } from '../player';
 import type { ModUI } from '../ui';
@@ -48,6 +50,9 @@ import type { DevTabs } from './devTabs';
 import type { InteractSources } from './interact';
 
 /** what feeds a thing lying about or riding in a vehicle (GameContext.powerAt; null: not in a vehicle, or no power module) */
+/** (the materials: core/modcar/crafting.ts) */
+type Cost = import('../../../core/modcar/crafting').Cost;
+
 export function powerOf(ctx: GameContext, l: Loose): 'on' | 'flat' | null {
   for (const f of ctx.powerAt ?? []) {
     const p = f(l);
@@ -100,6 +105,9 @@ export interface GameContext {
   readonly learned?: ReadonlySet<string>;
   /** a making learnt from its blueprint, for good (true: new; false: known already) */
   learn?(recipe: string): boolean;
+  /** the materials one has (core/modcar/crafting.ts: scrap, components), and the game told when they change (what went, what came) */
+  readonly stock?: Cost;
+  stockChanged?(delta: Cost): void;
   /**
    * Is this thing kept back for now — a piece of a set whose earlier pieces have not been picked up yet (core/modcar/
    * kits.ts, docs/V3/plan/finish.md §二 3: a chest's key before the metal detector)? Its key: an item's id, `part:`
@@ -141,6 +149,19 @@ export interface GameContext {
   loop(name: string, gain?: number): void;
   /** a sound made ready before it is first wanted (rendered, its recording fetched): its first play is then neither late nor silent */
   warmSound(name: string): void;
+  /** the player character: a system that draws a thing in her hands by itself says where they hold it (character/inGame.ts handsFor) */
+  readonly her?: { handsFor: ((cam: THREE.Camera) => { l?: HandTarget; r?: HandTarget } | null) | null };
+  /**
+   * What happens where a shovel went into bare ground and found no chest (v3/nd-dig calls each with the place, world):
+   * the fishing's worms at a water's edge. Absent: nothing listens (the tests' stand-in games).
+   */
+  readonly dug?: ((x: number, y: number, z: number) => void)[];
+  /**
+   * The compendium's record beside the fish (journal.ts: the vehicles driven, the keepsakes met, the photographs
+   * taken): its pages, a count that goes up as it grows, and a photograph's picture as an address a page can show.
+   * Absent: the fish alone (the tests' stand-in games).
+   */
+  readonly journalBook?: { readonly rev: number; sections(): JournalSection[]; picture(key: string): Promise<string | null> };
   /** a page of the Tab screen (TabPage): returns the function that takes it out again; absent: no Tab screen (the tests' stand-in games) */
   addTabPage?(page: TabPage): () => void;
   /** from a page of the Tab screen: on to the next (1) or back (−1: before the first, the lists again) */
@@ -179,6 +200,19 @@ export interface GameContext {
   readonly heldThing: HeldThing;
   /** the view on foot zoomed this many times (a camera raised to the eye: docs/ND/PLAN.md); 1 none. The system that set it sets it back */
   lookZoom: number;
+  /**
+   * The view on foot drawn in on what one stands working at (docs/V3/plan/finish.md §八 6: the kitchen — things look a
+   * fifth bigger; 1 none), over the look's own zoom; and whether one crouches to it by oneself (it stands on the
+   * ground). The system that works it eases it in and out and sets it back.
+   */
+  workZoom: number;
+  workCrouch: boolean;
+  /**
+   * The systems' fires (docs/V3/plan/finish.md §三 2: 靠近点着的炉子暖和 10 ℃): how many °C each adds to the air one
+   * feels at a point of the world (0: none there). Push to add one; the game takes the warmest, and never warms the
+   * air past a mild room's.
+   */
+  readonly warmers: ((x: number, z: number) => number)[];
   /**
    * The view's turn and tilt as the mouse and the stick make them (rad: `lookYaw` the heading on the plan, as a
    * walker's; `lookPitch` up +). A system that holds the view (a seat: docs/ND/PLAN.md) keeps them within its limits.

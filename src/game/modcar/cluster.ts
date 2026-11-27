@@ -1,790 +1,931 @@
 /**
- * The instruments in the cab (docs/V3/plan/finish.md §五): one plate where the frame's own dials are, a third bigger
- * than a real car's so that the screen can be read — the speedometer (the odometer in its face) and the rev counter
- * with their numbers, each where the frame had its own; fuel (its red is the reserve), water temperature (with its
- * red), the battery and the air outside as small dials; and along the top, where the wheel's spokes do not hide it, a
- * strip: a clock, the warning lamps (main beam, lamps, engine, fuel | handbrake, oil, battery, temperature) either
- * side of the gear, and the four tyres as four lamps round a little car (green, amber, red, blinking when one is
- * blown).
+ * The instruments in the cab (docs/V3/plan/finish.md §五), built as Nomad Drive's are: a binnacle let into the
+ * dashboard — a curved cowl reaching out over the dials, its cheeks sweeping back down its sides — and in it a dark
+ * fascia with the dials sunk in it, each at the bottom of its own cup with a thin ring at the lip, behind a lens.
  *
- * One texture drawn once (the faces, the numbers, the dark lamps) and drawn into again where something it shows has
- * changed (a lamp, the gear, a digit of the odometer, the minute); the needles are thin meshes over it, turned every
- * frame; a dark case round it, with a brow where it stands on the dashboard. It tells what the vehicle's own
- * dashboard data says (core/modcar/systems.ts Dash), nothing else.
+ * The speedometer and the rev counter in their cups, and between them a recessed panel with the fuel and coolant
+ * gauges (quarter dials, as Nomad Drive's), the display (the time, the air outside, the gear, the speed, the distance,
+ * the four tyres) and the warning and indicator lamps; or four round dials across (the fuel and the coolant outside the
+ * big two), as the older cars have them; a motorcycle's two clocks in the cans its frame already has. Faces, scales,
+ * symbols and their meaning as a real cluster's (core/modcar/instruments.ts, clusterArt.ts).
+ *
+ * The binnacle's shell is the vehicle's own: drawn in the cab's own plastics (the car materials 'plastic_int', 'trim'
+ * and 'alu'), it is put in the frame's model beside the cluster and merged with it like any of its parts. What moves
+ * or lights — the faces, the needles, the lamps, the display, the lens — is the cluster's own node (CLUSTER_NODE),
+ * never merged. The frame's own instrument pod and dials are cut out of its model where the binnacle goes (spec.cut).
+ *
+ * Footprint and anchoring (for the frames' dash panels to be shaped round it): the cluster's space has its origin at the
+ * middle of the faces, x across to the driver's right, y up the faces and z out of them towards the driver's eye; it
+ * is placed at the frame's own two big dials' midpoint (their needles' pivots) moved by spec.at, turned as their
+ * plane is (the needles' axis out of it). `Cluster.footprint` gives its box in that space.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { surfaceMaterial } from '../render/materials';
+import type { Dash } from '../../core/modcar/systems';
+import { LAMP_HEX, LAMP_IDS, LAMP_INFO, type LampId, NEEDLE_TAU, type NeedleKind, needleAngle, needleFrac, type RpmScale, rpmScale, type SpeedScale, speedScale, Telltales } from '../../core/modcar/instruments';
+import { GLSL_FRAGMENT_PARS, GLSL_VERTEX_MAIN, GLSL_VERTEX_PARS } from '../render/shaderlib';
+import { maskPreservingBlend, surfaceMaterial } from '../render/materials';
+import { ART, drawBigDial, drawIconSheet, drawLcd, drawScreen, drawSmallDial, roundRect, type ScreenData, type Sheet, symbol } from './clusterArt';
 
-/**
- * How the instruments are laid out about the two big dials: the small ones outside them ('round'), between them
- * ('stack': a long strip, where the frame's own two are far enough apart), beside them ('sport'), or two clocks on the
- * bars with the fuel between ('bike').
- */
-export type ClusterStyle = 'round' | 'stack' | 'sport' | 'bike';
+export type ClusterStyle = 'twin' | 'quad' | 'sport' | 'bike';
 
 export interface ClusterSpec {
   style: ClusterStyle;
-  /** the plate's size against the layout's own (1: as drawn) */
+  /** the layout's size against its own (1: as drawn) */
   scale?: number;
-  /** the plate's top edge above the line of the frame's own two big dials (m), and how far it stands out of their plane towards the driver (m; 1.2 cm by itself) */
-  top?: number;
-  out?: number;
-  /** a brow over it: it stands on the dashboard, not under its cowl */
-  brow?: boolean;
   /**
-   * A bite out of its lower edge, round-topped, where something of the cab's own must stay in sight (the key between a
-   * motorcycle's clocks, on a pickup's column): its middle across from the midpoint of the two big dials, its width,
-   * and how far up from the lower edge it goes (m).
+   * The faces' middle from the frame's own two big dials' midpoint: across, up, out of their plane (m; default
+   * 1.8 cm behind it, where the frame's own pod was)
    */
-  notch?: { x: number; w: number; h: number };
+  at?: [number, number, number];
+  /**
+   * The faces turned about their own across axis from the frame's own dials' plane (degrees, the top towards the
+   * driver): so that they face the driver's eye, as Nomad Drive's do (within a few degrees of the line to it)
+   */
+  tilt?: number;
+  /**
+   * What of the frame's own instruments is cut out of its model: boxes in its two big dials' space (x across, y up, z
+   * out, about their midpoint; m) — x0, x1, y0, y1, z0, z1. A triangle wholly inside one goes. Only while the frame
+   * still has its own dials (a 'gauge' face in its model).
+   */
+  cut?: [number, number, number, number, number, number][];
+  /** how far the cowl reaches out over the faces (m at scale 1) */
+  hood?: number;
+  /**
+   * Where the display goes in the panel between the big dials: 'low' under the fuel and coolant gauges (the twin's
+   * default), 'high' just under the indicators (the quad's default) — whichever the wheel's rim leaves in sight
+   */
+  screen?: 'high' | 'low';
+  /**
+   * The row of warning lamps along the panel's top, just under the indicators, rather than along its foot (where the
+   * wheel's hub or rim would hide it); on the quad a shorter panel, the display under the row and the fascia bare under it
+   */
+  warnTop?: boolean;
 }
 
-/** what the plate shows now */
-export interface ClusterValues {
-  /** the key on (or the engine running): the needles live, the lamps test */
-  on: boolean;
-  /** the instruments' lighting (the lamps switched on): the plate glows */
-  lit: boolean;
-  kmh: number;
-  rpm: number;
-  redline: number;
-  /** the fuel needle 0…1, the water (°C), the battery 0…1, the air outside (°C) */
-  fuel: number;
-  tempC: number;
-  battery: number;
-  outC: number;
-  gear: string;
-  /** the vehicle's own distance (km) */
-  odoKm: number;
-  /** the time of day (h, 0…24) */
-  hour: number;
-  lamps: { handbrake: boolean; lights: boolean; high: boolean; oil: boolean; battery: boolean; temp: boolean; fuel: boolean; engine: boolean };
-  /** FL, FR, RL, RR (front, rear on two wheels): −1 none, 0…3 how worn (tyres.ts tyreStage), 4 blown */
-  tyres: readonly number[];
-}
-
-/** the plate's node in the vehicle's model: left out of every merge (carView.ts) */
+/** the cluster's node in the vehicle's model: left out of every merge (carView.ts) */
 export const CLUSTER_NODE = 'cluster';
+/** the binnacle's shell, merged with the frame */
+export const BINNACLE_NODE = 'binnacle';
 
-/** px a centimetre of plate */
-const PX = 22;
-const INK = '#17120f';
-const FACE = '#efe6d2';
-const PLATE = '#1c1a19';
-const RED = '#c8372f';
-const DEG = Math.PI / 180;
-
-type Ctx = CanvasRenderingContext2D;
-type LampId = keyof ClusterValues['lamps'];
-
-export interface DialDef {
-  kind: 'speed' | 'rpm' | 'fuel' | 'temp' | 'batt' | 'air';
+/** a big dial: its face's middle and radius (cm) */
+export interface BigDial {
+  kind: 'speed' | 'rpm';
   x: number;
   y: number;
   r: number;
 }
 
-/** a cell of the strip: its left edge and its width (cm) */
-export interface Cell {
-  kind: 'clock' | 'air' | 'lamps' | 'gear' | 'tyres';
+/** a fuel or coolant gauge: a quarter dial about its pivot (r its arc's radius), or a round one about its middle (r its face's) */
+export interface SmallDial {
+  kind: 'fuel' | 'temp';
+  form: 'quarter' | 'round';
   x: number;
-  w: number;
-  lamps?: readonly LampId[];
+  y: number;
+  r: number;
 }
 
-/** a plate, in centimetres about its middle (x to the driver's right, y up) */
-export interface Layout {
+/** a recess in the fascia: a round cup (w = h, its diameter) or a panel with rounded corners; its floor is a face */
+export interface Well {
+  x: number;
+  y: number;
   w: number;
   h: number;
-  dials: DialDef[];
-  /** the strip along the top: its middle line and its height */
-  stripY: number;
-  stripH: number;
-  cells: Cell[];
-  /** where the midpoint of the two big dials is, across the plate */
-  midX: number;
+  round: boolean;
+}
+
+/** a lamp's symbol and its size (cm) */
+export interface LampSpot {
+  id: LampId;
+  x: number;
+  y: number;
+  s: number;
+}
+
+/** a screen: the display between the dials ('tft'), or a motorcycle's little ones in its dials ('odo', 'gear') */
+export interface ScreenSpot {
+  kind: 'tft' | 'odo' | 'gear';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** a cluster laid out, in centimetres about the faces' middle (x to the driver's right, y up) */
+export interface Layout {
+  /** the faces' rectangle */
+  w: number;
+  h: number;
+  big: BigDial[];
+  small: SmallDial[];
+  wells: Well[];
+  lamps: LampSpot[];
+  screens: ScreenSpot[];
   bike: boolean;
 }
 
-/** the sweep of each dial (clock angles from straight up, °) */
-const SWEEP: Record<DialDef['kind'], [number, number]> = {
-  speed: [-125, 125],
-  rpm: [-125, 125],
-  fuel: [-55, 55],
-  temp: [-55, 55],
-  batt: [-55, 55],
-  air: [-55, 55],
-};
-
-/** the lamps either side of the gear: what tells of the lamps and the engine to its left, what must be seen at once (red) to its right */
-const LEFT_LAMPS: readonly LampId[] = ['high', 'lights', 'engine', 'fuel'];
-const RIGHT_LAMPS: readonly LampId[] = ['handbrake', 'oil', 'battery', 'temp'];
+/** how deep the cups are (cm: Nomad Drive's speedometer cup is 2.1 cm deep) and the flare at their lip */
+const CUP_DEPTH = 2.2;
+const CUP_FLARE = 0.3;
+/** a cup's wall clear of its face (cm) */
+const CUP_CLEAR = 0.2;
 
 /**
- * A plate for a frame whose own two big dials are `sep` cm apart (in the plate's own centimetres), the speedometer
- * the left of the two or the right: each big dial where the frame had its own, the small ones about them as the style
- * has it, the strip along the top.
+ * A cluster's layout. `speedLeft`: the speedometer is the left of the two big dials (as the frame had its own);
+ * `sep`: a motorcycle's two clocks this far apart (cm, its frame's own).
  */
-export function layoutOf(style: ClusterStyle, sep: number, speedLeft: boolean): Layout {
-  const bike = style === 'bike';
-  const rS = bike ? 5.9 : 7.2;
-  const rR = bike ? 5.9 : 6.6;
-  const rs = bike ? 2.3 : style === 'round' ? 3.3 : 3.1;
-  const M = 0.8;
-  const stripH = bike ? 2.6 : 3.2;
-  const rowH = 2 * Math.max(rS, rR);
-  const h = 0.6 + stripH + 0.5 + rowH + 0.7;
-  const yc = h / 2 - (0.6 + stripH + 0.5 + rowH / 2);
-  const rL = speedLeft ? rS : rR;
-  const rRt = speedLeft ? rR : rS;
-  // (the small dials between the two big ones want room there: the frame's own are that far apart, or they go outside)
-  let st = style;
-  if (st === 'stack' && sep < rL + rRt + 4 * rs + 1.3) st = 'round';
-  const least = rL + rRt + (st === 'stack' ? 4 * rs + 1.3 : st === 'bike' ? 2.0 : 0.4);
-  const d = Math.min(least + 22, Math.max(least, sep));
-  const xL = -d / 2;
-  const xR = d / 2;
-  const dials: DialDef[] = [
-    { kind: speedLeft ? 'speed' : 'rpm', x: xL, y: yc, r: rL },
-    { kind: speedLeft ? 'rpm' : 'speed', x: xR, y: yc, r: rRt },
+export function layoutOf(style: ClusterStyle, speedLeft = true, sep = 14.1, screen?: 'high' | 'low', warnTop = false): Layout {
+  if (style === 'bike') return bikeLayout(speedLeft, sep);
+  return style === 'quad' ? quadLayout(speedLeft, (screen ?? 'high') === 'high', warnTop) : twinLayout(speedLeft, style === 'sport', screen === 'high', warnTop);
+}
+
+function cupOf(d: { x: number; y: number; r: number }): Well {
+  const rw = d.r + CUP_CLEAR;
+  return { x: d.x, y: d.y, w: 2 * rw, h: 2 * rw, round: true };
+}
+
+/**
+ * The speedometer and the rev counter in their cups either side of a panel (Nomad Drive's Rv-C): along the panel's top
+ * the indicators and the beams, under them the fuel and coolant quarter dials, then the display, then a row of the
+ * warning lamps (or that row under the indicators, the gauges and the display under it: `warnTop`). 'sport': the rev
+ * counter the bigger.
+ */
+function twinLayout(speedLeft: boolean, sport: boolean, screenHigh: boolean, warnTop = false): Layout {
+  const rSpeed = sport ? 5.2 : 5.6;
+  const rRpm = sport ? 6.0 : 5.6;
+  const cw = 11.4;
+  const gap = 0.55;
+  const rL = (speedLeft ? rSpeed : rRpm) + CUP_CLEAR + CUP_FLARE;
+  const rR = (speedLeft ? rRpm : rSpeed) + CUP_CLEAR + CUP_FLARE;
+  const xL = -(cw / 2 + gap + rL);
+  const xR = cw / 2 + gap + rR;
+  const big: BigDial[] = [
+    { kind: speedLeft ? 'speed' : 'rpm', x: xL, y: 0, r: rL - CUP_CLEAR - CUP_FLARE },
+    { kind: speedLeft ? 'rpm' : 'speed', x: xR, y: 0, r: rR - CUP_CLEAR - CUP_FLARE },
   ];
-  let left = xL - rL - M;
-  let right = xR + rRt + M;
-  const up = rs + 0.15;
-  if (st === 'round') {
-    const x1 = xL - rL - 0.5 - rs;
-    const x2 = xR + rRt + 0.5 + rs;
-    dials.push({ kind: 'fuel', x: x1, y: yc + up, r: rs }, { kind: 'batt', x: x1, y: yc - up, r: rs }, { kind: 'temp', x: x2, y: yc + up, r: rs }, { kind: 'air', x: x2, y: yc - up, r: rs });
-    left = x1 - rs - M;
-    right = x2 + rs + M;
-  } else if (st === 'stack' || st === 'sport') {
-    // four in a square: between the two big ones, or outside the left one
-    const xc = st === 'stack' ? (xL + rL + xR - rRt) / 2 : xL - rL - 0.5 - 2 * rs - 0.15;
-    dials.push({ kind: 'fuel', x: xc - up, y: yc + up, r: rs }, { kind: 'temp', x: xc + up, y: yc + up, r: rs }, { kind: 'batt', x: xc - up, y: yc - up, r: rs }, { kind: 'air', x: xc + up, y: yc - up, r: rs });
-    if (st === 'sport') left = xc - up - rs - M;
-  } else {
-    // (two clocks, the fuel between them up by the strip: under it the bars' own key keeps its place)
-    const xc = (xL + rL + xR - rRt) / 2;
-    dials.push({ kind: 'fuel', x: xc, y: yc + rowH / 2 - rs, r: rs });
-  }
-  const off = (left + right) / 2;
-  for (const dl of dials) dl.x -= off;
-  const w = right - left;
-  // the strip, about the plate's middle: [clock] [four lamps] [gear] [four lamps] [tyres] (two clocks: the air
-  // outside as a number where the clock would be)
-  const gap = bike ? 0.4 : 0.5;
-  const clockW = bike ? 3.4 : 5.6;
-  const gearW = bike ? 2.6 : 3.4;
-  const tyreW = bike ? 2.4 : 4.2;
-  const fixed = clockW + gearW + tyreW + gap * 4;
-  const lampW = Math.min(bike ? 2.2 : 2.7, (w - 2 * M - fixed) / 8);
-  const cells: Cell[] = [];
-  let x = -(fixed + lampW * 8) / 2;
-  const put = (kind: Cell['kind'], cw: number, lamps?: readonly LampId[]): void => {
-    if (cw <= 0) return;
-    cells.push({ kind, x, w: cw, lamps });
-    x += cw + gap;
-  };
-  put(bike ? 'air' : 'clock', clockW);
-  put('lamps', lampW * 4, LEFT_LAMPS);
-  put('gear', gearW);
-  put('lamps', lampW * 4, RIGHT_LAMPS);
-  put('tyres', tyreW);
-  return { w, h, dials, stripY: h / 2 - 0.6 - stripH / 2, stripH, cells, midX: -off, bike };
-}
-
-/** the lamps, in the order they are told in (`shown`), and what each is lit in */
-const LAMPS: readonly { id: LampId; col: string }[] = [
-  { id: 'handbrake', col: '#ff5a4a' },
-  { id: 'oil', col: '#ff5a4a' },
-  { id: 'battery', col: '#ff5a4a' },
-  { id: 'temp', col: '#ff5a4a' },
-  { id: 'fuel', col: '#ffb23a' },
-  { id: 'engine', col: '#ffb23a' },
-  { id: 'lights', col: '#6fe08a' },
-  { id: 'high', col: '#6fb4ff' },
-];
-const LAMP_COL = Object.fromEntries(LAMPS.map((l) => [l.id, l.col])) as Record<LampId, string>;
-
-/** a lamp's pictogram, drawn in `col` in a square of `s` px about (x, y) */
-function glyph(g: Ctx, lamp: string, x: number, y: number, s: number, col: string): void {
-  const k = s / 64;
-  g.save();
-  g.translate(x, y);
-  g.scale(k, k);
-  g.strokeStyle = col;
-  g.fillStyle = col;
-  g.lineWidth = 5.5;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  const line = (pts: number[]): void => {
-    g.beginPath();
-    g.moveTo(pts[0], pts[1]);
-    for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
-    g.stroke();
-  };
-  if (lamp === 'battery') {
-    g.strokeRect(-19, -10, 38, 25);
-    g.fillRect(-13, -17, 8, 7);
-    g.fillRect(5, -17, 8, 7);
-    line([-13, 3, -5, 3]);
-    line([5, 3, 13, 3]);
-    line([9, -1, 9, 7]);
-  } else if (lamp === 'fuel') {
-    g.strokeRect(-15, -17, 21, 34);
-    g.fillRect(-11, -13, 13, 10);
-    line([6, -9, 15, -2, 15, 11, 10, 13]);
-  } else if (lamp === 'temp') {
-    line([0, -19, 0, 7]);
-    g.beginPath();
-    g.arc(0, 12, 7.5, 0, Math.PI * 2);
-    g.fill();
-    line([4, -13, 12, -13]);
-    line([4, -5, 12, -5]);
-    line([-18, 22, -9, 18, 0, 22, 9, 18, 18, 22]);
-  } else if (lamp === 'oil') {
-    // an oil can: its body, its spout, a drop
-    line([-18, 2, -6, -4, 10, -4, 10, 8, -18, 8, -18, 2]);
-    line([10, -1, 21, -7]);
-    line([-10, -4, -10, -11, -2, -11]);
-    g.beginPath();
-    g.arc(22, 5, 3.4, 0, Math.PI * 2);
-    g.fill();
-  } else if (lamp === 'engine') {
-    // an engine block: the block, the fan's hub, the intake on top
-    line([-14, -8, 10, -8, 10, -2, 18, -2, 18, 12, 10, 12, 10, 16, -14, 16, -14, 8, -21, 8, -21, -2, -14, -2, -14, -8]);
-    line([-6, -8, -6, -16, 4, -16, 4, -8]);
-  } else if (lamp === 'handbrake') {
-    g.beginPath();
-    g.arc(0, 0, 14, 0, Math.PI * 2);
-    g.stroke();
-    g.beginPath();
-    g.arc(0, 0, 22, -0.75, 0.75);
-    g.stroke();
-    g.beginPath();
-    g.arc(0, 0, 22, Math.PI - 0.75, Math.PI + 0.75);
-    g.stroke();
-    line([0, -7, 0, 2]);
-    g.beginPath();
-    g.arc(0, 8, 2.6, 0, Math.PI * 2);
-    g.fill();
-  } else if (lamp === 'lights' || lamp === 'high') {
-    // a lamp's lens, and its beam: dipped slanting down, main straight out
-    g.beginPath();
-    g.moveTo(-2, -15);
-    g.quadraticCurveTo(-24, 0, -2, 15);
-    g.closePath();
-    g.stroke();
-    const dy = lamp === 'high' ? 0 : 5;
-    for (const yy of [-10, -3, 4, 11]) line([4, yy, 20, yy + dy]);
-  }
-  g.restore();
-}
-
-function px(l: Layout, x: number): number {
-  return (x + l.w / 2) * PX;
-}
-function py(l: Layout, y: number): number {
-  return (l.h / 2 - y) * PX;
-}
-
-/** a point of a dial at clock angle a (°) and radius r (cm), in canvas px */
-function at(l: Layout, d: DialDef, a: number, r: number): [number, number] {
-  return [px(l, d.x + Math.sin(a * DEG) * r), py(l, d.y + Math.cos(a * DEG) * r)];
-}
-
-/** the odometer's window in the speedometer's face, under its hub (canvas px) */
-function odoBox(l: Layout, d: DialDef): { x: number; y: number; w: number; h: number } {
-  const k = d.r / 7.2;
-  const w = 6.0 * k * PX;
-  const h = 1.6 * k * PX;
-  return { x: px(l, d.x) - w / 2, y: py(l, d.y - 3.3 * k) - h / 2, w, h };
-}
-
-/** a window: a dark glass in a light frame */
-function windowBox(g: Ctx, x: number, y: number, w: number, h: number): void {
-  g.fillStyle = INK;
-  g.fillRect(x - 2, y - 2, w + 4, h + 4);
-  g.fillStyle = '#8fa3ae';
-  g.fillRect(x, y, w, h);
-  g.fillStyle = '#12100f';
-  g.fillRect(x + 2.5, y + 2.5, w - 5, h - 5);
-}
-
-/** a dial's face, as it never changes: its bezel, its ticks, its numbers, its red */
-function drawDial(g: Ctx, l: Layout, d: DialDef, redline: number): void {
-  const cx = px(l, d.x);
-  const cy = py(l, d.y);
-  const R = d.r * PX;
-  const big = d.kind === 'speed' || d.kind === 'rpm';
-  const [a0, a1] = SWEEP[d.kind];
-  // the bezel: a chrome ring with an ink line each side
-  g.fillStyle = INK;
-  g.beginPath();
-  g.arc(cx, cy, R, 0, Math.PI * 2);
-  g.fill();
-  const ring = g.createLinearGradient(cx, cy - R, cx, cy + R);
-  ring.addColorStop(0, '#e6eef2');
-  ring.addColorStop(0.45, '#9fb2bd');
-  ring.addColorStop(0.55, '#7d919d');
-  ring.addColorStop(1, '#c4d2da');
-  g.fillStyle = ring;
-  g.beginPath();
-  g.arc(cx, cy, R - 2.5, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = INK;
-  g.beginPath();
-  g.arc(cx, cy, R * (big ? 0.905 : 0.86) + 2, 0, Math.PI * 2);
-  g.fill();
-  const rf = R * (big ? 0.905 : 0.86);
-  g.fillStyle = FACE;
-  g.beginPath();
-  g.arc(cx, cy, rf, 0, Math.PI * 2);
-  g.fill();
-  const arc = (from: number, to: number, r0: number, r1: number, col: string): void => {
-    g.fillStyle = col;
-    g.beginPath();
-    g.arc(cx, cy, r1, (from - 90) * DEG, (to - 90) * DEG);
-    g.arc(cx, cy, r0, (to - 90) * DEG, (from - 90) * DEG, true);
-    g.closePath();
-    g.fill();
-  };
-  const tick = (a: number, r0: number, r1: number, w: number, col = INK): void => {
-    const p0 = at(l, d, a, r0);
-    const p1 = at(l, d, a, r1);
-    g.strokeStyle = col;
-    g.lineWidth = w;
-    g.lineCap = 'butt';
-    g.beginPath();
-    g.moveTo(p0[0], p0[1]);
-    g.lineTo(p1[0], p1[1]);
-    g.stroke();
-  };
-  const text = (s: string, a: number, r: number, size: number, col = INK, weight = 700): void => {
-    const p = at(l, d, a, r);
-    g.fillStyle = col;
-    g.font = `${weight} ${size}px "Arial Narrow", "Helvetica Neue", Arial, sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(s, p[0], p[1] + size * 0.04);
-  };
-  const rr = rf / PX;
-  if (d.kind === 'speed') {
-    // 0…180 km/h: a number every 20, a long tick every 10, a short one every 5
-    for (let v = 0; v <= 180; v += 5) {
-      const a = a0 + ((a1 - a0) * v) / 180;
-      const long = v % 20 === 0;
-      tick(a, rr * (long ? 0.8 : v % 10 === 0 ? 0.85 : 0.9), rr * 0.97, long ? 3.2 : v % 10 === 0 ? 2.2 : 1.4);
-      if (long) text(String(v), a, rr * 0.62, R * 0.165);
-    }
-    text('km/h', 0, rr * 0.3, R * 0.11, '#5a4f45', 600);
-    // (its odometer's window, under the hub: the digits are drawn as they turn)
-    const o = odoBox(l, d);
-    windowBox(g, o.x, o.y, o.w, o.h);
-  } else if (d.kind === 'rpm') {
-    // 0…8 thousand a minute; the red from where this engine's ends
-    const red = Math.max(2, Math.min(7.8, redline / 1000));
-    arc(a0 + ((a1 - a0) * red) / 8, a1, rf * 0.86, rf * 0.97, RED);
-    for (let v = 0; v <= 16; v++) {
-      const a = a0 + ((a1 - a0) * v) / 16;
-      const long = v % 2 === 0;
-      tick(a, rr * (long ? 0.8 : 0.88), rr * 0.97, long ? 3.2 : 1.8, v / 2 >= red ? '#fff' : INK);
-      if (long) text(String(v / 2), a, rr * 0.63, R * 0.19);
-    }
-    text('×1000', 0, rr * 0.3, R * 0.11, '#5a4f45', 600);
-  } else {
-    // a small one: a quarter-and-a-bit of a circle, its ends lettered, its red where harm is
-    const red: [number, number] | null = d.kind === 'fuel' ? [0, 0.12] : d.kind === 'temp' ? [0.78, 1] : d.kind === 'batt' ? [0, 0.18] : null;
-    if (red) arc(a0 + (a1 - a0) * red[0], a0 + (a1 - a0) * red[1], rf * 0.78, rf * 0.95, RED);
-    if (d.kind === 'air') {
-      // (−30…50 °C: blue under freezing)
-      arc(a0, a0 + ((a1 - a0) * 30) / 80, rf * 0.78, rf * 0.95, '#6fb4ff');
-    }
-    for (let i = 0; i <= 4; i++) tick(a0 + ((a1 - a0) * i) / 4, rr * (i % 2 === 0 ? 0.7 : 0.8), rr * 0.95, i % 2 === 0 ? 2.6 : 1.6);
-    const ends = d.kind === 'fuel' ? ['E', 'F'] : d.kind === 'temp' ? ['C', 'H'] : d.kind === 'batt' ? ['−', '+'] : ['−30', '50'];
-    const size = R * (d.kind === 'air' ? 0.24 : 0.34);
-    text(ends[0], a0 - 4, rr * 0.5, size);
-    text(ends[1], a1 + 4, rr * 0.5, size);
-    // its pictogram under the needle's hub
-    const gy = cy + rf * 0.52;
-    if (d.kind === 'air') {
-      g.fillStyle = '#5a4f45';
-      g.font = `700 ${R * 0.34}px Arial, sans-serif`;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText('°C', cx, gy);
-    } else glyph(g, d.kind === 'batt' ? 'battery' : d.kind, cx, gy, R * 0.62, '#5a4f45');
-  }
-}
-
-/** a bite out of the plate's lower edge, in the plate's own space (m): its middle across, its half width, how far up it goes */
-export interface Bite {
-  x: number;
-  half: number;
-  h: number;
+  const ph = 10.8;
+  const top = ph / 2;
+  // (along the top the indicators, the beams and the parking brake — the lamp most asked after when the vehicle will
+  // not move — where the wheel's rim leaves them in sight most often; the warnings along the foot)
+  const lamps: LampSpot[] = [
+    { id: 'turnL', x: -cw / 2 + 1.0, y: top - 0.9, s: 1.35 },
+    { id: 'low', x: -2.0, y: top - 0.9, s: 1.2 },
+    { id: 'high', x: 0, y: top - 0.9, s: 1.2 },
+    { id: 'park', x: 2.0, y: top - 0.9, s: 1.25 },
+    { id: 'turnR', x: cw / 2 - 1.0, y: top - 0.9, s: 1.35 },
+  ];
+  const row: LampId[] = ['brake', 'oil', 'charge', 'coolant', 'fuel', 'engine', 'tyre'];
+  const pitch = (cw - 0.7) / row.length;
+  row.forEach((id, i) => lamps.push({ id, x: -cw / 2 + 0.35 + pitch * (i + 0.5), y: warnTop ? top - 2.4 : -top + 0.8, s: 1.18 }));
+  const rq = 2.75;
+  // (the gauges under the indicators and the display under them, or the display there and the gauges under it; with
+  // the warnings along the top all of it lower, into the room the foot's row leaves)
+  const qy = screenHigh ? -top + 2.45 - (warnTop ? 1.25 : 0) : top - 1.85 - rq - (warnTop ? 1.45 : 0);
+  const small: SmallDial[] = [
+    { kind: 'fuel', form: 'quarter', x: -0.95, y: qy, r: rq },
+    { kind: 'temp', form: 'quarter', x: cw / 2 - 1.15, y: qy, r: rq },
+  ];
+  const screens: ScreenSpot[] = [{ kind: 'tft', x: 0, y: screenHigh ? top - 1.75 - 1.55 - (warnTop ? 1.45 : 0) : -top + 1.6 + 1.55 - (warnTop ? 1.25 : 0), w: cw - 0.9, h: 3.1 }];
+  const wells: Well[] = [cupOf(big[0]), cupOf(big[1]), { x: 0, y: 0, w: cw, h: ph, round: false }];
+  return centred({ w: 0, h: 0, big, small, wells, lamps, screens, bike: false });
 }
 
 /**
- * The plate's outline (m, about its middle), `b` outside it (its case's wall): a rectangle, and where it has a bite
- * out of its lower edge, round-topped, the bite's own outline — smaller by the wall. Counter-clockwise.
+ * Four round dials across, as the older cars have them: the fuel and the coolant outside the speedometer and the rev
+ * counter, a panel between the big two with the indicators and the beams, the display and two rows of lamps — or
+ * (`warnTop`) a shorter panel along the top between them, the indicators, one row of the warnings and the display, the
+ * fascia bare under it where the wheel's hub would hide it.
  */
-export function outline(w: number, h: number, b: number, bite: Bite | null): THREE.Vector2[] {
-  const x0 = -w / 2 - b;
-  const x1 = w / 2 + b;
-  const y0 = -h / 2 - b;
-  const y1 = h / 2 + b;
-  const pts = [new THREE.Vector2(x0, y0)];
-  if (bite) {
-    const r = Math.max(0.002, bite.half - b);
-    const top = -h / 2 + bite.h - b;
-    // (round-topped: straight up to where the round begins, or all round where the bite is shallow)
-    const cy = Math.max(top - r, y0 - r * 0.999);
-    const rr = top - cy;
-    const dy = y0 - cy;
-    const a = dy > 0 ? Math.asin(Math.min(1, dy / rr)) : 0;
-    const dx = dy > 0 ? Math.sqrt(Math.max(0, rr * rr - dy * dy)) : rr;
-    pts.push(new THREE.Vector2(bite.x - dx, y0));
-    const N = 16;
-    for (let i = 0; i <= N; i++) {
-      const t = Math.PI - a - ((Math.PI - 2 * a) * i) / N;
-      pts.push(new THREE.Vector2(bite.x + rr * Math.cos(t), cy + rr * Math.sin(t)));
-    }
-    pts.push(new THREE.Vector2(bite.x + dx, y0));
+function quadLayout(speedLeft: boolean, screenHigh: boolean, warnTop = false): Layout {
+  const R = 5.2;
+  const rs = 2.45;
+  const cw = 9.6;
+  const gap = 0.5;
+  const cup = R + CUP_CLEAR + CUP_FLARE;
+  const scup = rs + CUP_CLEAR + CUP_FLARE;
+  const xb = cw / 2 + gap + cup;
+  const xs = xb + cup + gap + scup;
+  const big: BigDial[] = [
+    { kind: speedLeft ? 'speed' : 'rpm', x: -xb, y: 0, r: R },
+    { kind: speedLeft ? 'rpm' : 'speed', x: xb, y: 0, r: R },
+  ];
+  const sy = 0.9;
+  const small: SmallDial[] = [
+    { kind: 'fuel', form: 'round', x: -xs, y: sy, r: rs },
+    { kind: 'temp', form: 'round', x: xs, y: sy, r: rs },
+  ];
+  const ph = 10.4;
+  const top = ph / 2;
+  const lamps: LampSpot[] = [
+    { id: 'turnL', x: -cw / 2 + 0.95, y: top - 0.85, s: 1.3 },
+    { id: 'low', x: -1.75, y: top - 0.85, s: 1.15 },
+    { id: 'high', x: 0, y: top - 0.85, s: 1.15 },
+    { id: 'park', x: 1.75, y: top - 0.85, s: 1.2 },
+    { id: 'turnR', x: cw / 2 - 0.95, y: top - 0.85, s: 1.3 },
+  ];
+  if (warnTop) {
+    // (the panel 7.6 high from the same top: the indicators, the seven warnings in a row, the display)
+    const row: LampId[] = ['brake', 'oil', 'charge', 'coolant', 'fuel', 'engine', 'tyre'];
+    const p7 = (cw - 0.6) / row.length;
+    row.forEach((id, i) => lamps.push({ id, x: -cw / 2 + 0.3 + p7 * (i + 0.5), y: top - 2.3, s: 1.12 }));
+    const ph2 = 7.6;
+    const screens2: ScreenSpot[] = [{ kind: 'tft', x: 0, y: top - 2.3 - 0.75 - 1.6, w: cw - 0.8, h: 3.2 }];
+    const wells2: Well[] = [cupOf(big[0]), cupOf(big[1]), cupOf(small[0]), cupOf(small[1]), { x: 0, y: top - ph2 / 2, w: cw, h: ph2, round: false }];
+    return centred({ w: 0, h: 0, big, small, wells: wells2, lamps, screens: screens2, bike: false });
   }
-  pts.push(new THREE.Vector2(x1, y0), new THREE.Vector2(x1, y1), new THREE.Vector2(x0, y1));
+  const rows: LampId[][] = [
+    ['brake', 'oil', 'charge', 'coolant'],
+    ['fuel', 'engine', 'tyre'],
+  ];
+  const pitch = (cw - 0.8) / 4;
+  // (two rows of lamps under the display, or under the indicators with the display under them)
+  const rowY = (j: number): number => (screenHigh ? -top + 0.85 + (1 - j) * 1.75 : top - 2.55 - j * 1.75);
+  rows.forEach((r, j) => r.forEach((id, i) => lamps.push({ id, x: -cw / 2 + 0.4 + pitch * (i + 0.5), y: rowY(j), s: 1.3 })));
+  const screens: ScreenSpot[] = [{ kind: 'tft', x: 0, y: screenHigh ? top - 1.75 - 1.75 : -top + 0.4 + 1.75, w: cw - 0.8, h: 3.5 }];
+  const wells: Well[] = [cupOf(big[0]), cupOf(big[1]), cupOf(small[0]), cupOf(small[1]), { x: 0, y: 0, w: cw, h: ph, round: false }];
+  return centred({ w: 0, h: 0, big, small, wells, lamps, screens, bike: false });
+}
+
+/**
+ * A motorcycle's two clocks, in the chrome cans of its frame: each face where the frame's own was, a little screen in
+ * each (the distance and a fuel bar; the gear and a coolant bar) and three lamps along its foot.
+ */
+function bikeLayout(speedLeft: boolean, sep: number): Layout {
+  const r = 3.6;
+  const xs = (speedLeft ? -1 : 1) * (sep / 2);
+  const xr = -xs;
+  const big: BigDial[] = [
+    { kind: 'speed', x: xs, y: 0, r },
+    { kind: 'rpm', x: xr, y: 0, r },
+  ];
+  const ly = -r * 0.7;
+  const lamps: LampSpot[] = [
+    { id: 'turnL', x: xs - r * 0.36, y: ly, s: 0.78 },
+    { id: 'high', x: xs, y: ly - 0.12, s: 0.72 },
+    { id: 'fuel', x: xs + r * 0.36, y: ly, s: 0.72 },
+    { id: 'oil', x: xr - r * 0.36, y: ly, s: 0.72 },
+    { id: 'coolant', x: xr, y: ly - 0.12, s: 0.72 },
+    { id: 'turnR', x: xr + r * 0.36, y: ly, s: 0.78 },
+  ];
+  const screens: ScreenSpot[] = [
+    { kind: 'odo', x: xs, y: -r * 0.36, w: r * 0.95, h: r * 0.27 },
+    { kind: 'gear', x: xr, y: -r * 0.36, w: r * 0.95, h: r * 0.27 },
+  ];
+  const wells: Well[] = big.map((d) => ({ x: d.x, y: d.y, w: 2 * d.r, h: 2 * d.r, round: true }));
+  const l: Layout = { w: 0, h: 0, big, small: [], wells, lamps, screens, bike: true };
+  const ext = extent(l);
+  l.w = 2 * Math.max(Math.abs(ext.x0), Math.abs(ext.x1));
+  l.h = 2 * Math.max(Math.abs(ext.y0), Math.abs(ext.y1));
+  return l;
+}
+
+function extent(l: Layout): { x0: number; x1: number; y0: number; y1: number } {
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (const w of l.wells) {
+    const fx = w.round ? CUP_FLARE : CUP_FLARE;
+    x0 = Math.min(x0, w.x - w.w / 2 - fx);
+    x1 = Math.max(x1, w.x + w.w / 2 + fx);
+    y0 = Math.min(y0, w.y - w.h / 2 - fx);
+    y1 = Math.max(y1, w.y + w.h / 2 + fx);
+  }
+  return { x0, x1, y0, y1 };
+}
+
+/** the layout moved so that its wells' extent is about its middle, and its size */
+function centred(l: Layout): Layout {
+  const e = extent(l);
+  const ox = (e.x0 + e.x1) / 2;
+  const oy = (e.y0 + e.y1) / 2;
+  for (const a of [l.big, l.small, l.wells, l.lamps, l.screens] as { x: number; y: number }[][])
+    for (const p of a) {
+      p.x -= ox;
+      p.y -= oy;
+    }
+  l.w = e.x1 - e.x0;
+  l.h = e.y1 - e.y0;
+  return l;
+}
+
+// ------------------------------------------------------------------ shapes (cm)
+
+type P2 = THREE.Vector2;
+
+/** a rounded rectangle's outline about (cx, cy), counter-clockwise, `n` points a corner */
+export function roundRectLoop(cx: number, cy: number, w: number, h: number, r: number, n = 8): P2[] {
+  const rr = Math.min(r, w / 2, h / 2);
+  const pts: P2[] = [];
+  const corners: [number, number, number][] = [
+    [cx + w / 2 - rr, cy - h / 2 + rr, -Math.PI / 2],
+    [cx + w / 2 - rr, cy + h / 2 - rr, 0],
+    [cx - w / 2 + rr, cy + h / 2 - rr, Math.PI / 2],
+    [cx - w / 2 + rr, cy - h / 2 + rr, Math.PI],
+  ];
+  for (const [x, y, a0] of corners) for (let i = 0; i <= n; i++) {
+    const a = a0 + (Math.PI / 2) * (i / n);
+    pts.push(new THREE.Vector2(x + Math.cos(a) * rr, y + Math.sin(a) * rr));
+  }
   return pts;
 }
 
-/** the plate: its outline filled, the texture across the whole rectangle */
-function plateGeometry(w: number, h: number, bite: Bite | null): THREE.BufferGeometry {
-  const geo = new THREE.ShapeGeometry(new THREE.Shape(outline(w, h, 0, bite)));
-  const pos = geo.getAttribute('position');
-  const uv = geo.getAttribute('uv');
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / w + 0.5, pos.getY(i) / h + 0.5);
-  uv.needsUpdate = true;
+function circleLoop(cx: number, cy: number, r: number, n: number): P2[] {
+  const pts: P2[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+    pts.push(new THREE.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r));
+  }
+  return pts;
+}
+
+/** a closed counter-clockwise outline pushed out by `d(i)` along its outward normals */
+function offsetLoop(loop: P2[], d: (i: number) => number): P2[] {
+  const n = loop.length;
+  return loop.map((p, i) => {
+    const a = loop[(i + n - 1) % n];
+    const b = loop[(i + 1) % n];
+    const t = new THREE.Vector2().subVectors(b, a).normalize();
+    // (counter-clockwise: the outside is to the right of the way round)
+    return new THREE.Vector2(p.x + t.y * d(i), p.y - t.x * d(i));
+  });
+}
+
+function wellLoop(w: Well, grow = 0): P2[] {
+  return w.round ? circleLoop(w.x, w.y, w.w / 2 + grow, 48) : roundRectLoop(w.x, w.y, w.w + 2 * grow, w.h + 2 * grow, 1.1 + grow, 6);
+}
+
+/**
+ * A wall lofted through rings of points (each the same length, closed loops), `rings[k][i]` at depth `zs[k][i]`; its
+ * faces turned towards `inward` (true: towards the loops' middle).
+ */
+function loft(rings: P2[][], zs: number[][], inward: boolean): THREE.BufferGeometry {
+  const n = rings[0].length;
+  const pos: number[] = [];
+  for (let k = 0; k < rings.length; k++) for (let i = 0; i < n; i++) pos.push(rings[k][i].x, rings[k][i].y, zs[k][i]);
+  const idx: number[] = [];
+  for (let k = 0; k < rings.length - 1; k++)
+    for (let i = 0; i < n; i++) {
+      const a = k * n + i;
+      const b = k * n + ((i + 1) % n);
+      const c = (k + 1) * n + i;
+      const d = (k + 1) * n + ((i + 1) % n);
+      // (rings run from the back to the front: counter-clockwise loops face outward this way round)
+      if (inward) idx.push(a, c, b, b, c, d);
+      else idx.push(a, b, c, b, d, c);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** a flat shape at depth z, its face towards +z (or −z) */
+function flat(outer: P2[], holes: P2[][], z: number, back = false): THREE.BufferGeometry {
+  const sh = new THREE.Shape(outer);
+  for (const h of holes) sh.holes.push(new THREE.Path([...h].reverse()));
+  const g = new THREE.ShapeGeometry(sh, 1);
+  g.translate(0, 0, z);
+  if (back) {
+    const ix = g.getIndex()!;
+    for (let i = 0; i < ix.count; i += 3) {
+      const t = ix.getX(i + 1);
+      ix.setX(i + 1, ix.getX(i + 2));
+      ix.setX(i + 2, t);
+    }
+    const nm = g.getAttribute('normal');
+    for (let i = 0; i < nm.count; i++) nm.setZ(i, -nm.getZ(i));
+  }
+  return g;
+}
+
+/** a placeholder material: the car's own takes its place by its name (materials.ts applyMaterials) */
+function carMat(name: string): THREE.Material {
+  return new THREE.MeshBasicMaterial({ name });
+}
+
+/** the binnacle's shell: what of it is in which of the cab's materials */
+interface Shell {
+  group: THREE.Group;
+  /** its box in the cluster's space (cm) */
+  box: THREE.Box3;
+}
+
+/**
+ * The binnacle's shell (cm, in the cluster's space): the fascia with the cups and the panel sunk in it, each cup's
+ * ring at its lip; round them the housing — its opening a rounded outline arched up along its top, its wall out to a
+ * lip that reaches furthest over the top (the cowl) and least along the foot, rolled over and back to the dashboard,
+ * closed behind.
+ */
+function buildShell(l: Layout, hood: number): Shell {
+  const group = new THREE.Group();
+  group.name = BINNACLE_NODE;
+  const zF = CUP_DEPTH;
+  const parts: Record<string, THREE.BufferGeometry[]> = { plastic_int: [], trim: [], alu: [] };
+  // the wells: a wall from the face up to the fascia, flared at the lip, a ring round the lip
+  for (const w of l.wells) {
+    const inner = wellLoop(w);
+    const lip = wellLoop(w, CUP_FLARE);
+    const n = inner.length;
+    const z0 = new Array(n).fill(-0.05);
+    const z1 = new Array(n).fill(zF - CUP_FLARE);
+    const z2 = new Array(n).fill(zF);
+    parts.trim.push(loft([inner, inner], [z0, z1], true));
+    parts.alu.push(loft([inner, lip], [z1, z2], true));
+    // the ring: a little tube round the lip
+    const ring: P2[][] = [];
+    const rz: number[][] = [];
+    const tube = 0.2;
+    for (let k = 0; k <= 6; k++) {
+      const a = Math.PI * (k / 6);
+      ring.push(wellLoop(w, CUP_FLARE - tube * Math.cos(a)));
+      rz.push(new Array(n).fill(zF + tube * Math.sin(a) * 0.9));
+    }
+    parts.alu.push(loft(ring, rz, false));
+  }
+  // the housing's opening: round the wells, its corners well rounded, its top arched up
+  const e = extent(l);
+  const m = 0.75;
+  const ow = e.x1 - e.x0 + 2 * m;
+  const oh = e.y1 - e.y0 + 2 * m;
+  const cx = (e.x0 + e.x1) / 2;
+  const cy = (e.y0 + e.y1) / 2;
+  const arch = Math.min(1.6, oh * 0.13);
+  const open = roundRectLoop(cx, cy, ow, oh, Math.min(oh * 0.42, 4.2), 10).map((p) => {
+    const u = (p.x - cx) / (ow / 2);
+    const up = Math.max(0, (p.y - cy) / (oh / 2));
+    return new THREE.Vector2(p.x, p.y + arch * Math.max(0, 1 - u * u) * up);
+  });
+  // the fascia: the opening with the wells' lips cut out of it
+  parts.trim.push(flat(open, l.wells.map((w) => wellLoop(w, CUP_FLARE)), zF));
+  // the housing's wall: out from the fascia to the lip — the cowl over the top reaching `hood`, the foot a sill —
+  // rolled over, and back along its outside to the dashboard
+  const n = open.length;
+  let yTop = -Infinity;
+  let yBot = Infinity;
+  for (const p of open) {
+    yTop = Math.max(yTop, p.y);
+    yBot = Math.min(yBot, p.y);
+  }
+  const sill = 0.5;
+  const reach = open.map((p) => {
+    const t = (p.y - yBot) / (yTop - yBot);
+    const u = (p.x - cx) / (ow / 2);
+    return zF + sill + (hood - sill) * Math.pow(t, 1.7) * (1 - 0.4 * u * u);
+  });
+  const thick = open.map((p) => {
+    const t = (p.y - yBot) / (yTop - yBot);
+    return 0.75 + 1.0 * Math.max(0, Math.min(1, (t - 0.45) / 0.55));
+  });
+  const outer = offsetLoop(open, (i) => thick[i]);
+  const back = -4.6;
+  const rings: P2[][] = [open, open];
+  const zs: number[][] = [new Array(n).fill(zF - 0.05), reach];
+  // the lip rolled over: half round, its middle a little forward
+  for (let k = 1; k < 6; k++) {
+    const a = Math.PI * (k / 6);
+    const f = (1 - Math.cos(a)) / 2;
+    rings.push(open.map((p, i) => new THREE.Vector2(p.x + (outer[i].x - p.x) * f, p.y + (outer[i].y - p.y) * f)));
+    zs.push(reach.map((z, i) => z + Math.sin(a) * thick[i] * 0.45));
+  }
+  rings.push(outer, outer);
+  zs.push(reach.slice(), new Array(n).fill(back));
+  parts.plastic_int.push(loft(rings, zs, true));
+  parts.plastic_int.push(flat(outer, [], back, true));
+  const box = new THREE.Box3();
+  for (const [name, list] of Object.entries(parts)) {
+    if (!list.length) continue;
+    const geo = mergeGeometries(
+      list.map((g) => {
+        const f = g.index ? g.toNonIndexed() : g;
+        if (f.hasAttribute('uv')) f.deleteAttribute('uv');
+        return f;
+      }),
+    )!;
+    for (const g of list) g.dispose();
+    geo.computeBoundingBox();
+    box.union(geo.boundingBox!);
+    const mesh = new THREE.Mesh(geo, carMat(name));
+    mesh.name = `binnacle:${name}`;
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return { group, box };
+}
+
+// ------------------------------------------------------------------ the cluster
+
+/** px a centimetre of the faces' canvas, and of the screens' */
+const FACE_PX = 36;
+const SCREEN_PX = 64;
+/** the icon sheet: px a cell */
+const ICON_CELL = 96;
+/** how bright the lit faces and needles are (their lighting switched on with the lamps) */
+const FACE_GLOW = 0.85;
+const NEEDLE_RGB = new THREE.Color('#ff4a1c');
+
+/** what the cluster is told each frame */
+export interface ClusterInput {
+  /** the vehicle's dashboard data (null: none) */
+  dash: Dash | null;
+  /** the speed the speedometer is driven by (km/h) */
+  kmh: number;
+  /** the key on (core/modcar/instruments.ts LampInput) */
+  power: boolean;
+  /** the hazard lights' lamps lit this moment */
+  blink: boolean;
+  /** the instruments' lighting: switched on with the lamps */
+  lit: boolean;
+  /** the four tyres (FL, FR, RL, RR; front and rear on two wheels): −1 none, 0 … 3 how worn, 4 blown */
+  tyres: readonly number[];
+}
+
+/** a needle: its dial, its node, where it stands (0 … 1) */
+interface Needle {
+  kind: NeedleKind;
+  form: 'quarter' | 'round';
+  node: THREE.Object3D;
+  frac: number;
+}
+
+function tint(geo: THREE.BufferGeometry, hex: number | string): THREE.BufferGeometry {
+  const c = new THREE.Color(hex);
+  const n = geo.getAttribute('position').count;
+  const a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
+  geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
   return geo;
 }
 
-/** the case round the plate (m, in the plate's own space): a rim standing a little proud of it, its sides back to the dashboard, its back; a brow over it */
-function caseGeometry(w: number, h: number, depth: number, brow: boolean, bite: Bite | null): THREE.BufferGeometry {
-  const b = 0.008;
-  const proud = 0.005;
-  const ring = new THREE.Shape(outline(w, h, b, bite));
-  ring.holes.push(new THREE.Path(outline(w, h, 0, bite)));
-  const parts: THREE.BufferGeometry[] = [
-    new THREE.ExtrudeGeometry(ring, { depth: proud + depth, bevelEnabled: false, curveSegments: 1 }).translate(0, 0, -depth),
-    new THREE.ExtrudeGeometry(new THREE.Shape(outline(w, h, b, bite)), { depth: 0.003, bevelEnabled: false, curveSegments: 1 }).translate(0, 0, -depth),
-  ];
-  if (brow) parts.push(new THREE.BoxGeometry(w + 2 * b + 0.012, 0.006, 0.03).translate(0, h / 2 + b + 0.003, proud + 0.011).toNonIndexed());
-  const geo = mergeGeometries(parts)!;
-  for (const p of parts) p.dispose();
-  return geo;
+/** a needle's blade along +y from its pivot: `len` out, a short tail, `w` wide at its root (cm), a lighter ridge down its middle */
+function blade(len: number, tail: number, w: number): THREE.BufferGeometry {
+  const half = (x0: number, x1: number, col: string): THREE.BufferGeometry => {
+    const s = new THREE.Shape();
+    s.moveTo(x0 * w, -tail);
+    s.lineTo(x1 * w, -tail);
+    s.lineTo(x1 * w * 0.22, len * 0.97);
+    s.lineTo(0, len);
+    s.lineTo(x0 * w * 0.22, len * 0.97);
+    s.closePath();
+    return tint(new THREE.ShapeGeometry(s), col);
+  };
+  const g = mergeGeometries([half(-0.5, 0, '#d8320f'), half(0, 0.5, '#ff6a3a')])!;
+  return g;
+}
+
+/** a hub's cap (cm): dark, a satin ring round it */
+function cap(r: number): THREE.BufferGeometry {
+  const a = tint(new THREE.CircleGeometry(r * 0.8, 20), '#141518');
+  const b = tint(new THREE.RingGeometry(r * 0.8, r, 20), '#5d6168');
+  return mergeGeometries([a, b])!;
 }
 
 export class Cluster {
+  /** what moves and lights: the faces, needles, lamps, screens, lens (never merged) */
   readonly group = new THREE.Group();
-  /** the plate's size (m) */
+  /** the binnacle's shell (the cab's own materials; merged with the frame): null on a motorcycle (its cans are its frame's) */
+  readonly shell: THREE.Group | null;
+  readonly layout: Layout;
+  /** the faces' size (m) */
   readonly width: number;
   readonly height: number;
-  private readonly layout: Layout;
-  private readonly canvas: HTMLCanvasElement;
-  private readonly g: Ctx;
-  private readonly tex: THREE.CanvasTexture;
-  private readonly mat: THREE.ShaderMaterial;
+  /** the cluster's box in its own space (m): the binnacle's shell and the faces */
+  readonly footprint = new THREE.Box3();
+  private readonly k: number;
+  /** the faces' texture (shared: facesFor) and what it is printed for */
+  private faceKey = '';
+  private readonly faceBase: string;
+  private readonly faceSize: [number, number];
+  private readonly faceMat: THREE.ShaderMaterial;
+  private readonly screenCanvas: HTMLCanvasElement;
+  private readonly screenTex: THREE.CanvasTexture;
+  private readonly screenMat: THREE.ShaderMaterial;
   private readonly needleMat: THREE.ShaderMaterial;
-  private readonly caseMat: THREE.ShaderMaterial;
-  private readonly needles: { d: DialDef; pivot: THREE.Mesh; value: number }[] = [];
-  private readonly plate: THREE.Mesh;
-  private readonly box: THREE.Mesh;
-  private redline = 0;
+  private readonly capMat: THREE.ShaderMaterial;
+  private readonly lampMat: THREE.ShaderMaterial | null = null;
+  private readonly lensMat: THREE.ShaderMaterial | null = null;
+  private iconKey = '';
+  private readonly meshes: THREE.Mesh[] = [];
+  private readonly needles: Needle[] = [];
+  private readonly faces: THREE.Mesh;
+  /** each screen's place in the screens' canvas (px) */
+  private readonly screenAt: { s: ScreenSpot; x: number; y: number; w: number; h: number }[] = [];
+  readonly telltales = new Telltales();
+  /** the lamps each light uniform stands for */
+  private readonly lampIds: LampId[] = [];
+  private speed: SpeedScale = speedScale(160);
+  private revs: RpmScale = rpmScale(6000);
   private shown = '';
-  private blinkT = 0;
   private glow = 0;
+  private level: 0 | 1 | 2 = 0;
+  /** the display's data, kept between frames */
+  private readonly sd: ScreenData = { power: false, hour: 12, outC: 15, gear: 'N', kmh: 0, odoKm: 0, tyres: [-1, -1, -1, -1], blink: false, fuel: 0, coolantC: 20 };
 
   /**
-   * @param sep        how far apart the frame's own two big dials are (m)
-   * @param speedLeft  its speedometer is the left of the two
+   * @param spec        the frame's cluster
+   * @param speedLeft   the speedometer the left of the two big dials (as the frame had its own)
+   * @param fillerRight the fuel filler on the vehicle's right (the gauge's arrow points to it)
+   * @param sep         a motorcycle's two clocks this far apart (m)
    */
   constructor(
     readonly spec: ClusterSpec,
-    sep = 0.17,
     speedLeft = true,
+    readonly fillerRight = false,
+    sep = 0.141,
   ) {
-    const k = (spec.scale ?? 1) / 100;
-    const l = (this.layout = layoutOf(spec.style, sep / k, speedLeft));
+    const l = (this.layout = layoutOf(spec.style, speedLeft, sep * 100, spec.screen, spec.warnTop));
+    const k = (this.k = (spec.style === 'bike' ? 1 : (spec.scale ?? 1)) / 100);
     this.width = l.w * k;
     this.height = l.h * k;
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = Math.round(l.w * PX);
-    this.canvas.height = Math.round(l.h * PX);
-    this.g = this.canvas.getContext('2d')!;
-    this.tex = new THREE.CanvasTexture(this.canvas);
-    this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.tex.anisotropy = 8;
-    this.tex.generateMipmaps = true;
-    this.mat = surfaceMaterial({ color: 0xffffff, map: this.tex, mapEmissive: 0, spec: 0.05, cabin: true });
-    // (a bite out of its lower edge, where the cab's own key must stay in sight)
-    const bite: Bite | null = spec.notch ? { x: l.midX * k + spec.notch.x, half: spec.notch.w / 2, h: spec.notch.h } : null;
-    this.plate = new THREE.Mesh(plateGeometry(this.width, this.height, bite), this.mat);
-    this.plate.name = 'cluster:plate';
-    this.plate.castShadow = false;
-    this.group.add(this.plate);
     this.group.name = CLUSTER_NODE;
-    // (it has its own texture and its needles turn: never merged into the vehicle's one mesh — render/carMerge.ts)
+    // (it has its own textures and its needles turn: never merged into the vehicle's one mesh — render/carMerge.ts)
     this.group.userData.mover = true;
-    // its case: dark, drawn round with the same line as the cab's own trim
-    this.caseMat = surfaceMaterial({ color: 0x211e1d, spec: 0.1, cabin: true, ink: true });
-    this.box = new THREE.Mesh(caseGeometry(this.width, this.height, (spec.out ?? 0.012) + 0.02, !!spec.brow, bite), this.caseMat);
-    this.box.name = 'cluster:case';
-    this.box.castShadow = false;
-    this.group.add(this.box);
-    // (a needle is not lit from within: at night it is the dark hand over the glowing face)
-    this.needleMat = surfaceMaterial({ color: 0xffffff, vertexColors: true, cabin: true });
-    const tint = (geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry => {
-      const c = new THREE.Color(hex);
-      const n = geo.getAttribute('position').count;
-      const a = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
-      geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
-      return geo;
+    const inner = new THREE.Group();
+    inner.scale.setScalar(k);
+    this.group.add(inner);
+    // the shell, merged with the frame (its own node beside this one, placed the same)
+    if (l.bike) this.shell = null;
+    else {
+      const sh = buildShell(l, (spec.hood ?? 0.045) * 100);
+      this.shell = new THREE.Group();
+      this.shell.name = BINNACLE_NODE;
+      sh.group.scale.setScalar(k);
+      this.shell.add(sh.group);
+      this.footprint.copy(sh.box).applyMatrix4(new THREE.Matrix4().makeScale(k, k, k));
+    }
+    // the faces' canvas: the whole rectangle of the layout, a little margin round it (one texture for every cluster
+    // printed the same: the road's wrecks of a frame share theirs)
+    const W = l.w + 2;
+    const H = l.h + 2;
+    this.faceSize = [W, H];
+    this.faceBase = `${spec.style}|${spec.screen ?? ''}|${spec.warnTop ? 'wt' : ''}|${speedLeft}|${fillerRight}|${l.bike ? sep.toFixed(4) : ''}`;
+    this.faceKey = faceKeyOf(this.faceBase, this.speed, this.revs);
+    this.faceMat = surfaceMaterial({ color: 0xffffff, map: facesFor(this.faceKey, l, W, H, this.speed, this.revs, fillerRight), mapEmissive: 0, spec: 0.04, cabin: true, ink: true, inkBase: true });
+    // the faces: each well's floor (z 0), its uv into the canvas
+    const floors: THREE.BufferGeometry[] = [];
+    for (const w of l.wells) {
+      const g = new THREE.ShapeGeometry(new THREE.Shape(wellLoop(w)), 1);
+      const pos = g.getAttribute('position');
+      const uv = g.getAttribute('uv');
+      for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) + W / 2) / W, (pos.getY(i) + H / 2) / H);
+      floors.push(g);
+    }
+    this.faces = this.add(inner, mergeGeometries(floors)!, this.faceMat, 'cluster:faces');
+    for (const g of floors) g.dispose();
+    // the screens: their own canvas, a row each
+    const rows = l.screens.map((s) => ({ s, w: Math.ceil(s.w * SCREEN_PX), h: Math.ceil(s.h * SCREEN_PX) }));
+    this.screenCanvas = document.createElement('canvas');
+    this.screenCanvas.width = Math.max(4, ...rows.map((r) => r.w));
+    this.screenCanvas.height = Math.max(4, rows.reduce((a, r) => a + r.h + 2, 0));
+    let y = 0;
+    for (const r of rows) {
+      this.screenAt.push({ s: r.s, x: 0, y, w: r.w, h: r.h });
+      y += r.h + 2;
+    }
+    this.screenTex = new THREE.CanvasTexture(this.screenCanvas);
+    this.screenTex.colorSpace = THREE.SRGBColorSpace;
+    this.screenTex.anisotropy = 4;
+    this.screenMat = surfaceMaterial({ color: 0xffffff, map: this.screenTex, mapEmissive: 0, spec: 0.02, cabin: true, ink: true, inkBase: true });
+    if (this.screenAt.length) {
+      const quads: THREE.BufferGeometry[] = [];
+      for (const a of this.screenAt) {
+        const q = new THREE.PlaneGeometry(a.s.w, a.s.h).translate(a.s.x, a.s.y, 0.04);
+        const uv = q.getAttribute('uv');
+        const cw = this.screenCanvas.width;
+        const ch = this.screenCanvas.height;
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, (a.x + uv.getX(i) * a.w) / cw, 1 - (a.y + (1 - uv.getY(i)) * a.h) / ch);
+        quads.push(q);
+      }
+      this.add(inner, mergeGeometries(quads)!, this.screenMat, 'cluster:screens');
+    }
+    // the needles, each on its pivot; the caps over them, one mesh for all (round: they need not turn)
+    this.needleMat = surfaceMaterial({ color: 0xffffff, vertexColors: true, spec: 0.2, cabin: true, ink: true, inkBase: true });
+    this.capMat = surfaceMaterial({ color: 0xffffff, vertexColors: true, spec: 0.3, cabin: true, ink: true, inkBase: true });
+    const caps: THREE.BufferGeometry[] = [];
+    // (a motorcycle's faces lie deeper in their cans: its needles nearer them)
+    const nz = l.bike ? 0.1 : 0.32;
+    const pivot = (kind: NeedleKind, form: 'quarter' | 'round', x: number, y: number, len: number, w: number, capR: number): void => {
+      const node = new THREE.Mesh(blade(len, len * 0.2, w), this.needleMat);
+      node.name = `cluster:needle:${kind}`;
+      node.position.set(x, y, nz);
+      node.castShadow = false;
+      inner.add(node);
+      this.meshes.push(node);
+      this.needles.push({ kind, form, node, frac: -1 });
+      caps.push(cap(capR).translate(x, y, nz + (l.bike ? 0.07 : 0.18)));
     };
-    // a needle: a long taper from its hub to its tip and a short tail, a few millimetres off the face, its cap over
-    // it — one mesh, coloured in its vertices
-    for (const d of l.dials) {
-      const big = d.kind === 'speed' || d.kind === 'rpm';
-      const r = d.r * k * (big ? 0.8 : 0.72);
-      const w = d.r * k * (big ? 0.045 : 0.075);
-      const shape = new THREE.Shape();
-      shape.moveTo(-w, -r * 0.2);
-      shape.lineTo(w, -r * 0.2);
-      shape.lineTo(w * 0.35, r);
-      shape.lineTo(-w * 0.35, r);
-      shape.closePath();
-      const blade = tint(new THREE.ShapeGeometry(shape), 0xe8482c);
-      const cap = tint(new THREE.CircleGeometry(d.r * k * 0.13, 20).translate(0, 0, 0.001), 0x1b1715);
-      const pivot = new THREE.Mesh(mergeGeometries([blade, cap])!, this.needleMat);
-      blade.dispose();
-      cap.dispose();
-      pivot.name = `cluster:needle:${d.kind}`;
-      pivot.castShadow = false;
-      pivot.position.set(d.x * k, d.y * k, 0.003);
-      this.group.add(pivot);
-      this.needles.push({ d, pivot, value: -1 });
+    for (const d of l.big) pivot(d.kind, 'round', d.x, d.y, d.r * 0.86, d.r * 0.075, d.r * 0.12);
+    for (const d of l.small) pivot(d.kind, d.form, d.x, d.y, d.r * (d.form === 'quarter' ? 0.9 : 0.78), d.r * 0.09, d.r * (d.form === 'quarter' ? 0.16 : 0.14));
+    this.add(inner, mergeGeometries(caps)!, this.capMat, 'cluster:caps');
+    for (const g of caps) g.dispose();
+    // the lamps: one quad each over its symbol, lit by its own light (an icon sheet, a light a lamp)
+    if (l.lamps.length) {
+      const ids = [...new Set(l.lamps.map((s) => s.id))];
+      this.lampIds.push(...ids);
+      this.iconKey = ids.join(',');
+      const quads: THREE.BufferGeometry[] = [];
+      for (const s of l.lamps) {
+        const i = ids.indexOf(s.id);
+        // (a symbol is drawn 0.8 of its cell: the quad is its cell, the symbol `s` across)
+        const q = new THREE.PlaneGeometry(s.s / 0.8, s.s / 0.8).translate(s.x, s.y, 0.06);
+        const uv = q.getAttribute('uv');
+        for (let j = 0; j < uv.count; j++) uv.setX(j, (i + uv.getX(j)) / ids.length);
+        const n = q.getAttribute('position').count;
+        q.setAttribute('aLamp', new THREE.Float32BufferAttribute(new Array(n).fill(i), 1));
+        const c = new THREE.Color(LAMP_HEX[LAMP_INFO[s.id].colour]);
+        q.setAttribute('color', new THREE.Float32BufferAttribute(new Array(n).fill(0).flatMap(() => [c.r, c.g, c.b]), 3));
+        quads.push(q);
+      }
+      this.lampMat = lampMaterial(iconsFor(this.iconKey, ids), ids.length);
+      const lm = this.add(inner, mergeGeometries(quads)!, this.lampMat, 'cluster:lamps');
+      lm.renderOrder = 10;
+    }
+    // the lens over the fascia (not on a motorcycle's open cans)
+    if (!l.bike) {
+      const e = extent(l);
+      const lens = new THREE.ShapeGeometry(new THREE.Shape(roundRectLoop((e.x0 + e.x1) / 2, (e.y0 + e.y1) / 2, e.x1 - e.x0 + 1.4, e.y1 - e.y0 + 1.4, 3.6, 8)), 1);
+      lens.translate(0, 0, CUP_DEPTH + 0.4);
+      tint(lens, '#ffffff');
+      const pos = lens.getAttribute('position');
+      const col = lens.getAttribute('color');
+      // (a faint sheen across its upper part, where the cabin's light falls on it)
+      for (let i = 0; i < pos.count; i++) {
+        const t = (pos.getY(i) - e.y0) / (e.y1 - e.y0);
+        const v = 0.25 + 0.75 * t * t;
+        col.setXYZ(i, v, v, v);
+      }
+      this.lensMat = surfaceMaterial({ color: 0xc8d6e0, vertexColors: true, opacity: 0.07, spec: 0.5, cabin: true });
+      this.lensMat.depthWrite = false;
+      const lm = this.add(inner, lens, this.lensMat, 'cluster:lens');
+      lm.renderOrder = 11;
     }
   }
 
+  private add(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, name: string): THREE.Mesh {
+    const m = new THREE.Mesh(geo, mat);
+    m.name = name;
+    m.castShadow = false;
+    m.receiveShadow = true;
+    parent.add(m);
+    this.meshes.push(m);
+    return m;
+  }
+
+  /** the scales its faces are printed with: the vehicle's top speed in its tallest gear (km/h) and its red line (rpm) */
+  setScales(topKmh: number, redline: number): void {
+    const sp = speedScale(topKmh);
+    const rp = rpmScale(redline);
+    if (sp.max === this.speed.max && sp.step === this.speed.step && rp.max === this.revs.max && rp.red === this.revs.red) return;
+    this.speed = sp;
+    this.revs = rp;
+    // (the faces printed for these scales: another shared texture)
+    const key = faceKeyOf(this.faceBase, sp, rp);
+    const tex = facesFor(key, this.layout, this.faceSize[0], this.faceSize[1], sp, rp, this.fillerRight);
+    release(FACES, this.faceKey);
+    this.faceKey = key;
+    this.faceMat.uniforms.uMap.value = tex;
+  }
+
+  get speedScale(): SpeedScale {
+    return this.speed;
+  }
+  get rpmScale(): RpmScale {
+    return this.revs;
+  }
+
   /**
-   * The plate put where the frame's own two big dials are: `mid` the middle between them, `right`, `up` and `out`
-   * (towards the driver) the plane they lie in — all in the space those dials are modelled in. Its own two big dials
-   * come across where they were; its top edge `spec.top` above their line; it stands `spec.out` out of their plane,
-   * and hides them.
+   * The cluster put where the frame's own two big dials were: `mid` their midpoint, `right`, `up` and `out` (towards the
+   * driver) their plane — all in the space they are modelled in. The shell goes the same way (its own node, the
+   * caller puts it in the same parent).
    */
   place(mid: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3, out: THREE.Vector3): void {
-    const k = (this.spec.scale ?? 1) / 100;
-    const g = this.group;
-    g.position
-      .copy(mid)
-      .addScaledVector(right, -this.layout.midX * k)
-      .addScaledVector(up, (this.spec.top ?? this.height / 2) - this.height / 2)
-      .addScaledVector(out, this.spec.out ?? 0.012);
-    g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, out));
-    g.updateMatrix();
+    const p = placement(this.spec, mid, right, up, out);
+    for (const o of [this.group, this.shell]) {
+      if (!o) continue;
+      o.position.copy(p.position);
+      o.quaternion.copy(p.quaternion);
+      o.updateMatrix();
+    }
   }
 
-  /** the plate drawn afresh: all that never changes (again when the engine's red line is another) */
-  private paintBase(redline: number): void {
-    const l = this.layout;
-    const g = this.g;
-    const W = this.canvas.width;
-    const H = this.canvas.height;
-    g.clearRect(0, 0, W, H);
-    // the plate: charcoal, a lighter rim, an ink line round it
-    g.fillStyle = INK;
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = '#3a3633';
-    g.fillRect(3, 3, W - 6, H - 6);
-    g.fillStyle = PLATE;
-    g.fillRect(8, 8, W - 16, H - 16);
-    for (const d of l.dials) drawDial(g, l, d, redline);
-    this.redline = redline;
-    this.shown = '';
-  }
-
-  /** what changes, drawn where it changed: the strip (clock, lamps, gear, tyres) and the odometer's digits */
-  private paintLive(v: ClusterValues, blink: boolean): void {
-    const l = this.layout;
-    const g = this.g;
-    const y0 = py(l, l.stripY + l.stripH / 2);
-    const h = l.stripH * PX;
-    const cy = y0 + h / 2;
-    // the strip's ground
-    g.fillStyle = PLATE;
-    g.fillRect(8, y0 - 3, this.canvas.width - 16, h + 6);
-    const digits = (s: string, bx: number, bw: number, col: string, size: number): void => {
-      g.fillStyle = col;
-      g.font = `700 ${h * size}px "Arial Narrow", "Helvetica Neue", Arial, sans-serif`;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(s, bx + bw / 2, cy + h * 0.03);
-    };
-    for (const c of l.cells) {
-      const x0 = px(l, c.x);
-      const w = c.w * PX;
-      if (c.kind === 'lamps' && c.lamps) {
-        // the lamps: dark tiles, the lit ones in their colour with the pictogram dark on them
-        const lw = w / c.lamps.length;
-        const s = Math.min(lw, h) - 5;
-        c.lamps.forEach((id, i) => {
-          const on = v.on && v.lamps[id];
-          const cx = x0 + lw * (i + 0.5);
-          g.fillStyle = on ? LAMP_COL[id] : '#262321';
-          g.beginPath();
-          g.roundRect(cx - s / 2, cy - s / 2, s, s, s * 0.2);
-          g.fill();
-          glyph(g, id, cx, cy, s * 0.78, on ? '#1a1310' : '#5d554f');
-        });
-      } else if (c.kind === 'gear') {
-        windowBox(g, x0, y0, w, h);
-        digits(v.on ? v.gear : '', x0, w, '#ffd36a', v.gear.length > 1 ? 0.56 : 0.7);
-      } else if (c.kind === 'air') {
-        windowBox(g, x0, y0, w, h);
-        digits(`${Math.round(v.outC)}°`, x0, w, '#9fd2ff', 0.56);
-      } else if (c.kind === 'clock') {
-        windowBox(g, x0, y0, w, h);
-        const t = ((v.hour % 24) + 24) % 24;
-        const hh = Math.floor(t);
-        const mm = Math.floor((t - hh) * 60);
-        digits(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`, x0, w, '#9fe3b0', 0.6);
-      } else if (c.kind === 'tyres') {
-        // the tyres: the vehicle from above, a lamp at each wheel
-        g.fillStyle = INK;
-        g.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
-        g.fillStyle = '#12100f';
-        g.fillRect(x0, y0, w, h);
-        g.fillStyle = '#5c6a72';
-        const bw = w * (l.bike ? 0.16 : 0.3);
-        g.beginPath();
-        g.roundRect(x0 + w / 2 - bw / 2, y0 + h * (l.bike ? 0.3 : 0.12), bw, h * (l.bike ? 0.4 : 0.76), bw * 0.3);
-        g.fill();
-        const COL = ['#55cf6a', '#b9d94f', '#f0b43a', '#ff5a4a'];
-        // (four wheels: at its corners; two: one before the other)
-        const at4 = (i: number): [number, number, number, number] =>
-          l.bike ? [x0 + w / 2, y0 + (i === 0 ? h * 0.18 : h * 0.82), w * 0.42, h * 0.2] : [x0 + (i % 2 === 0 ? w * 0.16 : w * 0.84), y0 + (i < 2 ? h * 0.27 : h * 0.73), w * 0.17, h * 0.3];
-        for (let i = 0; i < (l.bike ? 2 : 4); i++) {
-          const st = v.tyres[i] ?? -1;
-          const [lx, ly, lw, lh] = at4(i);
-          if (st < 0) {
-            g.strokeStyle = '#5a5450';
-            g.lineWidth = 1.5;
-            g.strokeRect(lx - lw / 2, ly - lh / 2, lw, lh);
-            continue;
-          }
-          // (blown: it blinks)
-          g.fillStyle = st >= 4 ? (blink ? COL[3] : '#3a1512') : v.on ? COL[st] : '#3d4a40';
-          g.fillRect(lx - lw / 2, ly - lh / 2, lw, lh);
-        }
-      }
+  /** the cluster as the vehicle's dashboard has it now */
+  update(v: ClusterInput, dt: number): void {
+    const d = v.dash;
+    const power = !!d && v.power;
+    const battery = d?.battery ?? 0;
+    if (d) this.telltales.update(dt, d, power, v.blink, battery);
+    else {
+      for (const id of LAMP_IDS) this.telltales.out[id] = 0;
+      this.telltales.supply = 0;
     }
-    // the odometer in the speedometer's face: six wheels of digits and a tenth in red
-    const sp = l.dials.find((d) => d.kind === 'speed');
-    if (sp) {
-      const o = odoBox(l, sp);
-      const km = Math.max(0, Math.min(999999.9, v.odoKm));
-      const whole = Math.floor(km);
-      const tenth = Math.floor((km - whole) * 10 + 1e-6);
-      const s = String(whole).padStart(6, '0');
-      const cw = (o.w - 7) / 7;
-      for (let i = 0; i < 7; i++) {
-        const bx = o.x + 3.5 + i * cw;
-        g.fillStyle = i === 6 ? '#e9e2d2' : '#0b0a09';
-        g.fillRect(bx + 0.75, o.y + 3.5, cw - 1.5, o.h - 7);
-        g.fillStyle = i === 6 ? RED : '#f2efe8';
-        g.font = `700 ${o.h * 0.66}px "Arial Narrow", "Helvetica Neue", Arial, sans-serif`;
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
-        g.fillText(i === 6 ? String(tenth) : s[i], bx + cw / 2, o.y + o.h / 2 + o.h * 0.04);
-      }
-    }
-    this.tex.needsUpdate = true;
-  }
-
-  /** the plate as the vehicle's dashboard has it now */
-  update(v: ClusterValues, dt: number): void {
-    if (this.redline !== v.redline) this.paintBase(v.redline);
-    this.blinkT = (this.blinkT + dt) % 0.8;
-    const blink = this.blinkT < 0.4;
-    const flat = v.tyres.some((t) => t >= 4);
-    const km = Math.floor(v.odoKm * 10);
-    const min = Math.floor(v.hour * 60);
-    const key = `${v.on ? 1 : 0}|${LAMPS.map((l) => (v.lamps[l.id] ? 1 : 0)).join('')}|${v.gear}|${km}|${min}|${v.tyres.join(',')}|${flat && blink ? 1 : 0}|${this.layout.bike ? Math.round(v.outC) : ''}`;
-    if (key !== this.shown) {
-      this.shown = key;
-      this.paintLive(v, blink);
-    }
-    // the needles, each a little behind what it shows (a cable, a bimetal strip)
-    const lag = 1 - Math.exp(-dt * 9);
-    const slow = 1 - Math.exp(-dt * 2.2);
+    const supply = this.telltales.supply;
+    // the needles: each after its reading, damped as its own kind is
+    const reading = { kmh: v.kmh, rpm: d?.rpm ?? 0, fuel: d?.fuel ?? 0, coolantC: d?.coolantC ?? 20 };
     for (const n of this.needles) {
-      const k = n.d.kind;
-      const want = !v.on && k !== 'speed' && k !== 'air'
-        ? 0
-        : k === 'speed'
-          ? Math.min(1, Math.abs(v.kmh) / 180)
-          : k === 'rpm'
-            ? Math.min(1, v.rpm / 8000)
-            : k === 'fuel'
-              ? Math.min(1, Math.max(0, v.fuel))
-              : k === 'temp'
-                ? Math.min(1, Math.max(0, (v.tempC - 40) / 90))
-                : k === 'batt'
-                  ? Math.min(1, Math.max(0, v.battery))
-                  : Math.min(1, Math.max(0, (v.outC + 30) / 80));
-      n.value = n.value < 0 ? want : n.value + (want - n.value) * (k === 'speed' || k === 'rpm' ? lag : slow);
-      const [a0, a1] = SWEEP[k];
-      n.pivot.rotation.z = -(a0 + (a1 - a0) * n.value) * DEG;
+      const want = needleFrac(n.kind, reading, power, this.speed, this.revs);
+      if (n.frac < 0 || !Number.isFinite(dt)) n.frac = want;
+      else n.frac += (want - n.frac) * (1 - Math.exp(-dt / NEEDLE_TAU[n.kind]));
+      n.node.rotation.z = -needleAngle(n.kind, n.frac, n.form);
     }
-    // lit: the faces glow
-    this.glow += ((v.lit ? 1 : 0) - this.glow) * Math.min(1, dt * 6);
-    this.mat.uniforms.uMapEmissive.value = GLOW * this.glow;
+    // the lamps
+    if (this.lampMat) {
+      const u = this.lampMat.uniforms.uLight.value as number[];
+      this.lampIds.forEach((id, i) => (u[i] = this.telltales.light(id)));
+    }
+    // the faces' lighting with the lamps, the screens lit with the key
+    const want = v.lit && power ? supply : 0;
+    this.glow += (want - this.glow) * Math.min(1, (Number.isFinite(dt) ? dt : 1) * 8);
+    this.faceMat.uniforms.uMapEmissive.value = FACE_GLOW * this.glow;
+    (this.needleMat.uniforms.uEmissive.value as THREE.Color).copy(NEEDLE_RGB).multiplyScalar(0.55 * this.glow);
+    this.screenMat.uniforms.uMapEmissive.value = power ? 0.95 * Math.max(0.35, supply) : 0;
+    // the screens, drawn again where what they show has changed
+    if (this.screenAt.length && this.level === 0) {
+      const sd = this.sd;
+      sd.power = power;
+      if (d) {
+        sd.hour = d.hour;
+        sd.outC = d.outC;
+        sd.gear = d.gearLabel;
+        sd.odoKm = d.odoKm;
+        sd.fuel = d.fuel;
+        sd.coolantC = d.coolantC;
+      }
+      sd.kmh = v.kmh;
+      sd.tyres = v.tyres;
+      const blown = v.tyres.some((t) => t >= 4);
+      sd.blink = blown && Math.floor(performance.now() / 400) % 2 === 0;
+      const key = power
+        ? `${sd.gear}|${Math.round(Math.abs(sd.kmh))}|${Math.floor(sd.odoKm)}|${Math.floor(sd.hour * 60)}|${Math.round(sd.outC)}|${v.tyres.join(',')}|${sd.blink ? 1 : 0}|${Math.round(sd.fuel * 6)}|${Math.round((sd.coolantC - 50) / 13)}`
+        : 'off';
+      if (key !== this.shown) {
+        this.shown = key;
+        this.paintScreens();
+      }
+    }
+  }
+
+  private paintScreens(): void {
+    const g = this.screenCanvas.getContext('2d')!;
+    g.fillStyle = ART.screen;
+    g.fillRect(0, 0, this.screenCanvas.width, this.screenCanvas.height);
+    for (const a of this.screenAt) {
+      const s: Sheet = { g, px: SCREEN_PX, ox: a.x + a.w / 2 - a.s.x * SCREEN_PX, oy: a.y + a.h / 2 + a.s.y * SCREEN_PX };
+      const sd = this.sd;
+      if (a.s.kind === 'tft') drawScreen(s, a.s.x, a.s.y, a.s.w, a.s.h, sd);
+      else if (a.s.kind === 'odo') drawLcd(s, a.s.x, a.s.y, a.s.w, a.s.h, String(Math.floor(Math.max(0, Math.min(999999, sd.odoKm)))).padStart(6, '0'), sd.fuel, true, sd);
+      else drawLcd(s, a.s.x, a.s.y, a.s.w, a.s.h, sd.gear, (sd.coolantC - 50) / 80, true, sd);
+    }
+    this.screenTex.needsUpdate = true;
   }
 
   /**
-   * How much of it is drawn: 0 all of it, 1 the plate alone (the vehicle standing off with nobody at it: one draw), 2
-   * nothing (far off, where the dials are a few pixels behind the glass).
+   * How much of it is drawn: 0 all of it, 1 the faces alone (the vehicle standing off with nobody at it: one draw), 2
+   * nothing (far off). The shell is the frame's: drawn with it.
    */
   show(level: 0 | 1 | 2): void {
+    this.level = level;
     this.group.visible = level < 2;
-    this.box.visible = level === 0;
-    for (const n of this.needles) n.pivot.visible = level === 0;
+    for (const m of this.meshes) m.visible = level === 0 || m === this.faces;
   }
 
-  /** what a needle shows (0…1 of its dial), for the tests */
-  reading(kind: DialDef['kind']): number {
-    return this.needles.find((n) => n.d.kind === kind)?.value ?? -1;
+  /** where a needle stands (0 … 1 of its dial), for the tests */
+  reading(kind: NeedleKind): number {
+    return this.needles.find((n) => n.kind === kind)?.frac ?? -1;
+  }
+
+  /** a lamp's light now (0 … 1), for the tests */
+  lamp(id: LampId): number {
+    return this.telltales.light(id);
+  }
+
+  /** the lamps this cluster has */
+  get lamps(): readonly LampId[] {
+    return this.lampIds;
+  }
+
+  /** what its display shows now: the gear, the speed, the distance, the time, the air outside, the tyres (the walkthroughs read it) */
+  get display(): Readonly<ScreenData> {
+    return this.sd;
   }
 
   private readonly inv = new THREE.Matrix4();
   private readonly pa = new THREE.Vector3();
   private readonly pb = new THREE.Vector3();
 
-  /** does a look from `eye` along `dir` (the world's) fall on the plate, or within `margin` of it? */
+  /** does a look from `eye` along `dir` (the world's) fall on the faces, or within `margin` of them? */
   aimed(eye: THREE.Vector3, dir: THREE.Vector3, margin = 0.01): boolean {
-    // (where the vehicle is now: its world matrix is otherwise the last frame drawn's, a third of a metre back at speed)
     this.group.updateWorldMatrix(true, false);
     const inv = this.inv.copy(this.group.matrixWorld).invert();
     const o = this.pa.copy(eye).applyMatrix4(inv);
     const d = this.pb.copy(dir).transformDirection(inv);
-    // (from in front of it, towards it)
     if (o.z <= 0 || d.z > -1e-4) return false;
     const t = -o.z / d.z;
     return Math.abs(o.x + d.x * t) <= this.width / 2 + margin && Math.abs(o.y + d.y * t) <= this.height / 2 + margin;
   }
 
-  /**
-   * The plate's box on the screen, in the px of a frame `w` by `h` counted from its lower left (as a fragment has
-   * them): its middle and half size into `out`. False where a corner of it is behind the eye.
-   */
+  /** the faces' box on the screen, in the px of a frame `w` by `h` counted from its lower left: its middle and half size into `out` */
   screenBox(cam: THREE.Camera, w: number, h: number, out: { x: number; y: number; hx: number; hy: number }): boolean {
     let x0 = Infinity;
     let x1 = -Infinity;
@@ -797,10 +938,10 @@ export class Cluster {
       p.applyMatrix4(cam.projectionMatrix);
       const x = (p.x * 0.5 + 0.5) * w;
       const y = (p.y * 0.5 + 0.5) * h;
-      if (x < x0) x0 = x;
-      if (x > x1) x1 = x;
-      if (y < y0) y0 = y;
-      if (y > y1) y1 = y;
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
     }
     out.x = (x0 + x1) / 2;
     out.y = (y0 + y1) / 2;
@@ -810,37 +951,281 @@ export class Cluster {
   }
 
   dispose(): void {
-    this.plate.geometry.dispose();
-    this.box.geometry.dispose();
-    for (const n of this.needles) n.pivot.geometry.dispose();
-    this.tex.dispose();
-    this.mat.dispose();
-    this.needleMat.dispose();
-    this.caseMat.dispose();
+    for (const m of this.meshes) m.geometry.dispose();
+    this.shell?.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    release(FACES, this.faceKey);
+    if (this.iconKey) release(ICONS, this.iconKey);
+    this.faceKey = this.iconKey = '';
+    this.screenTex.dispose();
+    for (const m of [this.faceMat, this.screenMat, this.needleMat, this.capMat, this.lampMat, this.lensMat]) m?.dispose();
   }
 }
 
-/** how bright the lit plate is (the texture drawn again by its own light) */
-const GLOW = 0.6;
+/**
+ * Where a cluster goes against the frame's own two big dials (`mid` their midpoint; `right`, `up`, `out` their plane, out
+ * towards the driver): moved by spec.at in that plane, turned by spec.tilt about its own across axis (the top towards
+ * the driver).
+ */
+export function placement(spec: ClusterSpec, mid: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3, out: THREE.Vector3): { position: THREE.Vector3; quaternion: THREE.Quaternion } {
+  const at = spec.at ?? (spec.style === 'bike' ? [0, 0, 0.0024] : [0, 0, -0.018]);
+  const quaternion = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, out));
+  if (spec.tilt) quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (spec.tilt * Math.PI) / 180));
+  const position = mid.clone().addScaledVector(right, at[0]).addScaledVector(up, at[1]).addScaledVector(out, at[2]);
+  return { position, quaternion };
+}
+
+/** textures shared by every cluster that wants the same: the faces printed for a layout and its scales, the lamps' symbols */
+interface Shared {
+  tex: THREE.CanvasTexture;
+  users: number;
+}
+const FACES = new Map<string, Shared>();
+const ICONS = new Map<string, Shared>();
+
+function faceKeyOf(base: string, sp: SpeedScale, rp: RpmScale): string {
+  return `${base}|${sp.max}/${sp.step}|${rp.max}/${rp.red}`;
+}
+
+function release(pool: Map<string, Shared>, key: string): void {
+  const e = pool.get(key);
+  if (!e || --e.users > 0) return;
+  e.tex.dispose();
+  pool.delete(key);
+}
+
+function shared(pool: Map<string, Shared>, key: string, make: () => HTMLCanvasElement, anisotropy: number): THREE.CanvasTexture {
+  let e = pool.get(key);
+  if (!e) {
+    const tex = new THREE.CanvasTexture(make());
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = anisotropy;
+    pool.set(key, (e = { tex, users: 0 }));
+  }
+  e.users++;
+  return e.tex;
+}
+
+/** the faces printed: the dials, their symbols, the panel's lamps dark behind their lens (a W × H cm canvas about the layout's middle) */
+function facesFor(key: string, l: Layout, W: number, H: number, sp: SpeedScale, rp: RpmScale, fillerRight: boolean): THREE.CanvasTexture {
+  return shared(
+    FACES,
+    key,
+    () => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(W * FACE_PX);
+      c.height = Math.round(H * FACE_PX);
+      const g = c.getContext('2d')!;
+      const s: Sheet = { g, px: FACE_PX, ox: c.width / 2, oy: c.height / 2 };
+      g.fillStyle = ART.face;
+      g.fillRect(0, 0, c.width, c.height);
+      for (const w of l.wells) {
+        if (w.round) continue;
+        g.fillStyle = '#0b0c0e';
+        roundRect(s, w.x, w.y, w.w, w.h, 1.1);
+        g.fill();
+      }
+      for (const d of l.big) drawBigDial(s, d.kind, d.x, d.y, d.r, sp, rp);
+      for (const d of l.small) drawSmallDial(s, d.kind, d.form, d.x, d.y, d.r, fillerRight);
+      for (const p of l.lamps) symbol(s, p.id, p.x, p.y, p.s, ART.unlit);
+      return c;
+    },
+    8,
+  );
+}
+
+/** the lamps' symbols, a cell each, white on clear with their halo */
+function iconsFor(key: string, ids: LampId[]): THREE.CanvasTexture {
+  return shared(
+    ICONS,
+    key,
+    () => {
+      const c = document.createElement('canvas');
+      c.width = ICON_CELL * ids.length;
+      c.height = ICON_CELL;
+      drawIconSheet(c.getContext('2d')!, ICON_CELL, ids);
+      return c;
+    },
+    4,
+  );
+}
 
 /**
- * Each frame's plate (docs/V3/plan/finish.md §五: fourteen cabs, one set of instruments, each laid out its own way):
- * its size and where it sits by what its dashboard leaves open to the driver's eye — under the cowl, over the lip
- * below the dials, clear of the steering column.
+ * The lamps' material: each quad its lamp's symbol from the icon sheet, in its colour, as bright as its light (a
+ * uniform a lamp); dark where unlit (the symbol printed dark on the face shows through). Over the face it keeps the
+ * face's own line id (render/materials.ts maskPreservingBlend): no ink round a lamp's square.
+ */
+function lampMaterial(icons: THREE.Texture, n: number): THREE.ShaderMaterial {
+  const mat = new THREE.ShaderMaterial({
+    defines: { LAMPS: String(Math.max(1, n)) },
+    vertexColors: true,
+    uniforms: { uIcons: { value: icons }, uLight: { value: new Array(Math.max(1, n)).fill(0) } },
+    vertexShader: /* glsl */ `
+      ${GLSL_VERTEX_PARS}
+      attribute float aLamp;
+      uniform float uLight[LAMPS];
+      varying vec2 vUv;
+      varying vec3 vCol;
+      varying float vLight;
+      void main() {
+        vec3 transformed = position;
+        vec3 objNormal = normal;
+        vUv = uv;
+        vCol = color;
+        int i = int(aLamp + 0.5);
+        float l = 0.0;
+        for (int k = 0; k < LAMPS; k++) if (k == i) l = uLight[k];
+        vLight = l;
+        ${GLSL_VERTEX_MAIN}
+      }`,
+    fragmentShader: /* glsl */ `
+      ${GLSL_FRAGMENT_PARS}
+      uniform sampler2D uIcons;
+      varying vec2 vUv;
+      varying vec3 vCol;
+      varying float vLight;
+      void main() {
+        #include <logdepthbuf_fragment>
+        vec4 t = texture2D(uIcons, vUv);
+        // (the symbol's core white-hot at full light, its halo in the lamp's colour)
+        vec3 c = mix(vCol, vec3(1.0), 0.18 * t.a * t.a) * (1.4 + 1.6 * vLight);
+        gl_FragColor = vec4(c, t.a * vLight);
+      }`,
+  });
+  maskPreservingBlend(mat);
+  mat.depthWrite = false;
+  mat.polygonOffset = true;
+  mat.polygonOffsetFactor = -2;
+  mat.polygonOffsetUnits = -2;
+  return mat;
+}
+
+/**
+ * Each frame's cluster (docs/V3/plan/finish.md §五): its style and size, where its faces go against the frame's own
+ * dials, and what of the frame's own pod is cut away for it (the boxes measured from the frames' own build scripts: the
+ * pod in front of the dash, the shelf under it on the campers' and the vans'; over the Rhino's binnacle its old pod's
+ * hood plate). Each placed from the driver's eye at its sitting height (0.65-0.75 m over the cushion; scanned: what of
+ * each dial, lamp and the display the wheel's rim, spokes, horn ring and hub, her hands and the dash hide) so that it
+ * is seen through the wheel's upper opening as Nomad Drive's are: the rim crossing the tops of the speedometer and the
+ * rev counter (no more than 15 % of either hidden), the fuel and coolant gauges, every lamp and the display clear of
+ * the rim, the horn ring and the hub — turned to face the eye (tilt), out of the frame's own fascia and pad (at's last,
+ * towards the driver), moved up or down and across its plane, its display and warnings arranged and its size chosen to
+ * that end: where the horn ring crosses the panel it passes between the gauges and the display under them, the warnings
+ * along the panel's foot; the Sugar Cube's and the Wanderer's four dials at a real car's size (the speedometer 7.7 cm
+ * across; Nomad Drive's are 7-8) so that the outer two are inside the rim; the Goat's two dials either side of a panel,
+ * its rim leaving no room for four across. In the forward-control cabs (the Loaf, the Turtle, the Old Elephant) the eye
+ * looks over the wheel: the binnacle's top 15-16° under the level line, the rim under the panel's foot.
  */
 export const CLUSTERS: Readonly<Record<string, ClusterSpec>> = {
-  sedan: { style: 'round', scale: 0.86, top: 0.043, out: 0.03 },
-  wagon: { style: 'round', scale: 0.86, top: 0.043, out: 0.03 },
-  goat: { style: 'round', scale: 0.55, top: 0.052, out: 0.03 },
-  rhino: { style: 'round', scale: 0.8, top: 0.09, out: 0.03, brow: true },
-  rv: { style: 'round', scale: 0.78, top: 0.052, out: 0.03 },
-  pickup: { style: 'round', scale: 0.66, top: 0.047, out: 0.03, notch: { x: 0.042, w: 0.07, h: 0.036 } },
-  buffalo: { style: 'stack', scale: 0.62, top: 0.06, out: 0.03 },
-  van: { style: 'stack', scale: 0.66, top: 0.07, out: 0.03, brow: true },
-  turtle: { style: 'stack', scale: 0.66, top: 0.07, out: 0.03, brow: true },
-  elephant: { style: 'stack', scale: 0.66, top: 0.07, out: 0.03, brow: true },
-  camel: { style: 'stack', scale: 0.66, top: 0.07, out: 0.03, brow: true },
-  snail: { style: 'round', scale: 0.86, top: 0.09, out: 0.03, brow: true },
-  fox: { style: 'sport', scale: 0.86, top: 0.075 },
-  moto: { style: 'bike', scale: 0.86, top: 0.125, out: 0.03, notch: { x: 0, w: 0.058, h: 0.042 } },
+  sedan: { style: 'quad', scale: 0.74, screen: 'high', warnTop: true, at: [-0.01, -0.045, -0.014], cut: [[-0.25, 0.25, -0.085, 0.083, -0.046, 0.016]] },
+  wagon: { style: 'quad', scale: 0.74, screen: 'high', warnTop: true, at: [-0.0125, -0.065, -0.014], cut: [[-0.254, 0.254, -0.087, 0.083, -0.046, 0.016]] },
+  goat: { style: 'twin', scale: 0.74, screen: 'low', at: [0, 0.0014, -0.0051], tilt: 13, cut: [[-0.2, 0.2, -0.077, 0.069, -0.072, 0.016]] },
+  rhino: { style: 'quad', scale: 0.9, screen: 'high', warnTop: true, at: [0, -0.0051, -0.0097], tilt: 4, cut: [[-0.22, 0.22, -0.081, 0.073, -0.072, 0.016], [-0.21, 0.21, 0.06, 0.125, -0.16, 0]] },
+  rv: { style: 'twin', scale: 0.88, screen: 'low', at: [-0.01, -0.025, -0.006], cut: [[-0.262, 0.262, -0.088, 0.09, -0.051, 0.016]] },
+  pickup: { style: 'twin', scale: 0.8, screen: 'low', at: [-0.005, -0.0046, -0.0031], tilt: 9, cut: [[-0.25, 0.25, -0.08, 0.087, -0.046, 0.016]] },
+  buffalo: { style: 'twin', scale: 0.88, screen: 'high', warnTop: true, at: [-0.005, 0.0049, -0.0062], tilt: 7, cut: [[-0.25, 0.25, -0.08, 0.087, -0.046, 0.016]] },
+  van: { style: 'twin', scale: 1.02, screen: 'low', warnTop: true, at: [0, 0.0275, -0.0172], tilt: 6, cut: [[-0.215, 0.215, -0.072, 0.072, -0.061, 0.016], [-0.226, 0.226, -0.089, -0.04, -0.068, 0.031]] },
+  turtle: { style: 'twin', scale: 1.02, screen: 'low', warnTop: true, at: [0, 0.0275, -0.0173], tilt: 5, cut: [[-0.215, 0.215, -0.072, 0.072, -0.061, 0.016], [-0.226, 0.226, -0.089, -0.04, -0.068, 0.031]] },
+  elephant: { style: 'twin', scale: 1.02, screen: 'low', warnTop: true, at: [0, 0.0379, -0.0164], tilt: 5, cut: [[-0.215, 0.215, -0.072, 0.072, -0.061, 0.016], [-0.226, 0.226, -0.089, -0.04, -0.068, 0.031]] },
+  camel: { style: 'twin', scale: 0.82, screen: 'low', at: [-0.0075, -0.0419, -0.0193], tilt: 6, cut: [[-0.215, 0.215, -0.072, 0.072, -0.061, 0.016], [-0.226, 0.226, -0.089, -0.04, -0.068, 0.031]] },
+  snail: { style: 'twin', scale: 0.92, screen: 'low', at: [-0.005, -0.002, -0.018], cut: [[-0.225, 0.225, -0.08, 0.076, -0.066, 0.016], [-0.236, 0.236, -0.097, -0.048, -0.073, 0.036]] },
+  fox: { style: 'sport', scale: 0.95, screen: 'high', warnTop: true, at: [-0.071, -0.058, -0.008], cut: [[-0.27, 0.148, -0.081, 0.087, -0.047, 0.016]] },
+  moto: { style: 'bike' },
 };
+
+/**
+ * The frame's own instrument pod cut out of its model for the cluster (spec.cut): every triangle of its meshes wholly
+ * inside one of the boxes goes — only while the frame still has its own dials (a 'gauge' face). `toDials` takes a
+ * point in the frame model's space into its two big dials' space (x across, y up, z out). Each geometry is cut once
+ * and shared by every vehicle of that frame.
+ */
+export function cutFramePod(frame: THREE.Object3D, spec: ClusterSpec, toDials: THREE.Matrix4): number {
+  const boxes = spec.cut;
+  if (!boxes?.length) return 0;
+  let gauges = false;
+  frame.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const names = (m.userData.mat as string[] | undefined) ?? (Array.isArray(m.material) ? m.material : [m.material]).map((x) => x.name);
+    if (names.some((n) => n.replace(/\.\d+$/, '') === 'gauge')) gauges = true;
+  });
+  if (!gauges) return 0;
+  frame.updateMatrixWorld(true);
+  const toFrame = new THREE.Matrix4().copy(frame.matrixWorld).invert();
+  let cut = 0;
+  frame.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || /^(N_|P_|PG_|WIPER_|FUEL_CAP|KNUCKLE_)/.test(mesh.name) || /^(N_|P_|PG_|WIPER_)/.test(mesh.parent?.name ?? '')) return;
+    const m = new THREE.Matrix4().multiplyMatrices(toDials, new THREE.Matrix4().multiplyMatrices(toFrame, mesh.matrixWorld));
+    const key = `${m.elements.map((e) => e.toFixed(4)).join(',')}|${JSON.stringify(boxes)}`;
+    const src = mesh.geometry;
+    let memo = CUTS.get(src);
+    if (!memo) CUTS.set(src, (memo = new Map()));
+    let out = memo.get(key);
+    if (out === undefined) {
+      out = cutGeometry(src, m, boxes);
+      memo.set(key, out);
+    }
+    if (out) {
+      mesh.geometry = out.geo;
+      cut += out.n;
+    }
+  });
+  return cut;
+}
+
+const CUTS = new WeakMap<THREE.BufferGeometry, Map<string, { geo: THREE.BufferGeometry; n: number } | null>>();
+
+/** the geometry without its triangles wholly inside a box (in the space `m` takes its points to); null: none inside */
+export function cutGeometry(src: THREE.BufferGeometry, m: THREE.Matrix4, boxes: number[][]): { geo: THREE.BufferGeometry; n: number } | null {
+  const pos = src.getAttribute('position');
+  if (!pos) return null;
+  const n = pos.count;
+  // which box (bit) each point is in
+  const inBox = new Uint8Array(n);
+  const p = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    p.fromBufferAttribute(pos, i).applyMatrix4(m);
+    let bits = 0;
+    boxes.forEach((b, k) => {
+      if (p.x >= b[0] && p.x <= b[1] && p.y >= b[2] && p.y <= b[3] && p.z >= b[4] && p.z <= b[5]) bits |= 1 << k;
+    });
+    inBox[i] = bits;
+  }
+  const index = src.getIndex();
+  const count = index ? index.count : n;
+  const keep: number[] = [];
+  let gone = 0;
+  for (let t = 0; t < count; t += 3) {
+    const a = index ? index.getX(t) : t;
+    const b = index ? index.getX(t + 1) : t + 1;
+    const c = index ? index.getX(t + 2) : t + 2;
+    if (inBox[a] & inBox[b] & inBox[c]) {
+      gone++;
+      continue;
+    }
+    keep.push(a, b, c);
+  }
+  if (!gone) return null;
+  const geo = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(src.attributes)) geo.setAttribute(name, attr);
+  geo.setIndex(keep);
+  // (groups by material: the kept triangles keep their order, so a group's range is counted again)
+  if (src.groups.length) {
+    let at = 0;
+    for (const gr of src.groups) {
+      let k = 0;
+      for (let t = gr.start; t < gr.start + gr.count; t += 3) {
+        const a = index ? index.getX(t) : t;
+        const b = index ? index.getX(t + 1) : t + 1;
+        const c = index ? index.getX(t + 2) : t + 2;
+        if (!(inBox[a] & inBox[b] & inBox[c])) k += 3;
+      }
+      geo.addGroup(at, k, gr.materialIndex);
+      at += k;
+    }
+  }
+  geo.boundingBox = src.boundingBox?.clone() ?? null;
+  geo.boundingSphere = src.boundingSphere?.clone() ?? null;
+  geo.userData = { ...src.userData };
+  return { geo, n: gone };
+}

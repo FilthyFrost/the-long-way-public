@@ -135,7 +135,8 @@ try {
     const real = g.ground;
     const yaw = s.yaw;
     // (14 m out to its left; the car's left on the plan is (−sin yaw, −cos yaw): a pit under everything further left
-    // of its middle than 0.25 m)
+    // of its middle than 5 cm — it was 25 cm, and once the Sugar Cube's seats sat 3 cm lower (docs/V3/plan/finish.md
+    // §18, the driver's eye) it rested there on three wheels, its front left one on the pit's edge: not hung up)
     const lx = -Math.sin(yaw);
     const lz = -Math.cos(yaw);
     const cx = s.px + Math.cos(yaw + Math.PI / 2) * 14;
@@ -148,7 +149,7 @@ try {
       sample(x, z, o) {
         real.sample(x, z, o);
         if (Math.hypot(x - cx, z - cz) < 7) {
-          o.h = (x - cx) * lx + (z - cz) * lz > 0.25 ? h0 - 3 : h0;
+          o.h = (x - cx) * lx + (z - cz) * lz > 0.05 ? h0 - 3 : h0;
           o.nx = 0;
           o.ny = 1;
           o.nz = 0;
@@ -286,9 +287,10 @@ try {
   const slept = await ev(() => {
     const g = window.__rt.game;
     if (g.seated.sys.running) g.seated.sys.ignition?.(false);
-    g.leftButton = true;
+    // (the right button held in the seat: sleep, as on 11-24)
+    g.rightButton = true;
     for (let t = 0; t < 1.3; t += 1 / 60) g.step(1 / 60, 1);
-    g.leftButton = false;
+    g.rightButton = false;
     g.simulate(4);
     return { energy: g.body.energy, can: g.canBackToBed(), running: g.seated.sys.running };
   });

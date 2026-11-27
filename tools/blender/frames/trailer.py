@@ -1,8 +1,10 @@
 """
-ModCar frame 'trailer' (蝌蚪): a fictional small single-axle box trailer to tow behind a car - a cream aluminium box
+ModCar frame 'trailer' (蝌蚪): a fictional single-axle box trailer to tow behind a car - a cream aluminium box
 with ribbed sides and corner posts on a steel ladder chassis, an A-frame drawbar to a ball coupling, a jockey wheel
-under the drawbar, mudguards over its two wheels (the Sugar Cube's 13-inch steel wheels), a door in its back that
+under the drawbar, its two wheels (the Sugar Cube's 13-inch steel wheels) under the floor, a door in its back that
 swings round onto its right side; the floor inside planked. docs/V3/plan/growth.md section 6.2 (J9d).
+A room on wheels since docs/V3/plan/finish.md section 11.1 (F8): the box 3.0 x 1.7 m outside and 1.9 m clear inside,
+walked into by the rear door (it was 2.2 x 1.4 m and 1.2 m high: things only), a rail high along each wall to hang things on.
 
     blender -b --factory-startup --python tools/blender/build.py -- frames/trailer [--no-preview] [--quick] [--dry]
 
@@ -36,12 +38,15 @@ D = dict(
     # the Sugar Cube's wheels: the 13-inch steel rim (radius 0.165) with the road tyre (sidewall 0.12)
     hub_z=0.285, wheel_r=0.285, track=1.39,
     # the box: rear and front faces, half width, its floor's underside and top, the roof
-    x_r=-1.25, x_f=0.95, bw=0.70, z0=0.62, z_floor=0.665, z1=1.86,
+    # (inside, lining to lining and door to front wall: 1.70 by 3.00 m exactly - a tenth of a metre's squares fit it
+    # wall to wall: the linings stand 12 mm in from the skin, the door's inner face 12 mm behind x_r, the front's 18 mm
+    # behind x_f)
+    x_r=-1.65, x_f=1.356, bw=0.862, z0=0.62, z_floor=0.665, z1=2.60,
     # the chassis rails (half spacing, width, depth), the drawbar's coupling (its socket's centre), the jockey wheel
     rail_y=0.42, rail_w=0.06, rail_d=0.10,
-    coupler=(2.13, 0.0, 0.445), jockey=(1.62, -0.10),
+    coupler=(2.53, 0.0, 0.445), jockey=(2.02, -0.10),
     # the rear door: its frame inside the posts, its hinge on the right post
-    door_y=0.66, door_z0=0.69, door_z1=1.83,
+    door_y=0.81, door_z0=0.69, door_z1=2.57,
 )
 POST = 0.045
 COUPLER = np.array(D['coupler'])
@@ -70,7 +75,7 @@ def box_shell():
     left = K.Buf()
     # the side wall: a skin between the posts (5 mm), its ribs every 36 cm pressed out of it
     left.extend(K.box_buf((xr + POST * 0.5, bw - 0.005, D['z_floor'] - 0.02), (xf - POST * 0.5, bw, z1 - 0.02), 'paint_b', 0.0015, 1))
-    nrib = 6
+    nrib = 8
     for i in range(1, nrib):
         x = xr + (xf - xr) * i / nrib
         left.extend(K.box_buf((x - 0.022, bw - 0.001, D['z_floor'] + 0.05), (x + 0.022, bw + 0.011, z1 - 0.07), 'paint_b', 0.004, 2))
@@ -82,7 +87,7 @@ def box_shell():
     centre = K.Buf()
     # the front wall and its ribs (a pair either side of the middle), the rails across it
     centre.extend(K.box_buf((xf - 0.005, -bw + 0.004, D['z_floor'] - 0.02), (xf, bw - 0.004, z1 - 0.02), 'paint_b', 0.0015, 1))
-    for y in (-0.42, -0.14, 0.14, 0.42):
+    for y in (-0.56, -0.28, 0.0, 0.28, 0.56):
         centre.extend(K.box_buf((xf - 0.001, y - 0.022, D['z_floor'] + 0.05), (xf + 0.011, y + 0.022, z1 - 0.07), 'paint_b', 0.004, 2))
     centre.extend(K.box_buf((xf - 0.004, -bw, z0 - 0.02), (xf + 0.014, bw, D['z_floor'] + 0.06), 'alu', 0.004, 2))
     centre.extend(K.box_buf((xf - 0.004, -bw, z1 - 0.055), (xf + 0.012, bw, z1 + 0.012), 'alu', 0.004, 2))
@@ -124,7 +129,7 @@ def chassis():
     zt = D['z0']
     for s in (1, -1):
         b.extend(K.box_buf((xr + 0.02, s * ry - rw / 2, zt - rd), (xf - 0.02, s * ry + rw / 2, zt), 'steel', 0.006, 2))
-    for x in (xr + 0.06, -0.55, 0.45, xf - 0.06):
+    for x in (xr + 0.06, -1.05, -0.50, 0.50, 0.95, xf - 0.06):
         b.extend(K.box_buf((x - 0.03, -D['bw'] + 0.04, zt - 0.07), (x + 0.03, D['bw'] - 0.04, zt - 0.005), 'steel', 0.005, 2))
     # the drawbar: two tubes from the rails' front ends to the coupling head, a brace across them
     cx, cy, cz = D['coupler']
@@ -154,19 +159,15 @@ def chassis():
     b.extend(K.disc_buf((jx, jy - 0.03, zg), (0, -1, 0), zg, 'rubber', r_in=0.045, segs=24))
     b.extend(K.cyl_buf((jx, jy - 0.03, zg), (jx, jy + 0.03, zg), zg, 'rubber', 24, cap=False))
     b.extend(K.cyl_buf((jx, jy - 0.032, zg), (jx, jy + 0.032, zg), 0.045, 'steel', 18))
-    # the mudguards: an arc of sheet over each wheel, from the box's side out past the tyre, a bracket to the rail
+    # the wheels stand under the floor, inside the box's sides (it is wider than their track): a skirt of sheet along
+    # each side over the wheel and a rubber flap behind it, a bracket from the rail out to the skirt
     hz = D['hub_z']
     for s in (1, -1):
-        y0, y1 = (D['bw'] - 0.06, D['track'] / 2 + 0.12) if s > 0 else (-D['track'] / 2 - 0.12, -D['bw'] + 0.06)
-        arc = []
-        for a in np.linspace(math.radians(12), math.radians(168), 16):
-            arc.append((math.cos(a) * 0.37, hz + math.sin(a) * 0.37))
-        for a in np.linspace(math.radians(168), math.radians(12), 16):
-            arc.append((math.cos(a) * 0.355, hz + math.sin(a) * 0.355))
-        poly = np.array(arc)
-        # (prism in the x-z plane, extruded along y: plane 'xz' maps (a, b, c) to (a, -c, b))
-        b.extend(K.prism_buf(poly, -y1, -y0, 'trim', 0.002, 1, plane='xz'))
-        b.extend(K.box_buf((-0.04, min(s * (D['bw'] - 0.06), s * ry), zt - 0.06), (0.04, max(s * (D['bw'] - 0.06), s * ry), zt - 0.02), 'steel', 0.004, 1))
+        ys = s * (D['bw'] - 0.012)
+        b.extend(K.box_buf((-0.46, min(ys, ys + s * 0.008), hz + 0.16), (0.46, max(ys, ys + s * 0.008), zt - 0.02), 'trim', 0.003, 1))
+        yf0, yf1 = (D['track'] / 2 - 0.12, D['bw'] - 0.02) if s > 0 else (-D['bw'] + 0.02, -D['track'] / 2 + 0.12)
+        b.extend(K.box_buf((-0.43, yf0, hz - 0.13), (-0.42, yf1, zt - 0.02), 'rubber', 0.002, 1))
+        b.extend(K.box_buf((-0.04, min(s * (D['bw'] - 0.02), s * ry), zt - 0.06), (0.04, max(s * (D['bw'] - 0.02), s * ry), zt - 0.02), 'steel', 0.004, 1))
     return b
 
 
@@ -187,24 +188,44 @@ def under():
 
 
 def interior():
-    """Inside the box: the planked floor (seams between the boards), the walls lined (cream), a tie-down rail along
-    each wall at hand height."""
+    """Inside the box, a room as Nomad Drive's are: the planked floor (boards 12 cm wide running lengthwise, a seam
+    between each two), the walls lined (cream), the ceiling a darker lining over them with a dark cove along its edges
+    and a dome lamp in its middle, a dark skirting along the walls' foot (flush with the lining), a tie-down rail
+    along each wall over head height. (Nothing stands out of the walls under the rail: a tenth of a metre's squares
+    still fit the floor wall to wall, cupboards stand against the lining.)"""
     b = K.Buf()
     xr, xf, bw = D['x_r'], D['x_f'], D['bw']
-    zf = D['z_floor']
-    n = 8
-    w = (2 * (bw - 0.012)) / n
+    zf, z1 = D['z_floor'], D['z1']
+    yw = bw - 0.012              # the side linings' face
+    xw = xf - 0.018              # the front lining's face
+    zc = z1 - 0.024              # the ceiling's face
+    n = 14
+    w = (2 * yw) / n
     for i in range(n):
-        y0 = -bw + 0.012 + i * w
-        b.extend(K.box_buf((xr + 0.02, y0 + 0.003, zf - 0.012), (xf - 0.012, y0 + w - 0.003, zf), 'wood', 0.002, 1))
-    # (the boards on a sheet of ply: nothing seen through their seams)
-    b.extend(K.box_buf((xr + 0.02, -bw + 0.012, zf - 0.02), (xf - 0.012, bw - 0.012, zf - 0.011), 'wood', 0.0, 1))
+        y0 = -yw + i * w
+        b.extend(K.box_buf((xr + 0.01, y0 + 0.002, zf - 0.012), (xf - 0.012, y0 + w - 0.002, zf), 'wood', 0.002, 1))
+    # (the boards on a sheet of ply: nothing seen through their seams; both up under the door's sill, no slot left
+    # between the sill and the floor)
+    b.extend(K.box_buf((xr + 0.006, -yw, zf - 0.02), (xf - 0.012, yw, zf - 0.011), 'wood', 0.0, 1))
+    hs = 0.06                    # the skirting's height: the lining's own foot in the dark trim, flush with it
     for s in (1, -1):
-        y = s * (bw - 0.012)
-        b.extend(K.box_buf((xr + 0.02, min(y, s * (bw - 0.006)), zf), (xf - 0.012, max(y, s * (bw - 0.006)), D['z1'] - 0.02), 'paint_b', 0.0, 1))
-        b.extend(K.box_buf((xr + 0.06, s * (bw - 0.03) - 0.01, 1.22), (xf - 0.06, s * (bw - 0.03) + 0.01, 1.25), 'alu', 0.003, 1))
-    b.extend(K.box_buf((xf - 0.018, -bw + 0.01, zf), (xf - 0.012, bw - 0.01, D['z1'] - 0.02), 'paint_b', 0.0, 1))
-    b.extend(K.box_buf((xr + 0.02, -bw + 0.01, D['z1'] - 0.024), (xf - 0.012, bw - 0.01, D['z1'] - 0.018), 'paint_b', 0.0, 1))
+        y = s * yw
+        b.extend(K.box_buf((xr + 0.02, min(y, s * (bw - 0.006)), zf + hs), (xf - 0.012, max(y, s * (bw - 0.006)), z1 - 0.02), 'lining', 0.0, 1))
+        # (one rail a side, over head height: a tall cupboard stands against the lining under it)
+        for z in (2.32,):
+            b.extend(K.box_buf((xr + 0.06, s * (bw - 0.03) - 0.01, z), (xf - 0.06, s * (bw - 0.03) + 0.01, z + 0.03), 'alu', 0.003, 1))
+        # the skirting (flush: a piece stands against it as against the lining) and the cove along the wall's top
+        b.extend(K.box_buf((xr + 0.02, min(y, s * (bw - 0.006)), zf), (xw, max(y, s * (bw - 0.006)), zf + hs), 'trim', 0.0, 1))
+        b.extend(K.box_buf((xr + 0.02, min(y, s * (yw - 0.022)), zc - 0.022), (xw, max(y, s * (yw - 0.022)), zc), 'trim', 0.004, 1))
+    b.extend(K.box_buf((xw, -bw + 0.01, zf + hs), (xf - 0.012, bw - 0.01, z1 - 0.02), 'lining', 0.0, 1))
+    b.extend(K.box_buf((xw, -yw, zf), (xf - 0.012, yw, zf + hs), 'trim', 0.0, 1))
+    b.extend(K.box_buf((xw - 0.022, -yw, zc - 0.022), (xw, yw, zc), 'trim', 0.004, 1))
+    # the ceiling (its own darker lining, Nomad Drive's rooms' charcoal over cream) and its lamp
+    b.extend(K.box_buf((xr + 0.02, -bw + 0.01, zc), (xf - 0.012, bw - 0.01, z1 - 0.018), 'fabric', 0.0, 1))
+    lp = np.array([0.5 * (xr + xf), 0.0, zc])
+    V, N, T = K.lathe(np.array([(0.0, -0.04), (0.08, -0.034), (0.105, -0.014), (0.11, 0.0)]), lp, (0, 0, 1), 18)
+    b.add(V, N, T, 'ceramic')
+    b.extend(K.cyl_buf(lp + (0, 0, -0.006), lp, 0.125, 'trim', 18))
     return b
 
 
@@ -218,12 +239,12 @@ def door():
     b.extend(K.box_buf((x - 0.014, y0, z0), (x, y1, z1), 'paint_b', 0.002, 1))
     for (a0, a1, c0, c1) in ((y0, y1, z0, z0 + 0.045), (y0, y1, z1 - 0.045, z1), (y0, y0 + 0.045, z0, z1), (y1 - 0.045, y1, z0, z1)):
         b.extend(K.box_buf((x - 0.024, a0, c0), (x - 0.010, a1, c1), 'alu', 0.004, 2))
-    for y in (0.36, 0.0):
+    for y in (0.44, 0.0):
         b.extend(K.cyl_buf((x - 0.034, y, z0 + 0.03), (x - 0.034, y, z1 - 0.03), 0.011, 'chrome', 10))
         for z in (z0 + 0.06, z1 - 0.06):
             b.extend(K.box_buf((x - 0.05, y - 0.03, z - 0.015), (x - 0.02, y + 0.03, z + 0.015), 'steel', 0.003, 1))
-    b.extend(K.box_buf((x - 0.06, 0.30, 1.16), (x - 0.03, 0.42, 1.20), 'trim', 0.006, 2))
-    for z in (z0 + 0.18, z1 - 0.18):
+    b.extend(K.box_buf((x - 0.06, 0.38, 1.16), (x - 0.03, 0.50, 1.20), 'trim', 0.006, 2))
+    for z in (z0 + 0.18, (z0 + z1) / 2, z1 - 0.18):
         b.extend(K.box_buf((x - 0.04, y0 - 0.03, z - 0.05), (x + 0.005, y0 + 0.05, z + 0.05), 'steel', 0.004, 1))
     return b
 
@@ -300,8 +321,8 @@ def build(args):
         PV.materials()
         PV.scene_setup('anime')
         smp = 16 if quick else 40
-        for name, yaw, pitch, dist in (('f34', 35, 10, 6.6), ('r34', 145, 12, 6.6), ('side', 270, 3, 7.0), ('rear', 180, 6, 5.6)):
-            PV.orbit((0.4, 0, 0.8), yaw, pitch, dist, lens=50)
+        for name, yaw, pitch, dist in (('f34', 35, 10, 8.6), ('r34', 145, 12, 8.6), ('side', 270, 3, 9.0), ('rear', 180, 6, 7.4)):
+            PV.orbit((0.4, 0, 1.2), yaw, pitch, dist, lens=50)
             PV.render(f'{SCRATCH}_{name}.png', res=(1280, 720), samples=smp)
     print('[trailer] done', round(time.time() - t0, 1), 's')
 

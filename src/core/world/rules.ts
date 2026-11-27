@@ -28,7 +28,7 @@ import type { ChapterPlan } from './spine';
 export type WorldVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /** the version a new game's world is made by (an address may ask for an older one, a save keeps its own) */
-export const NEWEST_WORLD: WorldVersion = 6;
+export const NEWEST_WORLD: WorldVersion = 7;
 
 /**
  * The revision of the generator of version 2: raised by one whenever a world of version 2 comes out
@@ -251,7 +251,8 @@ export const RULES_V5: WorldRules = Object.freeze({
  * Version 6 (docs/V3/plan/growth.md §三, ND9): version 5's world — its road, its land, its regions and its water the
  * same to the bit — with Nomad Drive's buildings in the places' dice (sites.ts: the filling station and the camp two
  * looks each of theirs, the works six; the motel, the cabin, the commune and the starter house, the two towers, the
- * graveyard, the small places by the road). A new game's; a save of version 5 stays the world it was made in.
+ * graveyard, the small places by the road). A new game's until version 7 came; a save of version 5 stays the world
+ * it was made in.
  */
 export const RULES_V6: WorldRules = Object.freeze({
   ...RULES_V5,
@@ -262,8 +263,9 @@ export const RULES_V6: WorldRules = Object.freeze({
  * Version 7 (docs/V3/plan/finish.md §二): version 6's world, with what turns up down its road by the chapters of the
  * journey (core/modcar/schedule.ts SCHEDULE_V7; the sets come apart: kits.ts), and its journey begun gently: the first
  * twelve kilometres through mild country, neither the snow's nor the desert's (its own dealer: another road and land
- * than version 6's of the same seed). A new game's, once the whole of the plan's second part is in (NEWEST_WORLD); a
- * save of version 6 stays the world it was made in.
+ * than version 6's of the same seed), its places keeping food cold, its motel a sort of place of its own, its ten
+ * waters with a lord (core/world/sites.ts). A new game's (NEWEST_WORLD); a save of version 6 stays the world it was
+ * made in.
  */
 export const RULES_V7: WorldRules = Object.freeze({
   ...RULES_V6,

@@ -295,7 +295,9 @@ def window_opening(kind, J):
         xh = float(S.ws_x(0.0, D['roof_z']))
         zs_top = float(S.roof_z(xh, 0.0) - D['r_header'] * (1 - math.sin(S.PHI_F))) - 0.024
         rr = D['rho_a']
-        margin, edge = 0.026, 0.026
+        # (the glass reaches to 14 mm from the A pillar's corner: the pillar between it and the door glass is one slim
+        # band from the driver's seat, as a sports car's raked pillar is)
+        margin, edge = 0.026, 0.014
         sgn = 1.0
     else:
         ch = rw_frame()
@@ -446,13 +448,14 @@ class Exterior:
         radii[len(cedge)] = 0.07
         uv = K.rounded_poly(pts, radii, 0.03, closed=False, arc_step=0.008)
         self.cut['doorG'] = Cut(S.SIDE_G, uv, False, -1.0, snap_side_to_j(gs))
-        # the door glass opening (frame band 24 mm)
+        # the door glass opening (frame band 24 mm; 14 along the A pillar, which the band widened from the driver's
+        # seat: a raked pillar is seen close to her eyes)
         band = 0.024
         zb = float(gs.zJ(-0.2)) + 0.016
         zr_in = zr - band
         z0 = float(gs.zJ(D['fd_front']))
         ang = math.atan2(float(gs.a_edge_x(zr) - gs.a_edge_x(z0)), zr - z0)
-        off = band / abs(math.cos(ang))
+        off = 0.014 / abs(math.cos(ang))
         za = np.linspace(zr_in, zb, 8)
         xr_ = float(gs.c_edge_x(zb)) + band
         win = np.vstack([[(xr_, zb), (float(gs.c_edge_x(zr_in)) + band, zr_in)], np.stack([gs.a_edge_x(za) - off, za], 1)])

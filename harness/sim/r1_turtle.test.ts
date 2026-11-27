@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
 import { aboardOf } from '../../src/core/modcar/aboard';
 import { stockBuild } from '../../src/core/modcar/build';
 import { zonesFor } from '../../src/core/modcar/cargo';
+import rvBox from '../../src/core/modcar/data/mounts/rv.json';
+import turtleBox from '../../src/core/modcar/data/mounts/turtle.json';
 import { frameDef } from '../../src/core/modcar/frames';
 import { vehiclePlan } from '../../src/core/modcar/schedule';
 import { newVitals, sleep, sleepHours, VITALS } from '../../src/core/modcar/vitals';
@@ -55,17 +57,22 @@ describe('R1: the Turtle and the beds', () => {
     expect(by('bed').floor).toBeGreaterThan(by('cabin').floor + 0.4);
   });
 
-  it('the beds: the Turtle’s across the back, the Whale’s over the cab, inside their bodies, over their floors', () => {
+  it('the beds: the Turtle’s across the back, the Whale’s over the cab and across its back, inside their bodies, over their floors', () => {
+    // (inside the model's own box — data/mounts: the frame's `body` is the box its bumpers and its blows go by, and the
+    // Whale's stops half a metre short of its living box's back wall, where its bed stands since docs/V3/plan/finish.md §十一 1)
+    const boxes: Record<string, { bbox: { min: number[]; max: number[] } }> = { turtle: turtleBox as never, rv: rvBox as never };
+    expect(aboardOf('rv')!.beds!.length).toBe(2);
     for (const id of ['turtle', 'rv']) {
       const f = frameDef(id);
       const a = aboardOf(id)!;
+      const box = boxes[id].bbox;
       expect(a.beds?.length, id).toBeGreaterThanOrEqual(1);
       for (const b of a.beds!) {
         expect(b.x0).toBeLessThan(b.x1);
         expect(b.z0).toBeLessThan(b.z1);
         expect(b.x1 - b.x0, `${id}: long enough to lie on`).toBeGreaterThan(0.9);
-        expect(b.x0).toBeGreaterThanOrEqual(f.body.rear);
-        expect(b.x1).toBeLessThanOrEqual(f.body.front);
+        expect(b.x0).toBeGreaterThanOrEqual(box.min[0]);
+        expect(b.x1).toBeLessThanOrEqual(box.max[0]);
         expect(Math.max(Math.abs(b.z0), Math.abs(b.z1))).toBeLessThanOrEqual(f.body.halfWidth);
         expect(b.top).toBeGreaterThan(Math.min(...a.areas.map((r) => r.floor)));
         expect(b.top).toBeLessThan(f.body.top);

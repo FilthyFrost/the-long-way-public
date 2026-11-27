@@ -271,15 +271,24 @@ def nd_charger(P):
 def chest(P, ornate):
     """A treasure chest (Nomad Drive's Chest-01 and -02, 0.82 x 0.6 x 0.45): a box of planks (paint) bound with iron
     (paint_b) — the rare one's bands broader and studded — its domed lid its own child LID hinged at the back, its
-    lock plate in front with the keyhole (M_lock), handles at its ends."""
+    lock plate in front with the keyhole (M_lock), handles at its ends. Hollow, as Nomad Drive's is: its walls 4 cm,
+    its floor 5 cm up (0.5 by 0.72 m inside: src/core/v3/nd/store.ts, what is in it stands on its floor)."""
     P.ao_distance = 0.08
     D, W, Hb = 0.58, 0.8, 0.27
-    P.box('box', (D, W, Hb), (0.0, 0.0, Hb / 2), 'paint', bev=0.008)
+    wall, floor = 0.04, 0.05
+
+    def hollow():
+        """the inside, cut out of the box and what goes round it (open at the top)"""
+        bm = bmesh.new()
+        K.bm_cube(bm, (D - 2 * wall, W - 2 * wall, Hb), matrix=Matrix.Translation((0.0, 0.0, floor + Hb / 2)))
+        return bm
+
+    P.cut(P.box('box', (D, W, Hb), (0.0, 0.0, Hb / 2), 'paint', bev=0.008), hollow())
     for k in range(4):
-        P.box('plank_line', (D + 0.002, W + 0.002, 0.004), (0.0, 0.0, 0.06 + k * 0.06), 'trim', bev=None)
+        P.cut(P.box('plank_line', (D + 0.002, W + 0.002, 0.004), (0.0, 0.0, 0.06 + k * 0.06), 'trim', bev=None), hollow())
     bw = 0.05 if ornate else 0.035
     for y in (-W / 2 + 0.07, W / 2 - 0.07):
-        P.box('band', (D + 0.012, bw, Hb + 0.004), (0.0, y, Hb / 2), 'paint_b', bev=0.003)
+        P.cut(P.box('band', (D + 0.012, bw, Hb + 0.004), (0.0, y, Hb / 2), 'paint_b', bev=0.003), hollow())
     for s in (-1, 1):
         P.tube('handle', [(-0.06, s * (W / 2 + 0.004), Hb * 0.7), (-0.06, s * (W / 2 + 0.03), Hb * 0.66), (0.06, s * (W / 2 + 0.03), Hb * 0.66),
                           (0.06, s * (W / 2 + 0.004), Hb * 0.7)], 0.007, 'paint_b', segs=8, bend=0.3)

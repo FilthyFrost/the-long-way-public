@@ -17,8 +17,8 @@
  */
 import * as THREE from 'three';
 import type { ContainerKind } from '../../core/items/loot';
-import { newItem, stackMax, stampFresh, type ItemInstance, type ItemState } from '../../core/modcar/items';
-import { boxesOfFinds, CONTAINER_MATERIAL, CONTAINER_NAMES, foundKey, foundScheduled, looseFound, looseKept, lootRules, ownFound, planBoxes, planGround, stationFuel, type Climate, type Found, type LootRules } from '../../core/modcar/loot';
+import { itemDef, newItem, putInside, stackMax, stampFresh, type ItemInstance, type ItemState } from '../../core/modcar/items';
+import { boxesOfFinds, CONTAINER_MATERIAL, CONTAINER_NAMES, foundKey, foundScheduled, insideFound, looseFound, looseKept, lootRules, ownFound, planBoxes, planGround, stationFuel, type Climate, type Found, type LootRules } from '../../core/modcar/loot';
 import { pumpInto, tankRoomOf, type FuelTank, type Tool } from '../../core/modcar/tools';
 import type { FuelType, PartInstance, Text } from '../../core/modcar/types';
 import type { Site, SiteContainer, SiteObject } from '../../core/world/sites';
@@ -51,7 +51,7 @@ const PUMP_RATE = 2.5;
 const PUMP_REACH = 4.5;
 
 /** what each sort of place is called (on a card's line over the name) */
-const PLACE_ZH: Record<string, string> = { station: '加油站', garage: '修车铺', shop: '商店', house: '民房', camp: '营地', jetty: '码头', hide: '猎人的地方', lookout: '瞭望台', lighthouse: '灯塔', works: '工厂', roadside: '路边' };
+const PLACE_ZH: Record<string, string> = { station: '加油站', garage: '修车铺', shop: '商店', house: '民房', motel: '汽车旅馆', camp: '营地', jetty: '码头', hide: '猎人的地方', lookout: '瞭望台', lighthouse: '灯塔', works: '工厂', roadside: '路边' };
 
 /** a container's line on its card */
 const BLURB: Partial<Record<ContainerKind, string>> = {
@@ -125,7 +125,17 @@ export function planPlaces(world: World, from: number, to: number): (PlanPlace &
   return sites
     .filter((x) => x.s >= from && x.s <= to)
     .sort((a, b) => a.s - b.s)
-    .map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: planBoxes(x).length, ground: planGround(x) }));
+    .map((x) => ({ id: x.id, s: x.s, kind: x.sort, boxes: planBoxes(x).length, ground: planGround(x) }));
+}
+
+/**
+ * Is a place one the game brings its things to as one comes near: every place but a bare verge — and a verge is not
+ * bare that has a box, a thing lying on it, or a wreck by whose door the plan's finds are laid (loot.ts planGround: a
+ * wreck stripped long ago has neither box nor thing of its own, and the plan may still have put a can of petrol or a
+ * part of the car one started with on the ground by it)
+ */
+export function comesAlive(site: Site): boolean {
+  return site.kind !== 'roadside' || site.containers.length > 0 || site.loose.length > 0 || planGround(site);
 }
 
 export function heldOfFound(f: Found): NonNullable<Held> {
@@ -460,7 +470,7 @@ export class Places {
     world.sites.between(s - FAR - 300, s + FAR + 300, this.sites);
     let changed = false;
     for (const site of this.sites) {
-      if (site.kind === 'roadside' && !site.containers.length && !site.loose.length) continue;
+      if (!comesAlive(site)) continue;
       const d = Math.hypot(site.x - x, site.z - z) - site.reach;
       if (d < NEAR && !this.live.has(site.id)) {
         this.come(site);
@@ -525,13 +535,15 @@ export class Places {
       // where it is due — a building's own wait for it: docs/V3/plan/growth.md §六 3)
       const until = held.get(t.item);
       if (until !== undefined && site.s < until + THEME_WAIT_M) continue;
-      const f = looseFound(t.item, hashId(t.id), site.s, site.kind, this.rules());
+      const f = looseFound(t.item, hashId(t.id), site.s, site.sort, this.rules(), this.host.climate?.(site.s) ?? 'mild');
       if (!f || !looseKept(f, hashId(t.id), this.keep(), this.host.supply?.())) continue;
       // (a world of version 7: by what it is found to be — a spray can, a car radio wait for the plan's first too)
       if (this.heldNow(foundKey(f), site.s)) continue;
       // (a piece of a set whose main thing has not been picked up yet: not yet)
       if (this.host.withheld?.(foundKey(f))) continue;
       const h = heldOfFound(f);
+      // (a world of version 7: what a piece of the place's furniture holds inside — a motel's nightstand, its drawer's small things)
+      if (h.kind === 'item') this.fillInside(h.item, t.id, site);
       const L = this.host.loose;
       const l = h.kind === 'part' ? L.addPart(h.inst, t.x, t.y, t.z, t.yaw) : h.kind === 'tool' ? L.addTool(h.tool, t.x, t.y, t.z, t.yaw) : L.addItem(h.item, t.x, t.y, t.z, t.yaw);
       // (it lies where it lies: on the ground, on a counter, on a pump)
@@ -543,6 +555,21 @@ export class Places {
     this.layByWreck(site, lp);
     // the parts beside a vehicle to find, on the ground
     this.layBeside(site, lp);
+  }
+
+  /**
+   * What a piece of furniture of a place's own holds inside as it is laid (loot.ts insideFound: by the piece, the sort
+   * of place and the thing's own seed — the same every visit; none in a world made before version 7): put into it,
+   * the piece's while the piece is the place's. Opened (its drawer pulled out: the furniture's system touches it), the
+   * piece is one's own from then on with what is in it, and kept with the game.
+   */
+  private fillInside(box: ItemInstance, id: string, site: Site): void {
+    if (!itemDef(box.item).holds) return;
+    const found = insideFound(box.item, site.sort, hashId(id), site.s, this.rules(), this.keep(), (key) => this.heldNow(key, site.s) || (this.host.withheld?.(key) ?? false), this.host.supply?.());
+    for (const f of found ?? []) {
+      const h = heldOfFound(f);
+      if (h.kind === 'item') putInside(box, h.item, itemNow());
+    }
   }
 
   /** the parts lying beside the vehicles to find here (the place's own: gone for good once picked up, as what lies about) */
@@ -593,7 +620,7 @@ export class Places {
     // (… nor, in a world of version 7, a new thing of the plan's before its first is due: nothing of a chapter before it)
     // (and more or less of what one lives on by what one is short of as one comes: needs.ts)
     const factors = this.host.supply?.();
-    const own = ownFound(pc.c, pc.site.s, pc.site.kind, this.rules(), this.host.climate?.(pc.site.s) ?? 'mild', this.keep(), (key) => this.heldNow(key, pc.site.s) || (this.host.withheld?.(key) ?? false), factors).map(heldOfFound);
+    const own = ownFound(pc.c, pc.site.s, pc.site.sort, this.rules(), this.host.climate?.(pc.site.s) ?? 'mild', this.keep(), (key) => this.heldNow(key, pc.site.s) || (this.host.withheld?.(key) ?? false), factors).map(heldOfFound);
     // (a place's finds shared among its own boxes, each in the one with the most room for it: the same way every time)
     const finds = this.findsOf(pc.site);
     if (!finds.length) return own;
@@ -758,7 +785,7 @@ export class Places {
         return {
           key: `box:${c.id}:${open ? n : -1}`,
           icon: 'box',
-          cat: `${PLACE_ZH[pc.site.kind] ?? '路边'} · 能打开`,
+          cat: `${PLACE_ZH[pc.site.sort] ?? '路边'} · 能打开`,
           name: pc.name,
           stars: 0,
           badges: [],
@@ -1126,7 +1153,7 @@ export class Places {
   /** the places there now (the probes') */
   telemetry(): Record<string, unknown> {
     return {
-      live: [...this.live.values()].map((lp) => ({ id: lp.site.id, kind: lp.site.kind, containers: lp.containers.length, laid: lp.containers.filter((pc) => pc.laid).length, inside: lp.containers.reduce((n, pc) => n + pc.things.length, 0), pumps: lp.ports.length, loose: lp.loose.size, workshop: lp.workshop ? lp.workshop.telemetry() : null })),
+      live: [...this.live.values()].map((lp) => ({ id: lp.site.id, kind: lp.site.kind, sort: lp.site.sort, containers: lp.containers.length, laid: lp.containers.filter((pc) => pc.laid).length, inside: lp.containers.reduce((n, pc) => n + pc.things.length, 0), pumps: lp.ports.length, loose: lp.loose.size, workshop: lp.workshop ? lp.workshop.telemetry() : null })),
       open: this.openNow.size,
       searched: this.searched.size,
       taken: this.taken.size,

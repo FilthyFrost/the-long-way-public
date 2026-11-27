@@ -148,9 +148,10 @@ describe('J9: wrecks for their parts, vehicles found by the plan', () => {
     }
   });
 
-  // (a world of version 5 — a save's from before Nomad Drive's buildings came in — and a new game's, with them: a
-  // vehicle to find at one of theirs stands in its yard, clear of its footprint and of what of it stands low)
-  for (const version of [5, NEWEST_WORLD] as const) it(`over real worlds of version ${version}: each find of the plan at a big place, on its levelled ground clear of what is there; the wrecks by the road for their parts`, () => {
+  // (a world of version 5 — a save's from before Nomad Drive's buildings came in — one of version 6, with them: a
+  // vehicle to find at one of theirs stands in its yard, clear of its footprint and of what of it stands low — and a
+  // new game's, of version 7: the same plan of vehicles, a motel's yard among the places it may stand at)
+  for (const version of [5, 6, NEWEST_WORLD] as const) it(`over real worlds of version ${version}: each find of the plan at a big place, on its levelled ground clear of what is there; the wrecks by the road for their parts`, () => {
     const firsts: number[] = [];
     let finds = 0;
     let wrecks = 0;

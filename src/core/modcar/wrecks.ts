@@ -491,7 +491,9 @@ export function rollFound(frameId: string, seed: number, tier: number): FoundRol
   // of the roll is as it was.)
   const paint = r.int(PALETTE.length);
   const paint2 = r.int(PALETTE.length);
-  if (!aboardOf(frameId)) {
+  // (the motorhomes: a frame with a living space and a way into it from its seats — not a truck's box or a trailer's,
+  // rooms one walks into since docs/V3/plan/finish.md §十一 1, found in any colours as ever)
+  if (!aboardOf(frameId)?.aft) {
     b.paint = paint;
     b.paint2 = paint2;
   }

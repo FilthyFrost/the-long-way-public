@@ -13,6 +13,8 @@ from frames import _kit as K  # noqa: E402
 from frames import _preview as PV  # noqa: E402
 from frames import _rv_ext as EX  # noqa: E402
 from frames import _rv_inner as IN  # noqa: E402
+from frames import _steps as STP  # noqa: E402
+from frames import _stretch as ST  # noqa: E402
 from frames import rv as S  # noqa: E402
 from frames._sedan_build import badge_buf, game_vec, knuckles, mount, obj_with_origin, plate_buf  # noqa: E402
 from lib import modcar as mc  # noqa: E402
@@ -60,7 +62,7 @@ def build(args):
     left.extend(box_side_trims(ex, 'L'))
     left.extend(IN.fuel_details(ex))
     right = K.Buf().extend(common)
-    right.extend(ex.box_loft(hatch=False))
+    right.extend(STP.drop_box(ex.box_loft(hatch=False), *well_cut()))
     right.extend(ex.side_face('R'))
     right.extend(box_side_trims(ex, 'R'))
     body = K.Buf().extend(left).extend(right.mirrored())
@@ -114,11 +116,14 @@ def build(args):
     bgl = box_glass(ex)
     g.extend(bgl['L']).extend(bgl['R'].mirrored()).extend(bgl['rear']).extend(bgl['rear'].mirrored())
     objs.append(g.to_object('GLASS'))
-    objs.append(both(IN.underbody(), IN.centre_under()).to_object('UNDER'))
+    objs.append(K.Buf().extend(IN.underbody()).extend(IN.underbody(right=True).mirrored()).extend(IN.centre_under()).to_object('UNDER'))
     it = IN.interior(ex)
     inner = K.Buf().extend(it['L']).extend(it['L'].mirrored()).extend(it['C'])
     inner.extend(ex.side_face('L', level=EX_WALL)).extend(ex.side_face('R', level=EX_WALL).mirrored())
-    inner.extend(ex.box_loft(True, level=EX_WALL)).extend(ex.box_loft(False, level=EX_WALL).mirrored())
+    inner.extend(lining_backing(ex)).extend(lining_backing(ex).mirrored())
+    inner.extend(ex.box_loft(True, level=EX_WALL)).extend(STP.drop_box(ex.box_loft(False, level=EX_WALL), *well_cut()).mirrored())
+    # the side door's stairwell (frames/_steps.py), on the right
+    inner.extend(entry_well().mirrored())
     # the dial glass stays out of the AO bake (it would bake the gauge faces and the needles behind it black);
     # it is joined into INTERIOR after the bake
     ib, dial_glass = K.split_mat(inner, ('glass',))
@@ -139,6 +144,9 @@ def build(args):
     print('[rv] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, panels)
     objs += knuckles(empties, IN.knuckle)
+    # the frame lengthened (the Turtle widened too) as it is built: frames/_stretch.py
+    ST.apply('rv', objs, empties, panels, (needles, wipers))
+    dial_glass = ST.buf('rv', dial_glass)
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())
@@ -147,7 +155,7 @@ def build(args):
         # the bay is baked with the bonnet up (the tutorial looks into it with the bonnet open)
         hood = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((IN.FIREWALL_X - 0.01, -0.92, 0.0), (IN.RAD_X + 0.10, 0.92, 1.27)), samples=32, distance=0.45)
+                       ST.box('rv', (IN.FIREWALL_X - 0.01, -0.92, 0.0), (IN.RAD_X + 0.10, 0.92, 1.27)), samples=32, distance=0.45)
     if not quick:
         # the dial faces once more without the needles over them
         K.rebake_mats(o_int, [o for o in meshes if o.name.startswith('N_')], ('gauge',), samples=32, distance=0.45)
@@ -156,7 +164,7 @@ def build(args):
     total = sum(tris.values())
     print('[rv] grime masks', K.mask_frame(meshes))
     mc.export_glb(OUT_GLB, meshes + empties)
-    mc.mounts_json(OUT_JSON, 'rv', json_extra(objs, panels, needles, wipers, tris, total))
+    mc.mounts_json(OUT_JSON, 'rv', ST.map_json('rv', json_extra(objs, panels, needles, wipers, tris, total)))
     print('[rv] exported', round(time.time() - t0, 1), 's')
     if not no_preview:
         previews(quick)
@@ -291,11 +299,12 @@ def cab_trims(ex):
     b.extend(K.box_buf((D['fd_rear'] + 0.01, 0.86, D['door_bot'] - 0.012), (1.44, 0.95, D['door_bot'] - 0.002), 'paint', 0.004, 1))
     # the cab's rear sill end under the box's front corner
     b.extend(K.box_buf((D['bx_f'] - 0.004, 0.93, D['bz0'] + 0.10), (D['bx_f'] + 0.012, 0.99, 0.70), 'paint', 0.004, 1))
-    # seal where the cab meets the living module (rubber boot along the cab outline on the box)
+    # seal where the cab meets the living module (rubber boot along the cab outline on the box): a fine bead, 1.2 cm, as
+    # the shut lines round it are (it was 2.4 cm and read as a black band behind the cab doors)
     cab = ex.box['cab']
-    P = cab['P'][1:] + cab['N'][1:] * 0.004
+    P = cab['P'][1:] + cab['N'][1:] * 0.002
     P = K.resample(P, 0.03, closed=False)
-    b.extend(K.tube_buf(P, 0.012, 'rubber', 8))
+    b.extend(K.tube_buf(P, 0.006, 'rubber', 8))
     return b
 
 
@@ -421,14 +430,18 @@ def box_side_trims(ex, side):
         Q, Nq = S.SIDE_B.to3d(K.resample(coarse(K.offset_loop2(poly, -0.010)), 0.08))
         b.extend(frame_sweep(Q, Nq))
     if side == 'R':
+        # the opening's return into the body, round its sides and head (its foot is the stairwell's: the opening goes
+        # on down to it), the jambs on down past the floor to the well's threshold, and a dark moulding standing proud
+        # round it all as Nomad Drive's class C has
         so = ex.cut['door_side'].side('out')
         V, N, T = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.06, 0.0, 2, closed=True)
-        b.add(V, N, T, 'paint')
-        # entry step under the door, grab handle beside it
-        b.extend(K.box_buf((DOOR['x0'] + 0.06, D['bw'] - 0.01, 0.42), (DOOR['x1'] - 0.06, D['bw'] + 0.16, 0.46), 'alu', 0.008, 2))
-        b.extend(K.box_buf((DOOR['x0'] + 0.08, D['bw'] + 0.02, 0.46), (DOOR['x1'] - 0.08, D['bw'] + 0.14, 0.465), 'rubber', 0.002, 1))
-        for x in (DOOR['x0'] + 0.10, DOOR['x1'] - 0.10):
-            b.extend(K.box_buf((x - 0.015, D['bw'] - 0.03, 0.44), (x + 0.015, D['bw'] + 0.01, D['bz0'] + 0.02), 'steel', 0.004, 1))
+        xa, xb = EX.WELL_X
+        b.extend(STP.drop_box(K.Buf().add(V, N, T, 'paint'), (xa - 0.05, D['bw'] - 0.3, -1.0), (xb + 0.05, D['bw'] + 0.05, DOOR['z0'] + 0.012)))
+        zh = STP.housing_bottom(EX.WELL['tops']) - 0.012
+        for x0, x1 in ((xa - 0.012, xa), (xb, xb + 0.012)):
+            b.extend(K.box_buf((x0, D['bw'] - 0.06, zh), (x1, D['bw'] - 0.001, DOOR['z0'] + 0.016), 'trim', 0.002, 1))
+        b.extend(door_moulding(zh))
+        # the grab handle beside the door
         gx = DOOR['x0'] - 0.07
         b.extend(K.tube_buf(np.array([(gx, D['bw'] - 0.002, 1.02), (gx, D['bw'] + 0.05, 1.06), (gx, D['bw'] + 0.05, 1.56), (gx, D['bw'] - 0.002, 1.60)]),
                             0.013, 'chrome', 10))
@@ -475,6 +488,54 @@ def ladder():
     return b
 
 
+def lining_backing(ex):
+    """A band of lining behind the side wall's lining all round its edge, where it meets the lining of the box's rolled
+    edges (left coordinates): the two are meshed apart and their edges' chords part by a few millimetres where the
+    edge curves - the grass showed through the slits from the room. Out of sight behind both."""
+    loop = ex.side_face_loop()
+    uv = K.resample(loop.uv, 0.02, closed=True)
+    P, N = S.SIDE_B.to3d(uv, EX_WALL + 0.006)
+    prof = np.array([(-0.035, 0.0), (0.035, 0.0)])
+    V, NN, T = K.sweep(P, N, prof, closed=True)
+    b = K.Buf().add(V, NN, T, 'lining')
+    b.add(V, -NN, T[:, ::-1], 'lining')
+    return b
+
+
+def well_cut():
+    """The box (left coordinates) the side door's stairwell takes out of the body's lower edge, its underside and the
+    lining's: between the opening's edges, from the face in past the well, up to the door's foot."""
+    xa, xb = EX.WELL_X
+    y_in = D['bw'] - len(EX.WELL['tops']) * EX.WELL['depth']
+    return (xa + 0.001, y_in - 0.03, -1.0), (xb - 0.001, D['bw'] + 0.1, DOOR['z0'] + 0.005)
+
+
+def entry_well():
+    """The side door's stairwell (left coordinates; the build mirrors it to the right), frames/_steps.py: in the
+    opening between its edges from the body's face in, its treads EX.WELL down to the door's foot from the box's floor,
+    under the body's lower edge its housing (the rounded edge starts 0.13 m over the bottom: its cheeks reach up to it)."""
+    xa, xb = EX.WELL_X
+    return STP.stairwell(xa, xb, D['bw'], IN.BOX_FLOOR, EX.WELL['tops'], EX.WELL['depth'], D['bz0'] + 0.12)
+
+
+def door_moulding(z_foot):
+    """A dark moulding round the side door's opening (left coordinates), 3 cm wide and proud of the face: up its rear
+    edge from the well's foot, round its head, down its front edge."""
+    xa, xb = EX.WELL_X
+    off = 0.016
+    x0, x1 = xa - off, xb + off
+    z1 = DOOR['z1'] + S.DELTA + off
+    r = DOOR['r_top'] + off
+    pts = [(x0, z) for z in np.linspace(z_foot, z1 - r, 24)]
+    pts += [(x0 + r + r * math.cos(a), z1 - r + r * math.sin(a)) for a in np.linspace(math.pi, math.pi / 2, 10)[1:]]
+    pts += [(x, z1) for x in np.linspace(x0 + r, x1 - r, 12)[1:]]
+    pts += [(x1 - r + r * math.cos(a), z1 - r + r * math.sin(a)) for a in np.linspace(math.pi / 2, 0.0, 10)[1:]]
+    pts += [(x1, z) for z in np.linspace(z1 - r, z_foot, 24)[1:]]
+    P = np.array([(x, D['bw'], z) for x, z in pts])
+    N = np.tile((0.0, 1.0, 0.0), (len(P), 1))
+    return frame_sweep(P, N, closed=False, mat='trim')
+
+
 def door_side(ex):
     """Entry door (built on the left in mirror): skin with the band, a rolled edge, inner panel, window frame,
     handle and lock, hinges on the front edge. Returns (door buf, its window glass buf)."""
@@ -507,6 +568,10 @@ def door_side(ex):
     for zz in (1.05, 1.73, 2.40):
         p, n = S.SIDE_B.to3d(np.array([[DOOR['x1'] - 0.004, zz]]))
         b.extend(K.box_buf(p[0] + (-0.012, -0.002, -0.04), p[0] + (0.016, 0.012, 0.04), 'steel', 0.004, 1))
+    # its foot: a panel in the skirt's finish on down to the stairwell's threshold, shutting over the well
+    t0 = EX.WELL['tops'][0]
+    b.extend(K.box_buf((DOOR['x0'] + S.DELTA + 0.001, D['bw'] - 0.045, t0 + 0.006), (DOOR['x1'] - S.DELTA - 0.001, D['bw'], DOOR['z0'] + S.DELTA),
+                       'trim', 0.004, 2))
     return b, glass
 
 
@@ -598,8 +663,9 @@ def mounts(ex, panels):
     fz = IN.FLOOR_Z + 0.03
     for name, x, y, z, drv, side, note in (('seat_driver', IN.SEAT_X, IN.DRIVER_Y, fz, True, -1, ''),
                                            ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, fz, False, 1, ''),
-                                           ('seat_dinette', -0.15, 0.47, D['box_floor'], False, -1, 'dinette, left wall, facing forward'),
-                                           ('seat_rear', -3.25, 0.0, D['box_floor'], False, 0, 'rear lounge, facing forward')):
+                                           # (no seat at the back since docs/V3/plan/finish.md section 11.1: a bed
+                                           # across it, part of the box - _rv_inner.box_furniture_L)
+                                           ('seat_dinette', -0.15, 0.47, D['box_floor'], False, -1, 'dinette, left wall, facing forward')):
         E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=round(z, 4), side=side, note=note)))
     for pname, info in panels.items():
         if info['mount'] is None:

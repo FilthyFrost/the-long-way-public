@@ -39,9 +39,10 @@ D = dict(
     z_bot=0.55, roof_z=2.28, roof_crown=0.012,
     # the roll from the walls into the roof along the sides; the brow over the windscreen; the roll at the back
     r_side=0.10, r_brow=0.085, r_back=0.06,
-    # the nose stands upright to the cowl and leans back above it (by ws_lean degrees from vertical)
+    # the nose stands upright to the cowl and leans back above it (by ws_lean degrees from vertical); the windscreen's
+    # head up under the brow, as a cab-over's is (the driver's view over the road reaches 13 degrees up)
     knee0=1.12, knee1=1.28, ws_lean=9.0,
-    ws_foot=1.30, ws_head=2.12, ws_hw=0.78, ws_r=0.06,
+    ws_foot=1.30, ws_head=2.17, ws_hw=0.78, ws_r=0.06,
     # the sides lean in above the belt (a hair: the door glass stands a little in from the skin below)
     belt_z=1.45, side_lean=0.030,
     # front wheel arch (radius, centre height): the tyre's radius 0.343 with room to rise
@@ -49,18 +50,19 @@ D = dict(
     # the cream band round the cab
     band_z0=1.17, band_z1=1.23,
     gap=0.005, edge_r=0.0022,
-    # the doors (over the front wheels: the arch takes the bottom), their windows and the vent wing's bar; the
-    # fixed quarter window in the corner ahead of each door (its front edge round the nose's corner roll)
+    # the doors (over the front wheels: the arch takes the bottom) and their windows (one pane each); the fixed
+    # quarter window in the corner ahead of each door (its front edge round the nose's corner roll)
     cd_x0=0.89, cd_x1=2.15, cd_z0=0.88, cd_z1=2.14, cd_r=0.05,
-    cd_win=(0.97, 2.08, 1.47, 2.07, 0.05), vent_x=1.91,
+    cd_win=(0.97, 2.08, 1.47, 2.07, 0.05),
     q_x0=2.215, q_z0=1.47, q_z1=2.07,
     # the little window in the cab's back (a notch at the centre line)
     rw_hw=0.40, rw_z0=1.56, rw_z1=1.96, rw_r=0.05,
     # round head lamps and the grille between them on the nose
     lamp_y=0.615, lamp_z=0.80, lamp_d=0.21,
     grille_w=0.42, grille_z0=0.63, grille_z1=0.95, grille_r=0.035,
-    # the box: front wall, rear frame, half width, bottom, top, the floor's top
-    bx_f=0.70, bx_r=-2.45, bw=0.95, bz0=0.82, bz1=2.75, box_floor=0.95,
+    # the box: front wall, rear frame, half width, bottom, top, the floor's top (its roof 15 cm higher than it was
+    # built at first — docs/V3/plan/finish.md section 11.1: 1.9 m clear inside, a room one walks into)
+    bx_f=0.70, bx_r=-2.45, bw=0.95, bz0=0.82, bz1=2.90, box_floor=0.95,
 )
 GAP = D['gap']
 ER = D['edge_r']

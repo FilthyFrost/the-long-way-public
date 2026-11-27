@@ -668,7 +668,10 @@ class Exterior:
         s = self.cut[key].side('in')
         w = self.win['door' if key == 'door' else 'side']
         outer = K.offset_loop2(s['uv'], 0.004, True)
-        hole = K.offset_loop2(w['uv'], -0.004, True)
+        # (the hole 8 mm inside the window's outline, under the end of its reveal's flange: 4 mm outside it the card
+        # left a slot between the two, and from the driver's seat the outside showed through the door's front frame
+        # as a line between two posts)
+        hole = K.offset_loop2(w['uv'], 0.008, True)
         us = S.v_u_samples(0.08, 0.08, 0.08)
         pts, sp = S.grid_from(us, S.v_t_samples(0.08, 3))
         V, N, Tr = K.mesh_region(S.CV, [K.Loop(K.resample_keep(outer, 0.05))], [K.Loop(K.resample_keep(hole, 0.05))], pts, spacing=sp, level=level)

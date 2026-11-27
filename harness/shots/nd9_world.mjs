@@ -1,5 +1,5 @@
-// ND9 (docs/V3/plan/growth.md §三, its last paragraph), in the game: a new game's world (version 6) has Nomad Drive's
-// buildings among our places. Down its road, one of each sort found there — the filling station, a home, a works, the
+// ND9 (docs/V3/plan/growth.md §三, its last paragraph), in the game: a world of version 6 has Nomad Drive's buildings
+// among our places (a new game's world is of version 7 now: this one is asked for by its version). Down its road, one of each sort found there — the filling station, a home, a works, the
 // camp, a tower, the graveyard, two small places — gone to (devGoKm) and looked at from the road and close to:
 // drawn, on its own levelled ground (neither floating nor sunk), clear of the road and of the other places, furnished,
 // its boxes for the plan's finds there; at one, a planned find lying in its box; a vehicle to find in a big one's yard.
@@ -32,14 +32,14 @@ const GROUPS = [
 const { server, url } = await startServer();
 const browser = await launchBrowser();
 try {
-  // (a new game of the newest world: the address names its version, as the harness's browser would else make it 1)
+  // (a new game of a world of version 6: the address names its version, as the harness's browser would else make it 1)
   const { page, errors } = await openGame(browser, `${url}/modcar.html?new=1&shot=1&world=6${seed ? `&seed=${seed}` : ''}&time=11&weather=clear`, { width: 1280, height: 720 });
   const rt = (name, ...args) => page.evaluate(({ name, args }) => window.__rt[name](...args), { name, args });
   const H = (sys, fn, ...a) => page.evaluate(({ sys, fn, a }) => window.__rt.game.systems.harness(sys, fn, ...a), { sys, fn, a });
   const sim = (n = 6) => page.evaluate((n) => { const g = window.__rt.game; for (let i = 0; i < n; i++) g.simulate(1 / 30); }, n);
   const info = await page.evaluate(() => ({ seed: window.__rt.game.params.seed, version: window.__rt.game.world.rules.version }));
   console.log(`a new game: world ${info.version}, seed ${info.seed}`);
-  check(info.version === 6, `a new game's world is of version 6 (${info.version})`);
+  check(info.version === 6, `the world asked for is of version 6 (${info.version})`);
 
   // the world's places down the road, Nomad Drive's among them, and what of the plan each holds (the game's planner, as the robot traveller lays it)
   const all = await page.evaluate(async () => {

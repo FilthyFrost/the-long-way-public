@@ -10,7 +10,7 @@ import type { ContainerKind } from '../../items/loot';
 import { Rng, hash2 } from '../../math/rng';
 import { hasItem } from '../../modcar/items';
 import { registerPrefab, type PrefabBox, type PrefabCard, type PrefabSolid, type PrefabThing, type PrefabWreck } from '../../world/prefabs';
-import type { SiteKind } from '../../world/sites';
+import type { PlaceSort, SiteKind } from '../../world/sites';
 import cabinJson from './cards/cabin.json';
 import pumpJson from './cards/pump.json';
 import campJson from './cards/camp.json';
@@ -183,6 +183,8 @@ export interface Furnish {
 export interface NdBuilding {
   geo: CardGeo;
   siteKind: SiteKind;
+  /** (world version 7) the sort of place it is to what is found there, where that is not its kind (core/world/prefabs.ts PrefabCard.sort) */
+  sort?: PlaceSort;
   setback: number;
   margin: number;
   ground: number;
@@ -734,9 +736,11 @@ export const ND_BUILDINGS: Readonly<Record<string, NdBuilding>> = {
     startLit: [0, 1],
   },
   // (the motel's colour on its walls — salmon, mint, sky, butter, lilac — trimmed white; two or three rooms found lit)
+  // (a home to the dice; from world version 7 a sort of place of its own to the plan: what travellers leave, not what a household keeps)
   motel: {
     geo: motelJson as unknown as CardGeo,
     siteKind: 'house',
+    sort: 'motel',
     setback: 1,
     margin: 2.5,
     ground: 1,
@@ -1090,6 +1094,7 @@ export function cardOf(id: string, b: NdBuilding): PrefabCard {
   return {
     id,
     siteKind: b.siteKind,
+    ...(b.sort ? { sort: b.sort } : {}),
     w: g.w,
     d: g.d,
     h: g.h,

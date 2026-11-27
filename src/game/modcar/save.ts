@@ -45,6 +45,8 @@ import type { SliceRecord } from '../../core/kernel/slices';
 import { handRegions } from '../../core/world/biomes';
 import { rulesFor, type WorldVersion } from '../../core/world/rules';
 import { itemNow } from './itemTime';
+import type { JournalSave } from './journal';
+import { backupKeyOf, putKept, saveKeyOf } from './slots';
 
 export interface SavedVehicle {
   build: Build;
@@ -55,6 +57,8 @@ export interface SavedVehicle {
   radioSong?: number;
   /** in a world of version 2: how far along the road its nearest road point is (m), to be stood on the road again there if the generator's revision changes (worldSave.ts) */
   s?: number;
+  /** which making of its living space the things in it were put in under (core/modcar/aboard.ts roomRev); absent: the first */
+  room?: number;
 }
 
 /**
@@ -170,9 +174,16 @@ export interface SaveV1 {
    * Absent in older saves: their journey's clock begins at the hour they were saved at.
    */
   clock?: ClockSave;
+  /** how she looks (docs/V3/plan/finish.md §十: 捏人 — her skin, her helmet: indices into character/looks.ts; absent: as she was made) */
+  look?: { skin: number; helmet: number };
+  /** seconds played, the menus and the nights slept through left out (absent in older saves: none counted) */
+  playS?: number;
+  /** the compendium's record beside the fish (journal.ts: the vehicles driven, the keepsakes met, the photographs taken; absent: nothing yet) */
+  journal?: JournalSave;
 }
 
-const KEY = 'modcar.save.v1';
+/** where the save lies: the place the page goes on with (slots.ts: the first is where the one save always lay) */
+const key = (): string => saveKeyOf();
 
 // ------------------------------------------------------------------ where a save holds things
 
@@ -326,6 +337,18 @@ function unknownKinds(raw: unknown, into: Set<string>): void {
   if (Array.isArray(r.inside)) for (const x of r.inside) if (x && typeof x === 'object' && typeof (x as { item?: unknown }).item === 'string' && gone((x as { item: string }).item)) into.add((x as { item: string }).item);
 }
 
+/** the parts of a build on mounts its frame does not have (a frame made anew since): taken off it, and given back */
+function offMounts(build: Build): PartInstance[] {
+  const f = frameDef(build.frame);
+  const out: PartInstance[] = [];
+  for (const id of Object.keys(build.parts)) {
+    if (f.mounts.some((m) => m.id === id)) continue;
+    out.push(build.parts[id]);
+    delete build.parts[id];
+  }
+  return out;
+}
+
 /**
  * A save made ready to be played on, in place. Throws when a vehicle or a part in it is of a kind this build
  * does not have (the save is then set aside). Otherwise: every thing one carries is cleaned and what cannot
@@ -347,6 +370,15 @@ function readThings(s: SaveV1, loss: LoadLoss, kinds: Set<string>): void {
     frameDef(v.build.frame);
     partIds.push(v.build.uid);
     for (const i of Object.values(v.build.parts)) part(i);
+  }
+  // (a part on a mount its frame no longer has — the Whale's rear bench: a bed stands there since docs/V3/plan/
+  // finish.md §十一 1 — is taken off and rides in the vehicle as a thing, to be put in where there is room: no place given)
+  s.vehicles.forEach((v, i) => {
+    for (const p of offMounts(v.build)) (s.loose ??= []).push({ part: p, x: v.x, y: 0, z: v.z, yaw: 0, on: i });
+  });
+  for (const w of Object.values(s.wrecks?.kept ?? {})) {
+    const off = offMounts(w.build);
+    if (off.length) (w.loose = Array.isArray(w.loose) ? w.loose : []).push(...off.map((p) => ({ part: p, x: w.x, y: 0, z: w.z, yaw: 0 })));
   }
   // (lists that are no lists hold nothing: the game that reads them takes them for lists)
   if (s.hands !== undefined && !Array.isArray(s.hands)) delete s.hands;
@@ -420,22 +452,35 @@ function readThings(s: SaveV1, loss: LoadLoss, kinds: Set<string>): void {
   }
 }
 
+/** which of the save's copies the last loadSave read: 0 the save itself, 1 or 2 an older copy (the save would not be read) */
+let readFrom = 0;
+export function loadedFromBackup(): number {
+  return readFrom;
+}
+
+/** a save's text read: the save, or what it throws (not a save; a world this build cannot make) */
+function readSave(raw: string): SaveV1 {
+  const s = JSON.parse(raw) as SaveV1;
+  if (s?.v !== 1 || !Array.isArray(s.vehicles) || !s.vehicles.length || !Array.isArray(s.loose)) throw new Error('not a save');
+  // (a world this build cannot make again: nothing of the save is read)
+  checkWorld(s);
+  const loss = { unknown: 0 };
+  const kinds = new Set<string>();
+  readThings(s, loss, kinds);
+  lost = { unknown: loss.unknown, kinds: [...kinds].sort() };
+  return s;
+}
+
 export function loadSave(): SaveV1 | null {
   let raw: string | null = null;
   lost = { unknown: 0, kinds: [] };
   refused = null;
+  readFrom = 0;
+  const KEY = key();
   try {
     raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as SaveV1;
-    if (s?.v !== 1 || !Array.isArray(s.vehicles) || !s.vehicles.length || !Array.isArray(s.loose)) throw new Error('not a save');
-    // (a world this build cannot make again: nothing of the save is read)
-    checkWorld(s);
-    const loss = { unknown: 0 };
-    const kinds = new Set<string>();
-    readThings(s, loss, kinds);
-    lost = { unknown: loss.unknown, kinds: [...kinds].sort() };
-    return s;
+    return readSave(raw);
   } catch (e) {
     if (e instanceof Refusal) refused = e.words;
     // (put aside: a later build may read it again)
@@ -444,6 +489,22 @@ export function loadSave(): SaveV1 | null {
       localStorage.removeItem(KEY);
     } catch {
       // storage unavailable
+    }
+    // (a save that is no save — cut short, garbled: its older copies, the newer first. A world this build cannot
+    // make is no such thing: its copies are of the same world.)
+    if (!(e instanceof Refusal)) {
+      for (const n of [1, 2] as const) {
+        try {
+          const b = localStorage.getItem(backupKeyOf(n));
+          if (!b) continue;
+          const s = readSave(b);
+          readFrom = n;
+          putKept(KEY, b);
+          return s;
+        } catch {
+          // the next one
+        }
+      }
     }
     return null;
   }
@@ -490,17 +551,19 @@ export function writableSave(s: SaveV1): SaveV1 {
 
 /** write the save; false when the browser would not keep it (its storage full or unavailable): the game goes on unsaved */
 export function writeSave(s: SaveV1): boolean {
+  let text: string;
   try {
-    localStorage.setItem(KEY, JSON.stringify(writableSave(s)));
-    return true;
+    text = JSON.stringify(writableSave(s));
   } catch {
     return false;
   }
+  // (room made for it when the storage is full: the other places' restore points and older copies go first)
+  return putKept(key(), text);
 }
 
 export function clearSave(): void {
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(key());
   } catch {
     // storage unavailable
   }

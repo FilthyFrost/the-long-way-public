@@ -28,6 +28,9 @@ import type { ModVehicle } from '../../vehicle';
 import { CABIN_GLOW, glowOf, makeLook, type ApplianceLook, type LookNow } from './looks';
 import { globals } from '../../../render/shaderlib';
 
+/** what a living space's ceiling lamps give its cabin, fully lit: a warm room one can see to cook in (a table lamp gives 0.2 of its colour) */
+const CEILING_GLOW = new THREE.Color(1.0, 0.74, 0.46).multiplyScalar(0.85);
+
 /** what each kind is called on the mark */
 const NAME: Record<ApplianceKind, string> = { radio: '收音闹钟', record: '唱片机', tv: '电视', lamp: '台灯', solar: '太阳能灯' };
 /** how loud each set plays, against a car radio's 1 */
@@ -334,6 +337,16 @@ export class Appliances implements System<GameContext>, InteractSource {
       }
     }
     this.radios.length = sets;
+    // (a living space's own ceiling lamps, lit by the power module when one is in it after dark: warm)
+    const home = ctx.player.aboard?.v;
+    const ceil = home ? (ctx.systems.get('power') as { ceilingOf?(v: ModVehicle): number } | undefined)?.ceilingOf?.(home) ?? 0 : 0;
+    if (home && ceil > 0.004) {
+      let c = this.lamps.get(home);
+      if (!c) this.lamps.set(home, (c = new THREE.Color(0, 0, 0)));
+      c.r += CEILING_GLOW.r * ceil;
+      c.g += CEILING_GLOW.g * ceil;
+      c.b += CEILING_GLOW.b * ceil;
+    }
     for (const [v, c] of this.lamps) {
       if (!ctx.vehicles.includes(v)) {
         this.lamps.delete(v);

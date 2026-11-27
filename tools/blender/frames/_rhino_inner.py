@@ -33,6 +33,9 @@ SEAT_X = 0.70            # seat floor attachment x: the stock bucket's eye at (0
 DRIVER_Y = 0.60
 PEDAL_Y = 0.58           # the brake pedal's line: the clutch outboard of it, the throttle beside the doghouse
 EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.03 + 0.90)
+# where the driver's view is from: her eye as she sits posed (18 cm ahead of the seat's EYE, 8 cm under it), sitting
+# up (17 cm: her eye 0.75 m over the cushion) and 20 cm back (frames.ts cabView)
+VIEW = (EYE[0] + 0.18 - 0.20, DRIVER_Y, EYE[2] - 0.08 + 0.17)
 DASH_FACE_X = 1.24
 GEAR_X = 1.02            # the gear lever on the floor between the seats (a remote linkage to the gearbox under it)
 GEAR_Y = 0.16
@@ -540,10 +543,10 @@ def centre_under():
 # ============================================================================================ interior
 def steering_mount():
     """(the column's end, the column direction forward-down): a big wheel inclined 40 degrees, truck fashion, low
-    enough that the dials show through its upper half."""
+    enough under her eye (48 degrees) that the binnacle's dials stand over its rim."""
     ang = math.radians(40.0)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([1.04, DRIVER_Y, 1.48])
+    p = np.array([1.04, DRIVER_Y, 1.44])
     return p, d
 
 
@@ -690,15 +693,19 @@ def dashboard():
     # glovebox and its push button (passenger)
     b.extend(K.box_buf((fx - 0.006, -0.92, 1.36), (fx + 0.004, -0.66, 1.50), 'paint', 0.01, 2))
     b.extend(K.box_buf((fx - 0.012, -0.80, 1.475), (fx - 0.004, -0.76, 1.49), 'chrome', 0.003, 1))
-    # the binnacle: a box standing out of the fascia, tilted towards the eye, a hood over it
-    eye = np.array(EYE)
-    pc = np.array([fx - 0.03, DRIVER_Y, 1.50])
+    # the binnacle: a pod standing on the pad's edge in front of the driver, a truck's, tilted towards her eye as she
+    # sits up (VIEW), a hood over it and a plinth under it down into the fascia: its dials 31 degrees under her eye's
+    # level, over the wheel's rim (Nomad Drive's 23-32)
+    eye = np.array(VIEW)
+    pc = np.array([fx - 0.03, DRIVER_Y, 1.60])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)
     b.extend(K.box_buf((-0.21, -0.07, -0.06), (0.21, 0.07, 0.0), 'trim', 0.014, 1, xf=K.mat4_trs(pc, R)))
     hood = K.mat4_trs(pc + R[:, 1] * 0.07, R)
     b.extend(K.box_buf((-0.22, -0.006, -0.06), (0.22, 0.012, 0.055), 'plastic_int', 0.008, 1, xf=hood))
+    foot = pc - R[:, 1] * 0.07
+    b.extend(K.box_buf((foot[0] + 0.006, DRIVER_Y - 0.205, 1.47), (fx + 0.07, DRIVER_Y + 0.205, foot[2] + 0.03), 'plastic_int', 0.012, 2))
     gauges = []
     for (gy, gz, r, name, big) in ((0.072, -0.004, 0.056, 'N_speed', True), (-0.072, -0.004, 0.056, 'N_rpm', True),
                                    (0.164, 0.008, 0.024, 'N_fuel', False), (-0.164, 0.008, 0.024, 'N_temp', False)):

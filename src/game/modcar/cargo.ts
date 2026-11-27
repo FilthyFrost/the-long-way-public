@@ -11,7 +11,7 @@
  *  - what the load weighs on the vehicle (the build's cargo: the derived mass and centre of gravity).
  */
 import * as THREE from 'three';
-import { findSpot, gridAt, LIDLESS_WHY, lieBox, restAt, zoneLidless, zonesFor, zoneTakes, type CargoMass, type CargoZone, type HeightGrid, type Lie, type Placed, type Spot, type ThingBox } from '../../core/modcar/cargo';
+import { findSpot, gridAt, latticeOrigin, LIDLESS_WHY, lieBox, restAt, zoneLidless, zonesFor, zoneTakes, type CargoMass, type CargoZone, type HeightGrid, type Lie, type Placed, type Spot, type ThingBox } from '../../core/modcar/cargo';
 import { itemDef, itemMass } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import type { RenderCore } from '../render/core';
@@ -140,8 +140,10 @@ export class CargoBay {
   }
 
   private drawFloor(v: ModVehicle, zone: CargoZone): HeightGrid {
-    const nx = Math.max(1, Math.ceil((zone.x[1] - zone.x[0]) / CELL));
-    const nz = Math.max(1, Math.ceil((zone.z[1] - zone.z[0]) / CELL));
+    // (whole cells, each with its middle inside the place: a strip under half a cell left over at the far edge is
+    // read as the last cell — core cargo.ts gridAt; a cell half in a wall would read the wall's top)
+    const nx = Math.max(1, Math.round((zone.x[1] - zone.x[0]) / CELL));
+    const nz = Math.max(1, Math.round((zone.z[1] - zone.z[0]) / CELL));
     const x0 = zone.x[0];
     const z0 = zone.z[0];
     const h = new Float32Array(nx * nz).fill(NaN);
@@ -217,6 +219,19 @@ export class CargoBay {
         // (cleared: nothing under it)
         if (t >= 0.9999) continue;
         h[px * nx + py] = zone.top - t * range;
+      }
+    }
+    // (a room's walls: the cells along its edges are the walls' own feet — a door's sill, the slot under a lining, a
+    // kick plate, the wall's very face where it stands on the cell's edge, a window's ledge over it: no floor, and
+    // nothing a cupboard stood against the wall stands on. Each reads as the cell next to it inside.)
+    if (zone.walls && nx > 2 && nz > 2) {
+      for (let px = 0; px < nz; px++) {
+        h[px * nx] = h[px * nx + 1];
+        h[px * nx + nx - 1] = h[px * nx + nx - 2];
+      }
+      for (let py = 0; py < nx; py++) {
+        h[py] = h[nx + py];
+        h[(nz - 1) * nx + py] = h[(nz - 2) * nx + py];
       }
     }
     return grid;
@@ -510,12 +525,14 @@ export class CargoBay {
     const p = this.wallP.copy(hit.point).applyMatrix4(this.wallInv);
     if (p.x < zone.x[0] || p.x > zone.x[1] || p.z < zone.z[0] || p.z > zone.z[1]) return null;
     const snap = (u: number): number => Math.round(u / AIM_GRID) * AIM_GRID;
-    // the height to the grid, kept within the zone's band; along the wall to the grid
+    // the height to the grid, kept within the zone's band; along the wall to the grid — the room's own squares: its
+    // floor's, from its rear left corner (docs/V3/plan/finish.md §十一 3.5; core cargo.ts latticeOrigin)
+    const at = latticeOrigin(v.view.frame.id);
     const hy = Math.min(zone.top - (box.maxY - box.minY) / 2, Math.max(zone.floor + (box.maxY - box.minY) / 2, snap(p.y)));
     const yaw = Math.atan2(-n.z, n.x);
     const out = -box.minX + 0.01;
-    const sx = Math.abs(n.x) > 0.7 ? p.x : snap(p.x);
-    const sz = Math.abs(n.z) > 0.7 ? p.z : snap(p.z);
+    const sx = Math.abs(n.x) > 0.7 ? p.x : snap(p.x - at.x) + at.x;
+    const sz = Math.abs(n.z) > 0.7 ? p.z : snap(p.z - at.z) + at.z;
     const spot: Spot = { x: sx + n.x * out, y: hy - (box.minY + box.maxY) / 2, z: sz + n.z * out, yaw };
     // (not over another thing hung there)
     let why = '';

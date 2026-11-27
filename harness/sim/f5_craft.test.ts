@@ -124,9 +124,11 @@ describe('F5: what the bench makes', () => {
     const table: Record<string, [number, number, number]> = {
       crowbar: [2, 40, 0], jerrycan: [2, 60, 0], tire_kit: [2, 35, 0], roof_rack: [2, 70, 0], flashlight: [2, 30, 2],
       engine_kit: [3, 60, 3], charger: [3, 40, 4], ladder: [3, 45, 0], moto_rack: [3, 80, 0], wheel_road: [3, 80, 0], bat_std: [3, 40, 0], rad_std: [3, 60, 0],
-      cot: [4, 70, 0], battery: [4, 20, 2],
-      shovel: [5, 50, 0], creel: [5, 30, 0], spoon: [5, 15, 0], hitch_ball: [5, 40, 0],
+      cot: [4, 70, 0], battery: [4, 20, 2], rain_bucket: [4, 50, 2],
+      shovel: [5, 50, 0], creel: [5, 30, 0], spoon: [5, 15, 0], grill: [5, 25, 0], hitch_ball: [5, 40, 0],
       rod_swift: [6, 120, 6], grinder: [6, 90, 8], polisher: [6, 90, 8], wall_shelf: [6, 40, 0],
+      // (a home on wheels' own, docs/V3/plan/finish.md §十一 2: 工具挂板、储物柜 40–90, 车载工作台 150 and 10; the rod rack with them)
+      pegboard: [6, 40, 0], rod_rack: [6, 30, 0], locker: [6, 90, 0], van_bench: [6, 150, 10],
       metal_detector: [7, 110, 12], rod_pro: [7, 220, 14], bat_house: [7, 80, 10], roof_solar: [7, 120, 15],
       rod_sea: [8, 350, 24], rod_heron: [8, 280, 20],
     };
@@ -316,20 +318,23 @@ describe('F5: the sheets down the road', () => {
     }
   });
 
-  it('driven past every other place: what was missed comes again — what is left by 330 km is the end of the list, nothing in the middle of it', () => {
+  it('driven past every other place: what was missed comes again — by 400 km everything of the first chapters is learnt, what is left is of the last ones', () => {
     const learned = new Set<string>();
     const kept = new Map<string, { r: string; s: number }>();
-    plan(7, 330)
+    plan(7, 400)
       .filter((f) => 'blueprint' in f.thing)
       .forEach((f, i) => {
         const r = sheetAt(`p${i}`, (f.thing as { blueprint: number }).blueprint, f.s, learned, kept);
         // (every other place is driven past: its sheet stays there)
         if (r && i % 2 === 0) learned.add(r.id);
       });
-    // (half the places: some twenty sheets of the twenty-seven; the six or so not come to yet are the last ones)
-    const seq = BLUEPRINT_RECIPES.filter((r) => !r.rare).map((r) => r.id);
-    const left = seq.filter((r) => !learned.has(r));
-    expect(learned.size).toBeGreaterThanOrEqual(20);
-    expect(left).toEqual(seq.slice(seq.length - left.length));
+    // (half the places down 400 km: some twenty-five sheets of the twenty-nine. A sheet driven past comes again at the
+    // first place fifteen kilometres on — which, the places twelve to sixteen kilometres apart from the 190th, may be
+    // the next one driven past again: one of the sixth chapter's can stay behind so, the rest are the end of the list)
+    const seq = BLUEPRINT_RECIPES.filter((r) => !r.rare);
+    const left = seq.filter((r) => !learned.has(r.id));
+    expect(learned.size).toBeGreaterThanOrEqual(24);
+    expect(left.every((r) => r.chapter >= 6), left.map((r) => r.id).join(' ')).toBe(true);
+    expect(seq.filter((r) => r.chapter <= 5).every((r) => learned.has(r.id))).toBe(true);
   });
 });

@@ -14,7 +14,7 @@
 import { newItem, type ItemInstance } from '../../modcar/items';
 import { cook, DONE_BURNT, DONE_RIGHT, DONE_UNDER, POT_MAX, type ClassOf, type Outcome } from './cook';
 import { WAYS, type Way } from './dishes';
-import { BOARD, BOWL, dishItem, GAS, GAS_FULL, HOB, PLATE, SPICE, STOVE, VESSEL, WAY_OF, type KitState, type Portion, type PotState } from './items';
+import { BOARD, BOWL, dishItem, GAS, GAS_FULL, HOB, PLATE, SPICE, STOVE, STOVE2, VESSEL, WAY_OF, type KitState, type Portion, type PotState } from './items';
 import { FOOD_LOOK } from './looks';
 import { FOOD, SEASONINGS } from './pantry';
 
@@ -55,6 +55,46 @@ export function kitKind(item: string): KitKind | null {
 }
 
 const NONE: Readonly<KitState> = {};
+
+/** how many burners the two-burner stove has */
+export const BURNERS = 2;
+
+/** is it the two-burner stove (no cookware by itself in these rules: its burners are — burnersOf) */
+export function isDouble(item: string): boolean {
+  return item === STOVE2;
+}
+
+/**
+ * The two-burner stove's burners (docs/V3/plan/finish.md §八 6): each a cassette stove in every rule here — its knob,
+ * the vessel on it, its own canister — kept on the thing itself (ItemState.burners), made the first time they are
+ * asked for. Never things by themselves: they are not picked up, put down or listed.
+ */
+export function burnersOf(host: ItemInstance): ItemInstance[] {
+  host.state ??= {};
+  const b = (host.state.burners ??= []);
+  for (let i = b.length; i < BURNERS; i++) b.push({ uid: `${host.uid}.b${i}`, item: STOVE });
+  if (b.length >= 2) {
+    PAIR.set(b[0], b[1]);
+    PAIR.set(b[1], b[0]);
+  }
+  return b;
+}
+
+/**
+ * A two-burner stove's burners, each the other's (made by burnersOf): one canister in either bay feeds both, as a camp
+ * stove's single cartridge does — the right burner with its bay empty gave no knob to light at all (the player, 11-26).
+ */
+const PAIR = new WeakMap<ItemInstance, ItemInstance>();
+
+/** where a gas stove's flame draws from: its own canister while there is gas in it, else the other burner's */
+export function gasFeed(stove: ItemInstance): ItemInstance {
+  const own = kitOf(stove).gas;
+  if (own !== undefined && own > 0) return stove;
+  const other = PAIR.get(stove);
+  const og = other ? kitOf(other).gas : undefined;
+  if (other && og !== undefined && og > 0) return other;
+  return stove;
+}
 
 /** a thing's kitchen state, to read (nothing is written into it) */
 export function kitOf(inst: ItemInstance): Readonly<KitState> {
@@ -149,7 +189,8 @@ export function setFire(stove: ItemInstance, level: 0 | 1 | 2, power?: 'on' | 'f
     kitState(stove).fire = level;
     return null;
   }
-  const gas = kitOf(stove).gas;
+  // (its own canister, or the other burner's: gasFeed)
+  const gas = kitOf(gasFeed(stove)).gas;
   if (gas === undefined) return 'nocan';
   if (gas <= 0) return 'empty';
   kitState(stove).fire = level;
@@ -198,8 +239,9 @@ export function underOf(stove: ItemInstance): string | null {
 /**
  * A vessel set on the stove, with what is in it: false when the stove has one already, or the thing is no vessel for
  * a flame. The steamer is set on an empty pot of water standing on the burner instead (steamLack), and only there.
+ * `yaw`: how it is turned there (KitState.onYaw: held out and set down so — nd-place); without, as the button sets it.
  */
-export function putVessel(stove: ItemInstance, vessel: ItemInstance): boolean {
+export function putVessel(stove: ItemInstance, vessel: ItemInstance, yaw?: number): boolean {
   const way = WAY_OF[vessel.item];
   if (!isStove(stove.item) || !way || !WAYS[way].heats) return false;
   if (way === 'steam' ? steamLack(stove) : kitOf(stove).on) return false;
@@ -209,6 +251,8 @@ export function putVessel(stove: ItemInstance, vessel: ItemInstance): boolean {
     delete s.pot;
   }
   s.on = vessel.item;
+  if (yaw !== undefined && Number.isFinite(yaw)) s.onYaw = Math.round(Math.atan2(Math.sin(yaw), Math.cos(yaw)) * 1e4) / 1e4;
+  else delete s.onYaw;
   const pot = kitOf(vessel).pot;
   if (pot && pot.items.length) s.pot = pot;
   return true;
@@ -221,6 +265,7 @@ export function takeVessel(stove: ItemInstance): ItemInstance | null {
   const v = s.pot && s.pot.items.length ? newItem(s.on, { state: { kit: { pot: s.pot } } }) : newItem(s.on);
   delete s.on;
   delete s.pot;
+  delete s.onYaw;
   if (s.under) {
     s.on = s.under;
     delete s.under;
@@ -462,7 +507,9 @@ export function stoveStep(stove: ItemInstance, dt: number, out: StoveTick): Stov
   if (!k || !fire || dt <= 0) return out;
   let lit = dt;
   if (!electric(stove)) {
-    const gas = k.gas ?? 0;
+    // (from its own canister, or the other burner's: gasFeed)
+    const fk = kitState(gasFeed(stove));
+    const gas = fk.gas ?? 0;
     if (gas <= 0) {
       delete k.fire;
       out.ranOut = true;
@@ -470,8 +517,8 @@ export function stoveStep(stove: ItemInstance, dt: number, out: StoveTick): Stov
     }
     // (the last of the gas heats for as long as it lasts)
     lit = Math.min(dt, gas / BURN[fire]);
-    k.gas = Math.max(0, gas - BURN[fire] * dt);
-    if (k.gas <= 0) {
+    fk.gas = Math.max(0, gas - BURN[fire] * dt);
+    if ((kitOf(gasFeed(stove)).gas ?? 0) <= 0) {
       delete k.fire;
       out.ranOut = true;
     }

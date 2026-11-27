@@ -152,7 +152,10 @@ def door_extras(ex, w):
         b.extend(K.fill_loop(V.reshape(len(P), -1, 3)[e], (np.sign(P[e, 0] - P[-1 - e, 0]), 0, 0), 'trim'))
     Pin = P.copy()
     Pin[:, 1] -= 0.045
-    prof = K.round_profile(np.array([(0.035, -0.10), (0.032, 0.0), (0.012, 0.005), (-0.02, 0.0), (-0.025, -0.10)]), 0.008, 1)
+    # (its inner leg comes down over the door card's top edge: the slot between them showed the grass through the
+    # door's glass under the belt)
+    prof = K.round_profile(np.array([(0.035, -0.10), (0.032, 0.0), (0.012, 0.005), (-0.05, 0.002), (-0.066, -0.016), (-0.062, -0.07),
+                                     (-0.036, -0.128)]), 0.008, 1)
     V, N, Tr = K.sweep(Pin + np.array([0, 0, -0.01]), (0, 0, 1), prof, closed=False)
     b.add(V, N, Tr, 'plastic_int')
     xh, zh = xa + 0.16, 1.20
@@ -474,10 +477,11 @@ def fuel_flap(ex):
 
 # ============================================================================================ interior
 def steering_mount():
-    """(the column's end, the column direction forward-down)."""
+    """(the column's end, the column direction forward-down): the wheel's middle 41 degrees under her eye as she
+    sits up (Nomad Drive's 40-43), so that the instruments are read over its rim and its hub keeps out of the view."""
     ang = math.radians(30.0)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([0.715, DRIVER_Y, 1.095])
+    p = np.array([0.715, DRIVER_Y, 1.06])
     return p, d
 
 

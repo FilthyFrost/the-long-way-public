@@ -927,7 +927,7 @@ PARTS = {
     'hitch_ball': build_hitch_ball,
     'moto_rack': build_moto_rack,
     # (its bar longer on the frames whose body stands out behind their bumper: J9e)
-    **{f'moto_rack@{f}': _moto_rack_for(f) for f in ('goat', 'rhino', 'fox', 'snail')},
+    **{f'moto_rack@{f}': _moto_rack_for(f) for f in ('goat', 'rhino', 'fox', 'snail', 'rv')},
     'ladder': build_ladder,
     # (each roofed frame's ladder, made for its roof: J9e — the Whale's is its own model's)
     **{f'ladder@{f}': _ladder_for(f) for f in ('sedan', 'fox', 'pickup', 'van', 'goat', 'wagon', 'buffalo', 'rhino', 'snail', 'elephant', 'camel')},

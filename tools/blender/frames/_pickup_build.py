@@ -381,7 +381,7 @@ def mounts(ex, panels):
     p, d = IN.steering_mount()
     ang = math.radians(32)
     E.append(mount('steering', tuple(p), dict(cat='steering', column_deg=32.0), rot=K.frame_from(d, (math.sin(ang), 0, math.cos(ang)))))
-    fz = IN.FLOOR_Z + 0.03
+    fz = IN.FLOOR_Z + IN.SEAT_RISE
     for name, x, y, z, drv, side in (('seat_driver', IN.SEAT_X, IN.DRIVER_Y, fz, True, -1), ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, fz, False, 1),
                                      ('seat_rear', -0.85, 0.0, D['bed_floor'], False, 0)):
         E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=round(z, 4), side=side,

@@ -1,7 +1,7 @@
 // ND3's digging in the game (docs/ND/PLAN.md): a place's buried chest found with the metal detector (beeping far,
 // faster near, a steady tone over it), dug up with the shovel in four strokes (the shovel in the ground, the chest
 // coming up its hole, out in a puff of dust), its padlock rattled without a key, opened with the place's key (the
-// padlock falling off), its lid opened and what is in it in the list.
+// padlock falling off), its lid opened and what is in it seen lying in it (v3/nd-store: no list comes up).
 //   SHOTS_GPU=1 node harness/shots/nd3_dig.mjs [seed] [hour]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -103,7 +103,12 @@ try {
   await frames(60);
   await page.evaluate(() => window.__rt.press());
   await frames(40);
-  await shot('18_chest_open.png', JSON.stringify(await H('nd-dig', 'chests')));
+  // (what is in it drawn lying in it once the things' models are in)
+  for (let i = 0; i < 60 && !(await H('nd-store', 'views')).some((v) => v.drawn && v.things.length); i++) {
+    await frames(3);
+    await page.waitForTimeout(50);
+  }
+  await shot('18_chest_open.png', JSON.stringify(await H('nd-dig', 'chests')) + ' in it: ' + JSON.stringify((await H('nd-store', 'views')).filter((v) => v.drawn).map((v) => v.things.map((t) => t.item))) + ' list: ' + (await page.evaluate(() => !!window.__rt.game.listOpen)));
   if (errors.length) console.log('errors:', errors.slice(0, 8).join('\n'));
 } finally {
   await browser.close();

@@ -127,10 +127,11 @@ export const FOOD: Readonly<Record<string, Food>> = Object.fromEntries(FOODS.map
  * Where the places by the road keep what of the pantry they have (docs/V3/plan/finish.md §八 1; core/modcar/loot.ts
  * LarderShelf): what keeps, in a kitchen's cupboard and on a shop's shelf — rice, flour, noodles, beans, potatoes,
  * onions, garlic, a pumpkin, a loaf, honey; what wants the cold, in a refrigerator or a cool box — the garden's
- * vegetables, eggs, milk, butter, cheese, tofu, the fruit; and the meat, there too. What grows wild, what is hunted,
- * caught or gathered on a shore is not a place's to keep.
+ * vegetables, eggs, milk, butter, cheese, tofu, the fruit; and the meat, there too. What is hunted is in a hunter's
+ * bag at his stand (venison); what is caught or gathered on a shore, in the cool box on a jetty or under a lighthouse
+ * (shrimp, clams, a crab, a lobster). What grows wild is not a place's to keep.
  */
-export const LARDER_SHELF: Readonly<Record<string, 'dry' | 'fresh' | 'meat'>> = {
+export const LARDER_SHELF: Readonly<Record<string, 'dry' | 'fresh' | 'meat' | 'game' | 'sea'>> = {
   rice: 'dry',
   flour: 'dry',
   noodle: 'dry',
@@ -166,6 +167,41 @@ export const LARDER_SHELF: Readonly<Record<string, 'dry' | 'fresh' | 'meat'>> = 
   beef: 'meat',
   lamb: 'meat',
   duck: 'meat',
+  venison: 'game',
+  shrimp: 'sea',
+  clam: 'sea',
+  crab: 'sea',
+  lobster: 'sea',
+};
+
+/**
+ * What still comes up in the bed of a garden gone wild behind a house (docs/V3/plan/finish.md §八 1: 房子后面荒了的菜地):
+ * the garden's vegetables and its aromatics
+ */
+export const GARDEN_BED: readonly string[] = FOODS.filter((f) => f.from.includes('garden') && (f.group === 'veg' || f.group === 'aromatic')).map((f) => f.id);
+
+/**
+ * What a warm country has more of, and a cold one (docs/V3/plan/finish.md §八 1: 食材按地区有偏好——暖和的地方出香蕉、
+ * 橙子): the same shelf holds other things there, so that a new country brings what one has not cooked with yet
+ */
+export const LIKES: Readonly<Record<string, 'hot' | 'cold'>> = {
+  banana: 'hot',
+  orange: 'hot',
+  lemon: 'hot',
+  watermelon: 'hot',
+  chili: 'hot',
+  pepper: 'hot',
+  eggplant: 'hot',
+  corn: 'hot',
+  potato: 'cold',
+  cabbage: 'cold',
+  onion: 'cold',
+  carrot: 'cold',
+  pork: 'cold',
+  lamb: 'cold',
+  bacon: 'cold',
+  butter: 'cold',
+  cheese: 'cold',
 };
 
 /** what each tag is called where a dish asks for "any of a kind" (a recipe's line, a hint in the book) */

@@ -6,7 +6,7 @@
    1.21261
   ],
   "min": [
-   -4.126,
+   -5.626,
    0.24,
    -1.21127
   ]
@@ -27,7 +27,7 @@
    ],
    "fit_anchor": "center",
    "pos": [
-    0.1,
+    -1.4,
     0.95,
     -1.203
    ],
@@ -48,7 +48,7 @@
    ],
    "fit_anchor": "center",
    "pos": [
-    0.1,
+    -1.4,
     0.95,
     1.203
    ],
@@ -112,7 +112,7 @@
     0.18
    ],
    "pos": [
-    -4.10291,
+    -5.60291,
     0.58,
     -0.0
    ],
@@ -165,7 +165,7 @@
    "open_deg": 95.0,
    "panel": "P_door_side",
    "pos": [
-    1.396,
+    -0.104,
     1.6,
     1.19551
    ],
@@ -181,7 +181,7 @@
    "cat": "engine",
    "note": "at the back under the bed, behind the rear axle, yawed 180 deg: its fan and pulley (+x) towards the lid, its flywheel towards the gearbox",
    "pos": [
-    -3.24,
+    -4.74,
     0.3,
     -0.0
    ],
@@ -205,7 +205,7 @@
   "exhaust": {
    "cat": "exhaust",
    "pos": [
-    -4.0,
+    -5.5,
     0.33,
     0.8
    ],
@@ -226,7 +226,7 @@
    "cat": "fuelTank",
    "note": "under the floor between the rails, yawed 180 deg: the filler neck of the tank part (+z) points to the flap on the left",
    "pos": [
-    0.4,
+    -1.1,
     0.14,
     -0.0
    ],
@@ -266,7 +266,7 @@
    "cat": "gearbox",
    "note": "rear transaxle: ahead of the rear axle, yawed 180 deg (its bell towards the differential and the engine behind it)",
    "pos": [
-    -2.08,
+    -3.58,
     0.26,
     -0.0
    ],
@@ -344,7 +344,7 @@
    "open_deg": 75.0,
    "panel": "P_hood",
    "pos": [
-    -4.094,
+    -5.594,
     1.364,
     -0.0
    ],
@@ -375,7 +375,7 @@
    "cat": "houseBattery",
    "note": "the house battery: on the floor in the dinette's footwell, by the wall",
    "pos": [
-    1.65,
+    -0.61,
     0.62,
     -0.98
    ],
@@ -445,7 +445,7 @@
    "handbrake": true,
    "hub_face": 0.93,
    "pos": [
-    -2.5,
+    -4.0,
     0.39,
     -0.92
    ],
@@ -466,7 +466,7 @@
    "handbrake": true,
    "hub_face": 0.93,
    "pos": [
-    -2.5,
+    -4.0,
     0.39,
     0.92
    ],
@@ -531,7 +531,7 @@
    "cat": "radiator",
    "note": "at the back of the bay behind the engine, facing the lid",
    "pos": [
-    -3.97,
+    -5.47,
     0.58,
     -0.0
    ],
@@ -580,7 +580,7 @@
    ],
    "fit_anchor": "center",
    "pos": [
-    -0.6,
+    -2.1,
     3.115,
     -0.0
    ],
@@ -646,7 +646,7 @@
    "cat": "taillight",
    "on": "tail, beside the engine lid, upright (the mount turned 90 deg about x: a lamp made lying stands up)",
    "pos": [
-    -4.08834,
+    -5.58834,
     1.1,
     -0.97809
    ],
@@ -666,7 +666,7 @@
    "cat": "taillight",
    "on": "tail, beside the engine lid, upright (the mount turned 90 deg about x: a lamp made lying stands up)",
    "pos": [
-    -4.08834,
+    -5.58834,
     1.1,
     0.97809
    ],
@@ -756,7 +756,7 @@
     0.0
    ],
    "hinge_pos": [
-    0.158,
+    -1.342,
     1.05,
     -1.20049
    ],
@@ -804,7 +804,7 @@
     0.0
    ],
    "hinge_pos": [
-    1.396,
+    -0.104,
     1.6,
     1.19551
    ],
@@ -820,7 +820,7 @@
     -1.0
    ],
    "hinge_pos": [
-    -4.094,
+    -5.594,
     1.364,
     -0.0
    ],
@@ -831,13 +831,13 @@
  "room": {
   "aisle_z": [
    -0.42,
-   0.37
+   1.15
   ],
   "bed": {
    "top": 1.44,
    "x": [
-    -4.05,
-    -1.9
+    -5.55,
+    -3.4
    ],
    "z": [
     -1.15,
@@ -848,12 +848,12 @@
    "top": 1.06,
    "x": [
     [
-     2.05,
-     2.47
+     -0.26,
+     0.16
     ],
     [
-     0.84,
-     1.25
+     -1.36,
+     -0.95
     ]
    ],
    "z": [
@@ -862,13 +862,25 @@
    ]
   },
   "ceiling": 3.065,
+  "cubby": {
+   "floor": 0.7,
+   "top": 1.44,
+   "x": [
+    -1.98,
+    -1.43
+   ],
+   "z": [
+    -1.12,
+    -0.55
+   ]
+  },
   "floor_y": 0.62,
   "galley": {
-   "sink_x": 0.04,
+   "sink_x": -1.555,
    "top": 1.54,
    "x": [
-    -1.88,
-    0.42
+    -3.38,
+    -1.4
    ],
    "z": [
     -1.15,
@@ -887,22 +899,11 @@
     1.15
    ]
   },
-  "sofa": {
-   "top": 1.06,
-   "x": [
-    -1.88,
-    0.44
-   ],
-   "z": [
-    0.55,
-    1.15
-   ]
-  },
   "table": {
    "top": 1.3399999999999999,
    "x": [
-    1.3,
-    2.0
+    -0.9,
+    -0.31
    ],
    "z": [
     -1.15,
@@ -910,15 +911,25 @@
    ]
   },
   "x": [
-   -1.9,
+   -3.4,
    2.5
   ]
  },
+ "stretch": {
+  "cuts": [
+   [
+    1.665,
+    1.5
+   ]
+  ],
+  "note": "the frame as first drawn, cut across at x and lengthened by the second number behind each cut; widened past |z| by the second number across (tools/blender/frames/_stretch.py)",
+  "widen": null
+ },
  "triangles": {
-  "BODY": 45875,
+  "BODY": 46477,
   "FUEL_CAP": 574,
-  "GLASS": 2625,
-  "INTERIOR": 19441,
+  "GLASS": 2627,
+  "INTERIOR": 19136,
   "KNUCKLE_hub_FL": 508,
   "KNUCKLE_hub_FR": 508,
   "KNUCKLE_hub_RL": 508,
@@ -927,17 +938,17 @@
   "N_rpm": 50,
   "N_speed": 50,
   "N_temp": 50,
-  "PG_door_FL": 172,
-  "PG_door_FR": 172,
+  "PG_door_FL": 188,
+  "PG_door_FR": 188,
   "PG_door_side": 142,
-  "P_door_FL": 3074,
-  "P_door_FR": 3074,
-  "P_door_side": 3218,
+  "P_door_FL": 3076,
+  "P_door_FR": 3076,
+  "P_door_side": 3242,
   "P_hood": 3544,
-  "UNDER": 4396,
+  "UNDER": 4616,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 88927
+  "total": 89506
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

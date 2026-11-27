@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { GLSL_PAINT, GLSL_SLOTS } from './paint';
 import { GLSL_COMMON, globals } from './shaderlib';
 import { coverUniforms } from './style';
+import { pressUniforms } from './press';
 
 /** a ring of blades (scene/meadow.ts RINGS) as the material needs it */
 export interface MeadowRingLook {
@@ -64,7 +65,18 @@ export const meadowUniforms = {
   uDensity: { value: 1 },
   /** the world's heights less this are metres above the sea (core/world/spine.ts lift) */
   uLift: { value: 0 },
+  /**
+   * What stands on the meadow and presses its grass flat (the vehicles near the eye: a blade under a living space's
+   * floor came up through it): each a rectangle on the plan — its middle (render space x, z) and half its length and
+   * width (0: none), and which way its length lies (cos, sin). PRESSED of them.
+   */
+  // (the same rectangles press the flora's plants: press.ts)
+  uPressA: pressUniforms.uPressA,
+  uPressB: pressUniforms.uPressB,
 };
+
+/** how many rectangles press the grass at once (meadowUniforms.uPressA) */
+export { PRESSED } from './press';
 
 const f1 = (v: number): string => v.toFixed(4);
 
@@ -101,6 +113,8 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
       uniform float uLift;
       ${SNOW_FIELD}
       uniform vec4 uCoverMisc[4];
+      uniform vec4 uPressA[6];
+      uniform vec2 uPressB[6];
       uniform ivec2 uOriginCell;
       varying vec3 vPos;
       varying vec4 vBw;
@@ -168,6 +182,14 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
         vec4 r = rtCellRand(wc, salt);
         vec4 q = rtCellRand(wc, salt + 31);
         vec2 xz = (vec2(lc) + r.xy) * CELL;
+        // (under a vehicle standing in the meadow the grass is pressed flat: none of it comes up through its floor)
+        for (int i = 0; i < 6; i++) {
+          vec4 pa = uPressA[i];
+          if (pa.z <= 0.0) continue;
+          vec2 pd = xz - pa.xy;
+          vec2 pl = vec2(pd.x * uPressB[i].x + pd.y * uPressB[i].y, pd.y * uPressB[i].x - pd.x * uPressB[i].y);
+          if (abs(pl.x) < pa.z && abs(pl.y) < pa.w) { dead(); return; }
+        }
         float dist = distance(xz, cameraPosition.xz);
         // each blade leaves its ring and comes into the next at a distance of its own, so nothing pops
         vec4 fade = vec4(${ring.fade.map((v) => v.toFixed(2)).join(', ')});

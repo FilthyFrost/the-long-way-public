@@ -14,6 +14,8 @@ from frames import _kit as K  # noqa: E402
 from frames import _preview as PV  # noqa: E402
 from frames import _elephant_ext as EX  # noqa: E402
 from frames import _elephant_inner as IN  # noqa: E402
+from frames import _steps as STP  # noqa: E402
+from frames import _stretch as ST  # noqa: E402
 from frames import elephant as S  # noqa: E402
 from frames._sedan_build import game_vec, knuckles, mount, needle, obj_with_origin  # noqa: E402
 from frames._sedan_ext import side_dir  # noqa: E402
@@ -67,6 +69,33 @@ def canon(buf):
     return out
 
 
+def flat_z():
+    """Where the side's flat wall starts over its bottom roll, at the entry door."""
+    xa, xb, _, _ = IN.well_span()
+    return D['z_bot'] + float(np.atleast_1d(S.r_bot(np.array([0.5 * (xa + xb)])))[0])
+
+
+def entry_well():
+    """The entry door's stairwell (left coordinates; the build mirrors it to the right), frames/_steps.py: in the
+    opening between its edges from the body's face in, its tread EX.WELL at the door from the room's floor, under the
+    body's bottom its housing (its cheeks up to where the bottom roll ends)."""
+    xa, xb, _, yf = IN.well_span()
+    return STP.stairwell(xa, xb, yf, IN.FLOOR_Z, EX.WELL['tops'], EX.WELL['depth'], flat_z() - 0.01, wall='wood')
+
+
+def entry_edges(per_r):
+    """The right side's opening edges without the entry door's return along its foot (the opening goes on down to the
+    stairwell); the jambs on down to the well's housing, and a moulding round it all in the second paint, as Nomad
+    Drive's class A has its entry door in a white one (left coordinates)."""
+    xa, xb, _, yf = IN.well_span()
+    b = STP.drop_box(per_r, (xa - 0.05, yf - 0.3, -1.0), (xb + 0.05, yf + 0.05, D['sd_z0'] + 0.012))
+    zh = STP.housing_bottom(EX.WELL['tops']) - 0.012
+    b.extend(STP.jambs(xa, xb, yf, zh, D['sd_z0'] + 0.016, mat='paint'))
+    zf = flat_z()
+    b.extend(STP.moulding(xa, xb, zh, D['sd_z1'] + S.DELTA, D['sd_r'], lambda x, z: float(S.side_w(x, max(z, zf))), mat='paint_b'))
+    return b
+
+
 def owo(buf, name, origin, parent=None, rot=None):
     return obj_with_origin(canon(buf), name, origin, parent=parent, rot=rot)
 
@@ -105,7 +134,7 @@ def build(args):
     common.extend(IN.engine_bay())
     left = K.Buf().extend(common).extend(ex.body('L')).extend(per['L']).extend(strips['L'])
     left.extend(ex.window_seals(['mid', 'gal'])).extend(ex.fuel_details())
-    right = K.Buf().extend(common).extend(ex.body('R')).extend(per['R']).extend(strips['R']).extend(ex.window_seals(['mid_r']))
+    right = K.Buf().extend(common).extend(ex.body('R')).extend(entry_edges(per['R'])).extend(strips['R']).extend(ex.window_seals(['mid_r']))
     body = K.Buf().extend(left).extend(right.mirrored())
     body.extend(ex.emblem())
     objs = [canon(EX.two_tone(body)).to_object('BODY')]
@@ -132,6 +161,9 @@ def build(args):
     sd = ex.door_skin('side')
     sd.extend(pedges['side']).extend(pstrips['side']).extend(ex.door_card('side', mat='wood')).extend(IN.door_extras(ex, 'side'))
     sd.extend(ex.window_seals(['side']))
+    # (its foot on down to the stairwell's threshold, shutting over the well)
+    xa, xb, _, yf = IN.well_span()
+    sd.extend(STP.kick_panel(D['sd_x0'] + S.DELTA, D['sd_x1'] - S.DELTA, yf, EX.WELL['tops'][0], D['sd_z0'] + S.DELTA, 'paint'))
     EX.two_tone(sd)
     dh = np.array([D['sd_x1'] - 0.004, -(float(S.side_w(D['sd_x1'], 1.60)) - 0.004), 1.60])
     o = owo(sd.mirrored(), 'P_door_side', dh)
@@ -156,10 +188,12 @@ def build(args):
         g.extend(gl[k]).extend(gl[k].mirrored())
     g.extend(gl['mid']).extend(gl['gal']).extend(gl['mid_r'].mirrored())
     objs.append(canon(g).to_object('GLASS'))
-    objs.append(canon(both(IN.underbody(), IN.centre_under())).to_object('UNDER'))
+    objs.append(canon(K.Buf().extend(IN.underbody()).extend(IN.underbody(right=True).mirrored()).extend(IN.centre_under())).to_object('UNDER'))
     it = IN.interior(ex)
     inner = K.Buf().extend(it['L']).extend(it['L'].mirrored()).extend(it['C']).extend(it['R'].mirrored())
     inner.extend(ex.lining('L')).extend(ex.lining('R').mirrored())
+    # the entry door's stairwell (frames/_steps.py), on the right
+    inner.extend(entry_well().mirrored())
     inner.extend(both(ex.roof(level=EX.WALL)))
     # the dial glass stays out of the AO bake (it would bake the gauge faces and the needles behind it black);
     # it is joined into INTERIOR after the bake
@@ -181,6 +215,9 @@ def build(args):
     print('[elephant] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, panels)
     objs += knuckles(empties, lambda x, y, z, front: canon(IN.knuckle(x, y, z, front)))
+    # the frame lengthened (the Turtle widened too) as it is built: frames/_stretch.py
+    ST.apply('elephant', objs, empties, panels, (needles, wipers))
+    dial_glass = ST.buf('elephant', dial_glass)
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())
@@ -189,7 +226,7 @@ def build(args):
         # the engine bay is baked with the lid up (one looks into it with the lid open)
         hood = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((D['xr'] - 0.05, -(D['hw'] - 0.01), 0.25), (IN.FIREWALL_X + 0.06, D['hw'] - 0.01, IN.DECK_Z + 0.02)), samples=32, distance=0.35)
+                       ST.box('elephant', (D['xr'] - 0.05, -(D['hw'] - 0.01), 0.25), (IN.FIREWALL_X + 0.06, D['hw'] - 0.01, IN.DECK_Z + 0.02)), samples=32, distance=0.35)
         print('[elephant] AO', round(time.time() - t0, 1), 's')
         # the dial faces once more without the needles over them
         K.rebake_mats(o_int, [o for o in meshes if o.name.startswith('N_')], ('gauge',), samples=32, distance=0.35)
@@ -198,7 +235,7 @@ def build(args):
     total = sum(tris.values())
     print('[elephant] grime masks', K.mask_frame(meshes))
     mc.export_glb(OUT_GLB, meshes + empties)
-    mc.mounts_json(OUT_JSON, 'elephant', json_extra(objs, panels, needles, wipers, tris, total))
+    mc.mounts_json(OUT_JSON, 'elephant', ST.map_json('elephant', json_extra(objs, panels, needles, wipers, tris, total)))
     print('[elephant] exported', round(time.time() - t0, 1), 's')
     if not no_preview:
         previews(quick)
@@ -330,15 +367,15 @@ def json_extra(objs, panels, needles, wipers, tris, total):
     out = je(objs, panels, needles, wipers, tris, total)
     out['eye_default'] = game_vec(np.array(IN.EYE))
     # the room's plan (game frame: x along, z across = -y): the floor between the furniture, the bed's top, the
-    # galley's worktop, the dinette's table and benches, the sofa, the fridge's niche — for the walk areas, the bed
-    # and the places for things (core/modcar/aboard.ts, cargo.ts)
+    # galley's worktop and the cubby under its sink, the dinette's table and benches, the fridge's niche — for the walk
+    # areas, the bed and the places for things (core/modcar/aboard.ts, cargo.ts)
     z = lambda y0, y1: sorted([round(-y0, 3), round(-y1, 3)])  # noqa: E731
-    out['room'] = dict(floor_y=IN.FLOOR_Z, x=[IN.BED_X1, IN.ROOM_FRONT_X], aisle_z=z(IN.DIN_Y, -IN.FRIDGE_Y),
+    out['room'] = dict(floor_y=IN.FLOOR_Z, x=[IN.BED_X1, IN.ROOM_FRONT_X], aisle_z=z(IN.DIN_Y, -IN.IN_Y),
                        bed=dict(x=[D['xr'] + 0.05, IN.BED_X1], z=z(IN.IN_Y, -IN.IN_Y), top=IN.BED_TOP),
                        galley=dict(x=[IN.GALLEY_X0, IN.GALLEY_X1], z=z(IN.IN_Y, IN.GALLEY_Y), top=IN.WORKTOP_Z, sink_x=IN.SINK_X),
                        table=dict(x=list(IN.DIN_T), z=z(IN.IN_Y, IN.DIN_Y + 0.04), top=IN.TABLE_Z),
                        benches=dict(x=[list(IN.DIN_A), list(IN.DIN_B)], z=z(IN.IN_Y, IN.DIN_Y), top=IN.BENCH_Z),
-                       sofa=dict(x=list(IN.SOFA_X), z=z(-IN.SOFA_Y, -IN.IN_Y), top=IN.SOFA_Z),
+                       cubby=dict(x=list(IN.CUBBY_X), z=z(IN.IN_Y - 0.03, IN.GALLEY_Y), floor=IN.CUBBY_Z[0], top=IN.CUBBY_Z[1]),
                        niche=dict(x=[IN.FRIDGE_X[0] + 0.022, IN.FRIDGE_X[1] - 0.022], z=z(-IN.FRIDGE_Y, -IN.IN_Y), floor=IN.PLINTH_Z, top=IN.NICHE_Z),
                        ceiling=IN.CEIL_Z)
     return out

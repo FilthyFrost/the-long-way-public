@@ -82,7 +82,8 @@ describe('the kitchen: its things in the catalogue', () => {
     }
     for (const id of [STOVE, GAS, BOARD, PLATE, BOWL]) expect(hasItem(id), id).toBe(true);
     // (thirteen of the first batch, the cooler of the second, the hob of the motorhomes': docs/V3/plan/rv.md R2)
-    expect(COOKWARE_ITEMS.length).toBe(15);
+    // (and the two-burner camp stove: docs/V3/plan/finish.md §八 6)
+    expect(COOKWARE_ITEMS.length).toBe(16);
     // plates and bowls stack; what has a state of its own does not
     expect(itemDef(PLATE).stack).toBe(6);
     expect(itemDef(STOVE).stack).toBeUndefined();
@@ -141,9 +142,9 @@ describe('the kitchen: its models', () => {
       total += g.tris;
     }
     void rows;
-    // sixty ingredients, thirteen prepared shapes, fifteen pieces of cookware (the cooler of the second batch, the hob),
+    // sixty ingredients, thirteen prepared shapes, sixteen pieces of cookware (the cooler of the second batch, the hob, the two-burner stove),
     // thirty-four dishes, and the lump spoiled food is (the forage's own: forage_lump)
-    expect(want.size).toBe(60 + PREPS.length + 15 + MEALS.length + 1);
+    expect(want.size).toBe(60 + PREPS.length + 16 + MEALS.length + 1);
     expect(want.has('forage_lump')).toBe(true);
     expect(total / want.size).toBeLessThan(4500);
   });

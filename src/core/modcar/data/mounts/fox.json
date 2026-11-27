@@ -7,13 +7,13 @@
   ],
   "min": [
    -1.98646,
-   0.10456,
+   0.088,
    -0.8198
   ]
  },
  "eye_default": [
   -0.45,
-  1.055,
+  1.005,
   -0.38
  ],
  "frame": "fox",
@@ -128,7 +128,7 @@
    "open_deg": -68.0,
    "panel": "P_door_FL",
    "pos": [
-    0.38,
+    0.42,
     0.48,
     -0.795
    ],
@@ -146,7 +146,7 @@
    "open_deg": 68.0,
    "panel": "P_door_FR",
    "pos": [
-    0.38,
+    0.42,
     0.48,
     0.795
    ],
@@ -439,7 +439,7 @@
    "on": "steering column shroud, right side",
    "pos": [
     0.23199,
-    0.68379,
+    0.65379,
     -0.338
    ],
    "quat": [
@@ -452,8 +452,8 @@
   "mirror_L": {
    "cat": "mirror",
    "pos": [
-    0.445,
-    0.84761,
+    0.47,
+    0.84757,
     -0.748
    ],
    "quat": [
@@ -467,8 +467,8 @@
   "mirror_R": {
    "cat": "mirror",
    "pos": [
-    0.445,
-    0.84761,
+    0.47,
+    0.84757,
     0.748
    ],
    "quat": [
@@ -544,12 +544,12 @@
   },
   "seat_driver": {
    "cat": "seat",
-   "cushion_z": 0.355,
+   "cushion_z": 0.305,
    "driver": true,
-   "floor_z": 0.155,
+   "floor_z": 0.105,
    "pos": [
     -0.29,
-    0.155,
+    0.105,
     -0.38
    ],
    "quat": [
@@ -562,12 +562,12 @@
   },
   "seat_pass": {
    "cat": "seat",
-   "cushion_z": 0.355,
+   "cushion_z": 0.305,
    "driver": false,
-   "floor_z": 0.155,
+   "floor_z": 0.105,
    "pos": [
     -0.29,
-    0.155,
+    0.105,
     0.38
    ],
    "quat": [
@@ -583,7 +583,7 @@
    "column_deg": 22.0,
    "pos": [
     0.13,
-    0.725,
+    0.695,
     -0.38
    ],
    "quat": [
@@ -651,60 +651,60 @@
  "needles": {
   "N_fuel": {
    "axis": [
-    -0.93849,
-    0.34532,
+    -0.93678,
+    0.34992,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.33266,
-    0.7926,
+    0.33278,
+    0.79258,
     -0.492
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_rpm": {
    "axis": [
-    -0.93849,
-    0.34532,
+    -0.93678,
+    0.34992,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.32437,
-    0.77007,
+    0.32438,
+    0.7701,
     -0.38
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_speed": {
    "axis": [
-    -0.93849,
-    0.34532,
+    -0.93678,
+    0.34992,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.32161,
-    0.76256,
+    0.32158,
+    0.76261,
     -0.258
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_temp": {
    "axis": [
-    -0.93849,
-    0.34532,
+    -0.93678,
+    0.34992,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.31263,
-    0.73816,
+    0.31248,
+    0.73825,
     -0.492
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -737,7 +737,7 @@
     0.0
    ],
    "hinge_pos": [
-    0.38,
+    0.42,
     0.48,
     -0.795
    ],
@@ -753,7 +753,7 @@
     0.0
    ],
    "hinge_pos": [
-    0.38,
+    0.42,
     0.48,
     0.795
    ],
@@ -826,10 +826,10 @@
   }
  },
  "triangles": {
-  "BODY": 42304,
+  "BODY": 42144,
   "FUEL_CAP": 514,
-  "GLASS": 698,
-  "INTERIOR": 7176,
+  "GLASS": 718,
+  "INTERIOR": 7386,
   "KNUCKLE_hub_FL": 348,
   "KNUCKLE_hub_FR": 348,
   "KNUCKLE_hub_RL": 348,
@@ -838,18 +838,18 @@
   "N_rpm": 50,
   "N_speed": 50,
   "N_temp": 50,
-  "PG_door_FL": 122,
-  "PG_door_FR": 122,
+  "PG_door_FL": 131,
+  "PG_door_FR": 131,
   "POPUP_L": 1093,
   "POPUP_R": 1093,
-  "P_door_FL": 5236,
-  "P_door_FR": 5236,
+  "P_door_FL": 5340,
+  "P_door_FR": 5340,
   "P_hood": 4216,
   "P_trunk": 2244,
-  "UNDER": 4032,
+  "UNDER": 4240,
   "WIPER_L": 204,
   "WIPER_R": 204,
-  "total": 76086
+  "total": 76590
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

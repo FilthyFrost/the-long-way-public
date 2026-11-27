@@ -34,8 +34,15 @@ WIN_L = [('dinette', -0.62, 0.42, 1.56, 2.30, 0.08), ('galley', -1.78, -1.16, 1.
          ('lounge', -3.42, -2.56, 1.62, 2.30, 0.08), ('bunk', 1.24, 1.80, 2.38, 2.78, 0.08)]
 WIN_R = [('wardrobe', -1.32, -0.74, 1.70, 2.30, 0.07), ('bath', -2.06, -1.70, 2.06, 2.34, 0.05),
          ('lounge', -3.42, -2.56, 1.62, 2.30, 0.08), ('bunk', 1.24, 1.80, 2.38, 2.78, 0.08)]
-DOOR = dict(x0=-0.42, x1=0.24, z0=0.84, z1=2.62, r_bot=0.04, r_top=0.12)
-DOOR_WIN = (-0.32, 0.14, 1.86, 2.40, 0.07)
+# (the side door: 0.86 x 1.9 m since docs/V3/plan/finish.md section 11.1 - it was 0.66 x 1.78: a doorway one walks
+# through without turning sideways)
+DOOR = dict(x0=-0.60, x1=0.26, z0=0.84, z1=2.74, r_bot=0.01, r_top=0.12)
+# (its leaf goes on down to the stairwell inside it as Nomad Drive's class C has one - frames/_steps.py: the treads'
+# tops, the lowest at the door, each WELL['depth'] deep; core/modcar/aboard.ts BoardDoor.well), and the opening's
+# edges from the door's foot down
+WELL = dict(tops=(0.43, 0.645), depth=0.20)
+WELL_X = (DOOR['x0'] - S.DELTA, DOOR['x1'] + S.DELTA)
+DOOR_WIN = (-0.47, 0.13, 1.86, 2.46, 0.07)
 FUEL = (-2.75, 1.00, 0.058)
 TAIL = (0.745, 0.865, 0.95, 1.50, 0.022)         # y0, y1, z0, z1, r (rear wall)
 HATCH = (0.14, 0.62, 0.90, 1.30, 0.035)          # y0, y1, z0, z1, r (rear wall, left half)
@@ -808,7 +815,7 @@ class Exterior:
                 z[(u > u_low_r) | (u < u_low_f)] = 1
                 return z
             V, N, T, Z = K.mesh_region_split(S.CB, outer, holes, pts, lines=lines, zone_fn=zf, spacing=sp, level=level)
-            return K.add_zones(K.Buf(), V, N, T, Z, {0: 'wood', 1: 'trim', 2: 'fabric'}, flip=True)
+            return K.add_zones(K.Buf(), V, N, T, Z, {0: 'lining', 1: 'trim', 2: 'lining'}, flip=True)
         pts, sp = S.grid_from(bus, bts)
         V, N, T, Z = K.mesh_region_split(S.CB, outer, holes, pts, lines=self._b_lines(), zone_fn=self._b_zone, spacing=sp)
         return K.add_zones(K.Buf(), V, N, T, Z, ZMAT)
@@ -851,14 +858,25 @@ class Exterior:
             so = self.cut['door_side'].side('out')
             holes.append(K.Loop(so['uv'], so['P'], so['N']))
         g = K.grid_points(-4.0, 2.4, 0.55, 3.0, 0.16, dt=0.16)
+        # (on the right the side door's opening goes on down to its stairwell: the wall under it is left out, cut along
+        # the opening's edges - WELL_X - up to its foot)
+        notch = side == 'R'
+        xa, xb = WELL_X
+        zn = DOOR['z0'] + 0.01
+        cut_lines = [(0, xa, D['bz0'] - 0.1, zn + 0.01), (0, xb, D['bz0'] - 0.1, zn + 0.01)] if notch else []
+
+        def in_notch(c):
+            return notch & (c[:, 0] > xa) & (c[:, 0] < xb) & (c[:, 1] < zn)
         if level < 0:
             outer = K.Loop(K.resample(outer.uv, 0.08, closed=True))
             holes = [K.Loop(h.uv) for h in holes]
-            V, N, T, Z = K.mesh_region_split(S.SIDE_B, [outer], holes, g, lines=[(1, D['box_floor'] - 0.06, -4.6, 2.6)],
-                                             zone_fn=lambda c: np.where(c[:, 1] < D['box_floor'] - 0.06, 1, 0), spacing=0.2, level=level)
-            return K.add_zones(K.Buf(), V, N, T, Z, {0: 'wood', 1: 'trim'}, flip=True)
-        V, N, T, Z = K.mesh_region_split(S.SIDE_B, [outer], holes, g, lines=self._s_lines(), zone_fn=self._s_zone, spacing=0.16)
-        return K.add_zones(K.Buf(), V, N, T, Z, ZMAT)
+            V, N, T, Z = K.mesh_region_split(S.SIDE_B, [outer], holes, g, lines=[(1, D['box_floor'] - 0.06, -4.6, 2.6)] + cut_lines,
+                                             zone_fn=lambda c: np.where(in_notch(c), 9, np.where(c[:, 1] < D['box_floor'] - 0.06, 1, 0)),
+                                             spacing=0.2, level=level)
+            return K.split_mat(K.add_zones(K.Buf(), V, N, T, Z, {0: 'lining', 1: 'trim', 9: 'DROP'}, flip=True), ("DROP",))[0]
+        V, N, T, Z = K.mesh_region_split(S.SIDE_B, [outer], holes, g, lines=self._s_lines() + cut_lines,
+                                         zone_fn=lambda c: np.where(in_notch(c), 9, self._s_zone(c)), spacing=0.16)
+        return K.split_mat(K.add_zones(K.Buf(), V, N, T, Z, {**ZMAT, 9: "DROP"}), ("DROP",))[0]
 
     def door_side_skin(self):
         """Entry door skin (built on the left side in mirror; the build mirrors it to the right)."""

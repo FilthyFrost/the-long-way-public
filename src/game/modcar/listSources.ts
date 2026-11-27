@@ -468,9 +468,11 @@ class VehicleList implements ListSource {
         if (l.item) turn = Math.min(turn, turnsAt(l.item, now));
         const h = heldOf(l);
         const zone = l.stow ? zoneOf(frame, l.stow) : null;
-        return { order: zone?.order ?? 99, row: { zone: zone?.label.zh ?? '车上', name: heldName(h), mass: massOf(h), icon: host.iconOf(h) }, loose: l };
+        // (what stands in a piece of furniture is listed under that piece, after the loose things of its place)
+        const piece = host.loose.keeper?.(l) ?? null;
+        return { order: (zone?.order ?? 99) + (piece ? 0.5 : 0), row: { zone: piece ?? zone?.label.zh ?? '车上', name: heldName(h), mass: massOf(h), icon: host.iconOf(h) }, loose: l };
       })
-      .sort((a, b) => a.order - b.order || a.row.name.localeCompare(b.row.name));
+      .sort((a, b) => a.order - b.order || a.row.zone.localeCompare(b.row.zone) || a.row.name.localeCompare(b.row.name));
     this.turnAt = turn;
     this.things = list.map((x) => x.loose);
     return list.map((x) => x.row);

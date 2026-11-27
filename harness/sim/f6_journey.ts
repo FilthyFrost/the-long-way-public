@@ -13,7 +13,7 @@ import { CHAPTER_KM, chapterAt, partSalvage, toolSalvage } from '../../src/core/
 import { hasItem, itemDef, newItem, salvageOf } from '../../src/core/modcar/items';
 import { kitBegun, kitHeld, kitOf, kitPicked, KITS, kitsPassed, thingKey, type KitsState, type PlacesAhead } from '../../src/core/modcar/kits';
 import { climateAhead, regionsAlong } from '../../src/core/modcar/lookahead';
-import { boxesOfFinds, foundKey, foundScheduled, looseFound, looseKept, lootRules, ownFound, planBoxes, PLACES_KEEP, stationFuel, type Found } from '../../src/core/modcar/loot';
+import { boxesOfFinds, foundKey, foundScheduled, insideFound, looseFound, looseKept, lootRules, ownFound, planBoxes, PLACES_KEEP, stationFuel, type Found } from '../../src/core/modcar/loot';
 import { partDef } from '../../src/core/modcar/parts';
 import { rescueFinds, supplyCount, supplyFactors, type RescueState, type Stocks } from '../../src/core/modcar/needs';
 import { heldBackUntil, SitePlanner, THEME_WAIT_M, type PlannedFind } from '../../src/core/modcar/schedule';
@@ -55,6 +55,10 @@ export interface Stop7 {
   components: number;
   /** stopped at (false: driven past — nothing of it taken) */
   stopped: boolean;
+  /** the plan's finds laid here, by their entries (schedule.ts PlannedFind.entry) */
+  plan: string[];
+  /** what the place's furniture held inside (a motel's nightstands, their drawers): the things' keys */
+  inside: string[];
 }
 
 export interface KitRun {
@@ -199,7 +203,7 @@ export function travel7(seed: number, km = 300, stopsAt: (site: Site) => boolean
       driveTo(w.s);
       out.petrolAt.push(w.s);
       const all = stopsAt === EVERY;
-      out.stops.push({ s: w.s, kind: 'wreck', ready: 0, raw: 0, water: 0, petrol: w.litres, pump: false, scrap: 0, components: 0, stopped: all });
+      out.stops.push({ s: w.s, kind: 'wreck', ready: 0, raw: 0, water: 0, petrol: w.litres, pump: false, scrap: 0, components: 0, stopped: all, plan: [], inside: [] });
       if (all) me.tank = Math.min(45 + 20, me.tank + w.litres);
     }
   };
@@ -246,12 +250,12 @@ export function travel7(seed: number, km = 300, stopsAt: (site: Site) => boolean
       for (const f of sos) out.rescues[f.entry] = (out.rescues[f.entry] ?? 0) + 1;
       if (sos.length) added.push(...planner.add(sos));
     }
-    planner.take([{ id: site.id, s: site.s, kind: site.kind, boxes: planBoxes(site).length, ground: !planBoxes(site).length && site.objects.some((o) => o.kind === 'wreck') }]);
+    planner.take([{ id: site.id, s: site.s, kind: site.sort, boxes: planBoxes(site).length, ground: !planBoxes(site).length && site.objects.some((o) => o.kind === 'wreck') }]);
     // (one in a hurry still stops anywhere when all but out of something)
     const desperate = me.drink < 17 || me.ready + (cooks() ? me.raw : 0) < 13 || me.tank < 0.15 * 45;
     const stopped = stopsAt(site) || desperate;
     const factors = needs ? supplyFactors(stocks()) : undefined;
-    const stop: Stop7 = { s: site.s, kind: site.kind, ready: 0, raw: 0, water: 0, petrol: 0, pump: false, scrap: 0, components: 0, stopped };
+    const stop: Stop7 = { s: site.s, kind: site.sort, ready: 0, raw: 0, water: 0, petrol: 0, pump: false, scrap: 0, components: 0, stopped, plan: [], inside: [] };
     const climate = climateAhead(regions, site.s);
     // (what a place holds is decided as one comes to it — the game lays it out then: the sets as they stood on arrival)
     const onArrival = JSON.parse(JSON.stringify(kits)) as KitsState;
@@ -302,6 +306,7 @@ export function travel7(seed: number, km = 300, stopsAt: (site: Site) => boolean
     const boxes = planBoxes(site);
     const into = boxesOfFinds(site, here, rules);
     here.forEach((f, j) => {
+      stop.plan.push(f.entry);
       if (stopped && f.novelty && !out.firsts.has(f.entry)) {
         out.firsts.set(f.entry, site.s / 1000);
         news(f.entry, site.s);
@@ -320,13 +325,19 @@ export function travel7(seed: number, km = 300, stopsAt: (site: Site) => boolean
       });
     });
     // the place's own boxes, by the version's rules and the road ahead; nothing that is kept back for now
-    for (const c of site.containers) offer.push(...ownFound(c, site.s, site.kind, rules, climate, keep, withheld, factors));
+    for (const c of site.containers) offer.push(...ownFound(c, site.s, site.sort, rules, climate, keep, withheld, factors));
     // what lies in plain sight
     for (const l of site.loose) {
       if (heldNow(l.item, site.s)) continue;
-      const f = looseFound(l.item, hashId(l.id), site.s, site.kind, rules);
+      const f = looseFound(l.item, hashId(l.id), site.s, site.sort, rules, climate);
       if (!f || !looseKept(f, hashId(l.id), keep, factors) || withheld(foundKey(f))) continue;
       offer.push('item' in f ? { ...f, n: l.n } : f);
+      // (what a piece of the place's furniture holds inside: a motel's nightstand, its drawer — places.ts fillInside)
+      if ('item' in f) {
+        const inside = insideFound(f.item, site.sort, hashId(l.id), site.s, rules, keep, withheld, factors) ?? [];
+        offer.push(...inside);
+        stop.inside.push(...inside.map(foundKey));
+      }
     }
     for (const f of offer) {
       take(f);

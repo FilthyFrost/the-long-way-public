@@ -273,7 +273,9 @@ def books(P, bm_by, x0, y0, y1, z, k, depth=0.19):
 
 def nd_bookshelf(P):
     """A painted bookshelf (Nomad Drive's Bookshelf-01, 0.78 x 1.48 m): two sides, a top with a moulded lip, a
-    plinth, four shelves, a boarded back (wood); books on three shelves, some leaning, a stack lying flat, a jar."""
+    plinth, four shelves, a boarded back (wood); a row of books on its lowest shelf, some leaning. The three boards
+    over it are bare (docs/V3/plan/finish.md section 11.2): one stands one's own things on them - they carried books
+    on two more, a stack and a jar, in the way of whatever was put there."""
     P.ao_distance = 0.22
     D, W, H = 0.32, 0.8, 1.52
     for s in (-1, 1):
@@ -292,20 +294,11 @@ def nd_bookshelf(P):
     bm_by = {m: bmesh.new() for m in set(BOOK_MATS) | {'trim', 'paint_b'}}
     x0 = D / 2 - 0.03
     books(P, bm_by, x0, -W / 2 + 0.03, W / 2 - 0.03, shelves[0] + 0.011, 1)
-    books(P, bm_by, x0, -W / 2 + 0.03, 0.12, shelves[1] + 0.011, 2)
-    books(P, bm_by, x0, -W / 2 + 0.2, W / 2 - 0.03, shelves[2] + 0.011, 3)
-    # a stack lying flat on the second shelf, a jar on the top one
-    for i in range(3):
-        K.bm_cube(bm_by[('leather', 'paint_b', 'fabric')[i]], (0.2 - 0.02 * i, 0.15 - 0.01 * i, 0.035),
-                  matrix=mat4((x0 - 0.11, 0.25, shelves[1] + 0.011 + 0.0175 + i * 0.035), (0, 0, 6 * jit(i))))
     for mat, bm in bm_by.items():
         if bm.verts:
             P.mesh('books', bm, mat, bev=0.003, segs=1, sharp=40.0)
         else:
             bm.free()
-    P.lathe('jar', [(0.0, 0.0), (0.045, 0.0), (0.05, 0.02), (0.05, 0.11), (0.034, 0.13), (0.032, 0.145), (0.0, 0.145)],
-            loc=(0.0, 0.22, shelves[3] + 0.011), material='glass', segs=16, sharp=50.0)
-    P.cyl('jar_lid', 0.036, 0.02, loc=(0.0, 0.22, shelves[3] + 0.011 + 0.155), material='alu', segs=16, bev=0.003)
     P.views = [('a', 30, 12), ('b', 150, 20)]
 
 
@@ -345,8 +338,10 @@ def side_prism(P, name, prof, y0, y1, mat, bev=0.006):
 
 def nd_fridge(P):
     """A rounded-top refrigerator (Nomad Drive's Fridge-02, 0.64 x 0.73 x 1.33 m): an enamelled body (paint) with
-    its top's front and back rounded, a deep door with its liner and two shelves in it, a chrome lever handle, a
-    badge, a kick grille and four feet. Inside, white enamel, two wire shelves and a crisper drawer."""
+    its top's front and back rounded, a deep door with its liner and three shelves in it, a chrome lever handle, a
+    badge, a kick grille and four feet. Inside, white enamel, two wire shelves and a crisper drawer — the shelves short
+    of the door's, so a bottle standing in the door clears them as it shuts (src/core/v3/nd/store.ts: what is in the
+    fridge stands on its shelves and in its door)."""
     P.ao_distance = 0.3
     D, W, H, R = 0.62, 0.64, 1.36, 0.11
     x0, x1 = -D / 2, D / 2 - 0.06
@@ -356,11 +351,12 @@ def nd_fridge(P):
     P.cut(body, cav)
     # the cabinet's inside: wire shelves, the crisper, the lamp's little box
     xi0, xi1 = x1 - (D - 0.1) + 0.02, x1 - 0.01
+    xw = 0.135                              # the wire shelves' front: short of the door's shelves
     for z in (0.52, 0.86):
         for k in range(9):
             y = -W / 2 + 0.06 + k * (W - 0.12) / 8
-            P.box('wire', (xi1 - xi0 - 0.03, 0.005, 0.005), ((xi0 + xi1) / 2, y, z), 'alu', bev=None)
-        P.box('wire_front', (0.008, W - 0.1, 0.008), (xi1 - 0.02, 0.0, z), 'alu', bev=0.002, segs=1)
+            P.box('wire', (xw - xi0 - 0.01, 0.005, 0.005), ((xi0 + 0.01 + xw) / 2, y, z), 'alu', bev=None)
+        P.box('wire_front', (0.008, W - 0.1, 0.008), (xw - 0.004, 0.0, z), 'alu', bev=0.002, segs=1)
     P.box('crisper', (xi1 - xi0 - 0.04, W - 0.12, 0.16), ((xi0 + xi1) / 2 - 0.01, 0.0, 0.21), 'glass_dark', bev=0.01, segs=2)
     P.box('crisper_lip', (0.02, W - 0.12, 0.03), (xi1 - 0.03, 0.0, 0.29), 'paint_b', bev=0.006, segs=2)
     P.box('lamp_box', (0.08, 0.1, 0.05), (xi0 + 0.06, 0.0, H - 0.14), 'ceramic', bev=0.008, segs=2)

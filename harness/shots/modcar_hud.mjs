@@ -3,7 +3,8 @@
 // still needs, a workshop machine; nothing from a few metres off), what is in the hands a card on the right;
 // E picks things up into the hotbar's two slots (a third will not go: two hands), 1 and 2 put one or the
 // other in the hands, I hides and shows the cards (and is remembered), G held puts down; in the seat the
-// hotbar stays and the right lists the driving keys. Writes loop/shots/modcar_hud/*.png.
+// hotbar stays and the right lists the driving keys, and nothing of the vehicle's readings is in the corner of the
+// screen (they are on the cab's own instruments: cluster.ts). Writes loop/shots/modcar_hud/*.png.
 //   SHOTS_GPU=1 node harness/shots/modcar_hud.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -184,13 +185,15 @@ try {
     }
   }
   // (her eye is level with the Sugar Cube's roof, 1.4 m: from beside the doors nothing of the body itself is within
-  // reach any more — beside a wing it is, over the wheel arch)
-  wings: for (const along of [1.45, -1.55]) {
+  // reach any more — beside a wing it is, over the wheel arch; the view a hand's breadth ahead of her eyes since
+  // 2026-11-26, a step further off too)
+  wings: for (const off of [1.75, 1.95])
+  for (const along of [1.45, -1.55]) {
     for (const pitch of [-0.3, -0.45, -0.2, -0.6]) {
       for (const yaw of [0, -0.2, 0.2, -0.4, 0.4]) {
         if (h.aim === '方糖') break wings;
         await page.evaluate(
-          ({ along, pitch, yaw }) => {
+          ({ along, pitch, yaw, off }) => {
             const g = window.__rt.game;
             const v = g.vehicles[0];
             const w = g.player.walker;
@@ -198,11 +201,11 @@ try {
             v.sim.basis(b);
             const tx = v.sim.px + b[0] * along;
             const tz = v.sim.pz + b[2] * along;
-            w.place(tx + b[6] * 1.75, tz + b[8] * 1.75, 0, 0);
+            w.place(tx + b[6] * off, tz + b[8] * off, 0, 0);
             g.input.lookYaw = Math.atan2(tz - w.z, tx - w.x) + yaw;
             g.input.lookPitch = pitch;
           },
-          { along, pitch, yaw },
+          { along, pitch, yaw, off },
         );
         await settle(150);
         h = await hud();
@@ -233,6 +236,14 @@ try {
   if (!h.hot || !h.slots.some((s) => s.title?.startsWith('机油壶'))) fail(`no hotbar in the seat (${JSON.stringify(h.slots)})`);
   if (!/手刹/.test(h.keys) || !/下车/.test(h.keys)) fail(`no driving keys on the right (${h.keys})`);
   if (h.held || h.aim) fail('cards in the seat');
+  // (no readings in the corner of the screen: the cab's own instruments show them — the player's ask, 2026-11-26)
+  const inCab = await page.evaluate(() => {
+    const g = window.__rt.game;
+    const c = g.seated?.view.cluster;
+    return { corner: !!document.querySelector('.mc-dash'), cluster: !!c, faces: !!c && c.group.visible };
+  });
+  if (inCab.corner) fail('readings in the corner of the screen in the seat');
+  if (!inCab.cluster || !inCab.faces) fail(`no instruments in the cab (${JSON.stringify(inCab)})`);
   await shot('06_seat');
   await page.evaluate(() => window.__rt.game.getOut());
   await settle();

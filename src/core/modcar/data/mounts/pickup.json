@@ -13,7 +13,7 @@
  },
  "eye_default": [
   0.14,
-  1.375,
+  1.35,
   -0.36
  ],
  "frame": "pickup",
@@ -545,11 +545,11 @@
   "seat_driver": {
    "cat": "seat",
    "driver": true,
-   "floor_z": 0.475,
+   "floor_z": 0.45,
    "note": "",
    "pos": [
     0.3,
-    0.475,
+    0.45,
     -0.36
    ],
    "quat": [
@@ -563,11 +563,11 @@
   "seat_pass": {
    "cat": "seat",
    "driver": false,
-   "floor_z": 0.475,
+   "floor_z": 0.45,
    "note": "",
    "pos": [
     0.3,
-    0.475,
+    0.45,
     0.36
    ],
    "quat": [
@@ -673,60 +673,60 @@
  "needles": {
   "N_fuel": {
    "axis": [
-    -0.81474,
-    0.57983,
+    -0.86486,
+    0.50201,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.67151,
-    0.97218,
+    0.67277,
+    1.01571,
     -0.36
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_rpm": {
    "axis": [
-    -0.81474,
-    0.57983,
+    -0.86486,
+    0.50201,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.68079,
-    0.98522,
+    0.6808,
+    1.02955,
     -0.25
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_speed": {
    "axis": [
-    -0.81474,
-    0.57983,
+    -0.86486,
+    0.50201,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.68079,
-    0.98522,
+    0.6808,
+    1.02955,
     -0.466
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_temp": {
    "axis": [
-    -0.81474,
-    0.57983,
+    -0.86486,
+    0.50201,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.7063,
-    1.02107,
+    0.70289,
+    1.06761,
     -0.36
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -819,7 +819,7 @@
   "BODY": 34394,
   "FUEL_CAP": 440,
   "GLASS": 546,
-  "INTERIOR": 4708,
+  "INTERIOR": 4752,
   "KNUCKLE_hub_FL": 396,
   "KNUCKLE_hub_FR": 396,
   "KNUCKLE_hub_RL": 396,
@@ -837,7 +837,7 @@
   "UNDER": 2328,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 60480
+  "total": 60524
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

@@ -18,7 +18,7 @@
  },
  "eye_default": [
   0.325,
-  1.42,
+  1.395,
   -0.41
  ],
  "frame": "goat",
@@ -447,7 +447,7 @@
    "on": "steering column shroud, right side",
    "pos": [
     0.75973,
-    1.02887,
+    0.98387,
     -0.363
    ],
    "quat": [
@@ -553,11 +553,11 @@
   "seat_driver": {
    "cat": "seat",
    "driver": true,
-   "floor_z": 0.52,
+   "floor_z": 0.495,
    "note": "",
    "pos": [
     0.485,
-    0.52,
+    0.495,
     -0.41
    ],
    "quat": [
@@ -571,11 +571,11 @@
   "seat_pass": {
    "cat": "seat",
    "driver": false,
-   "floor_z": 0.52,
+   "floor_z": 0.495,
    "note": "",
    "pos": [
     0.485,
-    0.52,
+    0.495,
     0.41
    ],
    "quat": [
@@ -609,7 +609,7 @@
    "column_deg": 28.0,
    "pos": [
     0.72,
-    1.05,
+    1.005,
     -0.41
    ],
    "quat": [
@@ -682,60 +682,60 @@
  "needles": {
   "N_fuel": {
    "axis": [
-    -0.75863,
-    0.65153,
+    -0.85698,
+    0.51535,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.74024,
-    1.05284,
+    0.74074,
+    1.10124,
     -0.56
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_rpm": {
    "axis": [
-    -0.75863,
-    0.65153,
+    -0.85698,
+    0.51535,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.74805,
-    1.06194,
+    0.74692,
+    1.11152,
     -0.344
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_speed": {
    "axis": [
-    -0.75863,
-    0.65153,
+    -0.85698,
+    0.51535,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.74805,
-    1.06194,
+    0.74692,
+    1.11152,
     -0.476
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_temp": {
    "axis": [
-    -0.75863,
-    0.65153,
+    -0.85698,
+    0.51535,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.74024,
-    1.05284,
+    0.74074,
+    1.10124,
     -0.26
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -828,7 +828,7 @@
   "BODY": 29581,
   "FUEL_CAP": 376,
   "GLASS": 694,
-  "INTERIOR": 6534,
+  "INTERIOR": 7450,
   "KNUCKLE_hub_FL": 480,
   "KNUCKLE_hub_FR": 480,
   "KNUCKLE_hub_RL": 396,
@@ -840,14 +840,14 @@
   "PG_door_FL": 170,
   "PG_door_FR": 170,
   "PG_trunk": 128,
-  "P_door_FL": 3426,
-  "P_door_FR": 3426,
+  "P_door_FL": 3438,
+  "P_door_FR": 3438,
   "P_hood": 3612,
   "P_trunk": 3998,
   "UNDER": 5344,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 59799
+  "total": 60739
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

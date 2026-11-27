@@ -48,8 +48,8 @@ try {
   const keep = await page.evaluate(() => window.__rt.params.keep);
   if (!keep) fail('the plain page is not a kept one');
 
-  // the bar and the three needs' tiles are there
-  const hud = await page.evaluate(() => ({ bar: !!document.querySelector('.mc-vit .bar .hp'), tiles: document.querySelectorAll('.mc-vit .tile').length, hp: parseFloat(document.querySelector('.mc-vit .bar .hp')?.style.width ?? '') }));
+  // the dial and the three needs' tiles are there
+  const hud = await page.evaluate(() => ({ bar: !!document.querySelector('.mc-vit .dial path.hp'), tiles: document.querySelectorAll('.mc-vit .tile').length, hp: parseFloat(document.querySelector('.mc-vit .dial')?.dataset.hp ?? '') }));
   if (!hud.bar || hud.tiles !== 3 || hud.hp !== 100) fail(`the vitals are not on screen ${JSON.stringify(hud)}`);
 
   // 1. sprinting in the open, outside the workshop's door: 5 m/s, 6 stamina a second

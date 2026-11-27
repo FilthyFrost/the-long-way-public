@@ -713,7 +713,9 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
     card.bars.push({ label: '新鲜程度', value: f, max: 1, text: `${FRESH_WORD[st].zh}${keeps}`, tone: FRESH_TONE[st] });
   }
   // a thing that holds things: how full, and what is in it
-  if (d.holds) {
+  // (one that is opened to be looked into — a nightstand's drawer: ItemDef.holds.shut — says nothing of it while shut)
+  if (d.holds?.shut && !inst.state?.open?.length) card.notes.push({ text: '关着', tone: 'info' });
+  else if (d.holds) {
     const h = d.holds;
     const ins = inst.inside;
     const used = ins ? ins.length : 0;

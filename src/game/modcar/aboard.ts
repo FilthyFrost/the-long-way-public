@@ -43,6 +43,14 @@ export class Aboard {
     this.w.step(dt, forward, right);
   }
 
+  /** how far one can go straight ahead from where one stands before the walk ends (m, at most maxD) */
+  roomAhead(maxD: number): number {
+    const cx = Math.cos(this.w.yaw);
+    const cz = Math.sin(this.w.yaw);
+    for (let t = 0.02; t <= maxD; t += 0.02) if (!this.w.inside(this.w.x + cx * t, this.w.z + cz * t)) return t - 0.02;
+    return maxD;
+  }
+
   /** a point of the frame's model space in the world (the render origin added back) */
   toWorld(x: number, y: number, z: number, origin: P3, out: P3): P3 {
     const m = this.v.view.model;

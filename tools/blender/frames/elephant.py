@@ -49,8 +49,11 @@ D = dict(
     gap=0.005, edge_r=0.0022,
     # cab doors (over the front wheels) and their windows; the fixed quarter window ahead of them
     cd_x0=2.50, cd_x1=3.40, cd_z0=1.00, cd_z1=2.45, cd_r=0.06,
-    cd_win=(2.58, 3.32, 1.66, 2.40, 0.07),
-    q_x0=3.46, q_z0=1.66, q_z1=2.38,
+    # (the door's window reaching nearer its front edge and the quarter window nearer the door: the post between them,
+    # seen from the seat at 45 deg to the left, 8.5 cm where it was 14 - SPEC-interior: one band per side, as Nomad
+    # Drive's coach has)
+    cd_win=(2.58, 3.355, 1.66, 2.40, 0.07),
+    q_x0=3.44, q_z0=1.66, q_z1=2.38,
     # side windows: on the left the dinette's and the galley's, on the right the sofa's, the bedroom's both sides
     win_mid=(1.00, 2.40, 1.72, 2.40, 0.09),
     win_gal=(-1.70, 0.40, 1.80, 2.40, 0.09),

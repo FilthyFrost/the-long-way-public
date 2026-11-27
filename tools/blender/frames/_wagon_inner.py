@@ -28,7 +28,14 @@ ENGINE_X = 1.45          # the engine's mount: its room from the firewall to the
 SEAT_X = -0.04           # front seat reference (H point) x
 REAR_SEAT_X = -0.86      # the stock bench: its back clear of the rear struts' tops, its cushion of the front seats
 DRIVER_Y = 0.37
-EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.035 + 0.90)   # the stock bucket seat's eye (parts_geo: -0.16 back, 0.90 up)
+# the front seats' runners are let into the floor, standing 5 mm proud of the carpet (they stood on it, 3.5 cm tall:
+# the cushion 3 cm lower gives her head its room with her eyes where a woman of her height sits, Nomad Drive's
+# driver's view, 2026-11-26)
+SEAT_RISE = 0.005
+EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + SEAT_RISE + 0.90)   # the stock bucket seat's eye (parts_geo: -0.16 back, 0.90 up)
+# where the view is from: her eyes as the game seats her (0.18 ahead of and 0.08 under the seat's eye point), raised by
+# the frame's cabView (core/modcar/frames.ts: 0.145) to a woman's sitting height, 0.73 m over the cushion
+VIEW = (EYE[0] + 0.183, DRIVER_Y, EYE[2] - 0.079 + 0.145)
 DASH_FACE_X = SEAT_X + 0.775
 TUB_R = 0.372            # the rear wheel tubs (over the arch's 0.323)
 TUB_Y0 = 0.48            # their inner walls
@@ -584,14 +591,14 @@ def interior(ex):
     C.extend(K.cyl_buf(p_bot, p_top, 0.045, 'plastic_int', 20, r1=0.038))
     # centre console with the radio's place
     C.extend(console())
-    # seat rails at the seat mounts
+    # seat runners at the seat mounts, let into the floor
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
         for dy in (-0.18, 0.18):
-            C.extend(K.box_buf((sx - 0.25, sy + dy - 0.015, FLOOR_Z), (sx + 0.25, sy + dy + 0.015, FLOOR_Z + 0.035), 'steel', 0.004, 2))
+            C.extend(K.box_buf((sx - 0.25, sy + dy - 0.015, FLOOR_Z - 0.03), (sx + 0.25, sy + dy + 0.015, FLOOR_Z + SEAT_RISE), 'steel', 0.003, 2))
     for dy in (-0.48, 0.48):
         C.extend(K.box_buf((REAR_SEAT_X - 0.15, dy - 0.02, FLOOR_Z), (REAR_SEAT_X + 0.15, dy + 0.02, FLOOR_Z + 0.02), 'steel', 0.004, 2))
-    # interior mirror and sun visors
-    mp = np.array([float(S.ws_x(0, 1.36)) - 0.08, 0.0, 1.34])
+    # interior mirror (on a short stem: from her eyes its foot 6-7 deg over the level line) and sun visors
+    mp = np.array([float(S.ws_x(0, 1.375)) - 0.08, 0.0, 1.355])
     C.extend(K.box_buf(mp + (-0.01, -0.012, 0.01), mp + (0.012, 0.012, 0.06), 'plastic_int', 0.004, 2))
     C.extend(K.box_buf(mp + (-0.025, -0.12, -0.03), mp + (0.0, 0.12, 0.02), 'plastic_int', 0.012, 3))
     C.extend(K.box_buf(mp + (-0.0262, -0.11, -0.022), mp + (-0.0255, 0.11, 0.012), 'glass_dark', 0.0, 1))
@@ -676,7 +683,9 @@ def steering_mount():
     """(position of the steering wheel hub, column direction pointing forward-down)."""
     ang = math.radians(24.0)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([SEAT_X + 0.50, DRIVER_Y, 0.875])
+    # (3.5 cm lower than it was: from her eyes the rim's centre 40 deg under the level line, as Nomad Drive's wheels
+    # are, the instruments seen over the hub through the rim's upper half)
+    p = np.array([SEAT_X + 0.50, DRIVER_Y, 0.84])
     return p, d
 
 
@@ -689,10 +698,11 @@ def dashboard():
 
     def pad_sec(y):
         ay = abs(y - DRIVER_Y)
+        # the roll's lip reaches out over the instruments as their brow; the roll's top runs level across (it was lifted
+        # 3 cm over the pod, a hump straight ahead of her eyes: the binnacle sits in under the lip)
         brow = 0.03 * float(K.sstep(0.26, 0.20, ay)) if y > 0 else 0.0
-        lift = 0.032 * float(K.sstep(0.30, 0.22, ay)) if y > 0 else 0.0     # hood over the raised cluster
-        pts = np.array([(fx + 0.235, 0.92), (fx + 0.175, 0.952 + lift * 0.6), (fx + 0.065, 0.966 + lift), (fx - 0.005 - brow, 0.964 + lift),
-                        (fx - 0.022 - brow, 0.948 + lift), (fx - 0.016 - brow, 0.926 + lift), (fx + 0.01, 0.915), (fx + 0.235, 0.905)])
+        pts = np.array([(fx + 0.235, 0.92), (fx + 0.175, 0.952), (fx + 0.065, 0.966), (fx - 0.005 - brow, 0.964),
+                        (fx - 0.022 - brow, 0.948), (fx - 0.016 - brow, 0.926), (fx + 0.01, 0.915), (fx + 0.235, 0.905)])
         return K.round_profile(pts, [0, 0.03, 0.02, 0.008, 0.006, 0.006, 0.01, 0], 1)
     ys = np.concatenate([np.linspace(-0.74, 0.07, 3), np.linspace(0.10, 0.64, 8), [0.74]])
     b.extend(extrude_y(None, ys, 'plastic_int', inside=(fx + 0.145, 0.0, 0.935), sec_fn=pad_sec))
@@ -707,8 +717,8 @@ def dashboard():
     # glovebox lid and push button
     b.extend(K.box_buf((fx - 0.006, -0.60, 0.71), (fx + 0.004, -0.20, 0.828), 'paint', 0.01, 2))
     b.extend(K.cyl_buf((fx - 0.006, -0.40, 0.81), (fx - 0.014, -0.40, 0.81), 0.009, 'chrome', 12))
-    # instrument pod: a squared box tilted towards the driver
-    eye = np.array(EYE)
+    # instrument pod: a squared box tilted towards the driver's view
+    eye = np.array(VIEW)
     pc = np.array([fx - 0.012, DRIVER_Y, 0.908])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))

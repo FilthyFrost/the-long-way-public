@@ -8,10 +8,17 @@
     <style>
       html, body { margin: 0; height: 100%; background: #0e1116; overflow: hidden; }
       canvas#view { display: block; width: 100vw; height: 100vh; }
+      /* until the first picture is up: the game's name and a bar (taken away by the page's script as the game appears) */
+      #boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #0e1116; color: #efe7d4; font: 700 30px/1.2 "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; letter-spacing: 0.3em; z-index: 20; }
+      #boot small { font-size: 13px; font-weight: 400; letter-spacing: 0.25em; color: #9a968c; }
+      #boot i { display: block; width: 260px; height: 4px; border-radius: 2px; background: rgba(239,231,212,0.16); overflow: hidden; }
+      #boot i::after { content: ''; display: block; width: 36%; height: 100%; border-radius: 2px; background: #e9c14a; animation: boot 1.3s ease-in-out infinite; }
+      @keyframes boot { 0% { transform: translateX(-110%); } 100% { transform: translateX(290%); } }
     </style>
   </head>
   <body>
     <canvas id="view"></canvas>
+    <div id="boot">公路旅行<i></i><small>载入中</small></div>
     <script type="module" src="/src/game/modcar/entry.ts"></script>
   </body>
 </html>

@@ -91,6 +91,8 @@ export class InputManager {
   lookHold = false;
   /** the mouse's turn times this (the settings' 鼠标灵敏度) */
   lookScale = 1;
+  /** the mouse pushed forward looks down (the settings') */
+  invertY = false;
   /** walking about: the mouse turns all the way round and the view does not ease back */
   freeLook = false;
   /** walking stick: forward and right, −1 … 1 */
@@ -142,7 +144,7 @@ export class InputManager {
     const k = k0 * this.lookScale;
     this.lookYaw = this.freeLook ? this.lookYaw + dx * k : Math.max(-2.4, Math.min(2.4, this.lookYaw + dx * k));
     // (in a seat one may look further down: to the handbrake and the gear lever on the tunnel between the seats)
-    this.lookPitch = Math.max(this.freeLook ? -1.0 : -1.3, Math.min(1.0, this.lookPitch - dy * k));
+    this.lookPitch = Math.max(this.freeLook ? -1.0 : -1.3, Math.min(1.0, this.lookPitch - dy * k * (this.invertY ? -1 : 1)));
     this.lastLook = performance.now();
   }
 

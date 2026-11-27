@@ -119,23 +119,24 @@ try {
   await page.evaluate(() => {
     const g = window.__rt.game;
     const ab = g.player.aboard;
-    for (let t = 0; t < 2.6; t += 1 / 30) {
+    for (let t = 0; t < 3.4; t += 1 / 30) {
       ab.step(1 / 30, 1, 0, g.input.lookYaw);
       g.simulate(1 / 30);
     }
   });
   s = await state();
-  ok(s.aboard && s.aboard.x < -2.4, `walked aft along the aisle to the rear (${JSON.stringify(s)})`);
+  ok(s.aboard && s.aboard.x < -3.15, `walked aft along the aisle to the rear (${JSON.stringify(s)})`);
   await shot('3_at_the_rear.png');
 
   // ---- 2. out by the side door and in again
   await page.evaluate(() => window.__rt.openPanel(0, 'door_side', true));
   await step(20);
-  let a = await standLook(-0.08, 0.6, -0.08, 1.7, 1.3);
+  let a = await standLook(-0.83, 0.6, -0.83, 1.7, 1.3);
   ok(a.target === 'alight', `the open side door from inside: 下车 (${JSON.stringify(a)})`);
   await shot('4_side_door_from_inside.png', true);
   await page.evaluate(() => window.__rt.press());
-  await step(10);
+  // (out and down its steps at a walk: under a second and a half — core/modcar/aboard.ts stepHeight)
+  await step(100);
   s = await state();
   ok(!s.aboard && !s.seated, `the left button: out by the side door (${JSON.stringify(s)})`);
   await page.evaluate(() => { const g = window.__rt.game; g.input.lookYaw += Math.PI; g.input.lookPitch = -0.1; });
@@ -144,7 +145,8 @@ try {
   ok(s.target === 'board', `the doorway from outside: in again (${JSON.stringify(s)})`);
   await shot('5_side_door_from_outside.png', true);
   await page.evaluate(() => window.__rt.press());
-  await step(10);
+  // (up its steps and in at a walk)
+  await step(100);
   s = await state();
   ok(!!s.aboard, `the left button: in the living space again (${JSON.stringify(s)})`);
 
@@ -160,8 +162,8 @@ try {
   await page.evaluate(() => window.__rt.hold('item:junk_tv'));
   await step(3);
   await key('KeyR');
-  found: for (const [sx, sz] of [[0.1, 0.3], [-0.6, 0.3], [-0.6, 0.0], [0.1, 0.0]]) {
-    for (const [tx, ty, tz] of [[-0.6, 1.5, -1.08], [-0.55, 1.7, -1.08], [-0.65, 1.35, -1.08], [-0.6, 1.9, -1.08]]) {
+  found: for (const [sx, sz] of [[-0.65, 0.3], [-1.35, 0.3], [-1.35, 0.0], [-0.65, 0.0]]) {
+    for (const [tx, ty, tz] of [[-1.35, 1.5, -1.08], [-1.3, 1.7, -1.08], [-1.4, 1.35, -1.08], [-1.35, 1.9, -1.08]]) {
       await standLook(sx, sz, tx, ty, tz);
       p = await placed();
       if (p.into === 'wall' && p.ok) break found;
@@ -180,7 +182,7 @@ try {
   // it is turned, decide whether it goes — on the grid its edges go to the nearest 10 cm line, a few centimetres either way)
   let first = null;
   found: for (const tz of [-0.7, -0.78, -0.62, -0.86]) {
-    await standLook(0.1, 0.0, 0.38, 1.59, tz);
+    await standLook(-0.65, 0.0, -0.37, 1.59, tz);
     first ??= await placed();
     // E: a quarter round onto the grid, its footprint's edges on the motorhome's 10 cm lines (it was the aimed spot's
     // own 10 cm grid); turned across the table it does not fit, so on round to the next quarter that does
@@ -239,10 +241,10 @@ try {
     await step(4);
     ok(r.device === id && (await appOn(id)), `the left button on the ${id}: switched on (${JSON.stringify(r)})`);
   };
-  await pressOn('junk_lamp', [0.3, 0.3], 0.3);
-  await pressOn('junk_clockradio', [-1.2, -0.15], 0.05);
-  await pressOn('junk_tv', [0.2, 0.45], 0.25);
-  await pressOn('junk_record', [0.5, 0.3], 0.12);
+  await pressOn('junk_lamp', [-0.45, 0.3], 0.3);
+  await pressOn('junk_clockradio', [-1.95, -0.15], 0.05);
+  await pressOn('junk_tv', [-0.55, 0.45], 0.25);
+  await pressOn('junk_record', [-0.25, 0.3], 0.12);
   await step(30);
   const tel = await page.evaluate(() => window.__rt.game.systems.get('appliances').telemetry());
   ok(tel.playing.length >= 3, `the radio, the television and the record play (${JSON.stringify(tel.playing)})`);
@@ -253,10 +255,10 @@ try {
     return u ? u.r + u.g + u.b : -1;
   });
   ok(lit > 0.1, `the motorhome's inside is lit by its lamps (${lit.toFixed(2)})`);
-  await standLook(0.6, 0.3, -3.0, 1.45, -0.15);
+  await standLook(0.6, 0.3, -4.2, 1.45, -0.15);
   await shot('8_furnished_at_night.png');
   if (pos.junk_tv) {
-    await standLook(0.5, pos.junk_tv.z + 0.05, pos.junk_tv.x + 0.2, pos.junk_tv.y + 0.28, pos.junk_tv.z + 0.05);
+    await standLook(-0.25, pos.junk_tv.z + 0.05, pos.junk_tv.x + 0.2, pos.junk_tv.y + 0.28, pos.junk_tv.z + 0.05);
     await shot('9_tv.png');
   }
   if (pos.junk_lamp) {

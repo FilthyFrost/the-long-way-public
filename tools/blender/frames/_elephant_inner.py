@@ -18,12 +18,16 @@ sys.dont_write_bytecode = True
 import numpy as np  # noqa: E402
 
 from frames import _kit as K  # noqa: E402
+from frames import _steps as STP  # noqa: E402
 from frames import elephant as S  # noqa: E402
 from frames._sedan_inner import dial, extrude_y, quad_sheet, rear_tub_cabin, smooth_path  # noqa: E402
 
 D = S.D
 PI = math.pi
 IN_Y = D['hw'] - 0.05    # the walls' inside (the lining's face)
+# the floor's edge along the walls: under the lining (it stopped 1.5 cm short of it, and through the slot the ground
+# showed from inside)
+FLOOR_Y = float(S.side_w(0.0, 0.62)) - 0.03 + 0.003
 FLOOR_Z = 0.62           # the cab's and the room's floor (mat top)
 PAN_Z = 0.58             # under the floor
 SEAT_Z = 1.00            # the front seats' boxes over the wheels (the seat parts stand on them)
@@ -35,21 +39,31 @@ FIREWALL_X = -2.69       # the engine bay's front wall (under the bed's platform
 DECK_Z = 1.28            # the bed's platform's top over the engine (its underside 2 cm lower)
 BED_X1 = -1.90           # the platform's front: the room's back
 BED_TOP = DECK_Z + 0.16
-# the dinette along the left wall behind the driver: bench A (its back to the cab), the table, bench B
-DIN_A = (2.05, 2.47)
-DIN_T = (1.30, 2.00)
-DIN_B = (0.84, 1.25)
+# the dinette along the left wall: bench A (its back to the cab), the table, bench B. It stood right behind the
+# driver, across the aisle from the fridge's cabinet, 77 cm from it; it stands 80 cm further back since docs/V3/plan/
+# finish.md section 11.1, beside the galley (its table 10 cm shorter), and the corner behind the driver is open floor
+DIN_A = (1.24, 1.66)
+DIN_T = (0.60, 1.19)
+DIN_B = (0.14, 0.55)
 DIN_Y = 0.42
 BENCH_Z = FLOOR_Z + 0.44
 TABLE_Z = FLOOR_Z + 0.72
-# the pantry between the dinette and the galley; the galley along the left wall (its worktop, the sink at its front end)
-PANTRY_X = (0.46, 0.80)
+# the galley along the left wall (its worktop, the sink at its front end over an open cubby). (A tall pantry stood
+# between it and the dinette, and it was 32 cm longer: section 11.1. The worktop beside the sink is 1.64 m still: the
+# four hobs it is found with stand on it side by side, each 41 cm of it with its knob and its cord; the sink is a
+# smaller one.)
 GALLEY_X0 = -1.88
-GALLEY_X1 = 0.42
+GALLEY_X1 = 0.10
 GALLEY_Y = IN_Y - 0.60
 WORKTOP_Z = FLOOR_Z + 0.92
-SINK_X = 0.04
-# on the right: the fridge's cabinet behind the passenger's seat (its niche from the floor), the sofa
+SINK_X = -0.055
+SINK_HW = 0.15
+# the cubby under the sink, open to the aisle: along the galley, its floor, its clear top
+CUBBY_X = (-0.48, 0.07)
+CUBBY_Z = (FLOOR_Z + 0.08, WORKTOP_Z - 0.10)
+# on the right: the fridge's cabinet behind the passenger's seat (its niche from the floor). The sofa that was built
+# in along the right wall is gone: a sofa one can move stands there (the frame's fittings, core/modcar/frames.ts); its
+# place is kept here for the lockers over it
 FRIDGE_X = (1.66, 2.48)
 FRIDGE_Y = IN_Y - 0.78
 PLINTH_Z = FLOOR_Z + 0.30   # the niche's floor: a plinth over the front wheel's hump (a drawer in it)
@@ -74,7 +88,7 @@ GEARBOX = (D['ax_r'] + 0.42, 0.0, 0.26)
 TANK = (0.40, 0.0, 0.14)
 BATTERY = (3.84, 0.0, FLOOR_Z)
 # the house battery (docs/V3/plan/rv.md: the leisure battery): on the floor in the dinette's footwell, by the wall
-HOUSE_BATTERY = (1.65, IN_Y - 0.17, FLOOR_Z)
+HOUSE_BATTERY = (0.89, IN_Y - 0.17, FLOOR_Z)
 FRAME_Y = 0.55           # the rails between the wheel wells (they narrow to RAIL_IN past the wells)
 RAIL_IN = 0.42
 RAIL_Z = 0.48            # the rails' centre height (under the floor)
@@ -179,9 +193,32 @@ def rail_path():
     return smooth_path(pts, 2)
 
 
-def underbody():
+def well_span():
+    """The entry door's stairwell in plan (left coordinates): its x between the opening's edges, its inner edge's y."""
+    from frames import _elephant_ext as EX
+    xa, xb = EX.WELL_X
+    yf = float(S.side_w(0.5 * (xa + xb), D['z_bot'] + 0.2))
+    return xa, xb, yf - len(EX.WELL['tops']) * EX.WELL['depth'], yf
+
+
+def split_x(x0, x1, y0, y1, z0, z1, mat, bevel, segs, right):
+    """A box along the side (left coordinates); on the right, where the entry door's stairwell is, only as far out as
+    its inner edge."""
+    b = K.Buf()
+    if not right:
+        return b.extend(K.box_buf((x0, y0, z0), (x1, y1, z1), mat, bevel, segs))
+    xa, xb, y_in, _ = well_span()
+    xa, xb = xa - 0.035, xb + 0.035
+    for a0, a1, c1 in ((x0, min(x1, xa), y1), (max(x0, xb), x1, y1), (max(x0, xa), min(x1, xb), min(y1, y_in - 0.03))):
+        if a1 - a0 > 1e-3 and c1 - y0 > 1e-3:
+            b.extend(K.box_buf((a0, y0, z0), (a1, c1, z1), mat, bevel, segs))
+    return b
+
+
+def underbody(right=False):
     """UNDER (left half): floor pan, rails, crossmembers, front lower arms, rear trailing arms and drive shafts,
-    wheelhouse liners."""
+    wheelhouse liners. `right`: the half mirrored onto the right, where the entry door's stairwell goes down through
+    the pan and the sill."""
     b = K.Buf()
     xf_in = D['xf'] - 0.06
     xa, xr_a = D['ax_f'], D['ax_r']
@@ -190,7 +227,7 @@ def underbody():
     pan = 'trim'
     # the floor pan's underside: round the wheel wells
     for (x0, x1, y0, y1) in ((FIREWALL_X, xf_in, 0.0, WELL_IN_F), (wr1, wf0, WELL_IN_F, IN_Y + 0.02)):
-        b.extend(K.box_buf((x0, y0, PAN_Z - 0.006), (x1, y1, PAN_Z), pan, 0.003, 1))
+        b.extend(split_x(x0, x1, y0, y1, PAN_Z - 0.006, PAN_Z, pan, 0.003, 1, right))
     b.extend(K.prism_buf(corner_plan(wf1, xf_in, WELL_IN_F, IN_Y + 0.02, 'F', D['rho_f'] - 0.04), PAN_Z - 0.006, PAN_Z, pan, 0.003, 1))
     # rails: a C section along the waisted centre line, under the floor
     path2 = rail_path()
@@ -211,7 +248,12 @@ def underbody():
     xc = XC_R
     b.extend(K.box_buf((xc - 0.06, 0.0, RAIL_Z - 0.05), (xc + 0.06, IN_Y - 0.06, RAIL_Z + 0.05), 'steel', 0.008, 2))
     # sill rails along the bottom of the body between the wheel wells
-    b.extend(K.box_buf((wr1 + 0.02, IN_Y - 0.04, D['z_bot'] + 0.01), (wf0 - 0.02, IN_Y + 0.02, PAN_Z), 'steel', 0.006, 1))
+    if right:
+        xa, xb, _, _ = well_span()
+        for (x0, x1) in ((wr1 + 0.02, xa - 0.035), (xb + 0.035, wf0 - 0.02)):
+            b.extend(K.box_buf((x0, IN_Y - 0.04, D['z_bot'] + 0.01), (x1, IN_Y + 0.02, PAN_Z), 'steel', 0.006, 1))
+    else:
+        b.extend(K.box_buf((wr1 + 0.02, IN_Y - 0.04, D['z_bot'] + 0.01), (wf0 - 0.02, IN_Y + 0.02, PAN_Z), 'steel', 0.006, 1))
     # wheelhouse liners
     b.extend(wheelhouse(xa, WELL_IN_F, IN_Y + 0.05, WELL_R, D['z_bot'] + 0.04))
     b.extend(wheelhouse(xr_a, WELL_IN_R, IN_Y + 0.05, WELL_R, D['z_bot'] + 0.04))
@@ -316,7 +358,7 @@ def interior(ex):
     xa, xr_a = D['ax_f'], D['ax_r']
     # ---------------------------------------------------------------- the cab
     # floor mat from the room to the nose, round the nose's corner
-    L.extend(K.prism_buf(corner_plan(ROOM_FRONT_X - 0.02, D['xf'] - 0.05, 0.0, IN_Y, 'F', D['rho_f'] - 0.04), FLOOR_Z - 0.03, FLOOR_Z, 'rubber', 0.004, 1))
+    L.extend(K.prism_buf(corner_plan(ROOM_FRONT_X - 0.02, D['xf'] - 0.05, 0.0, FLOOR_Y, 'F', D['rho_f'] - 0.04), FLOOR_Z - 0.03, FLOOR_Z, 'rubber', 0.004, 1))
     # each front seat stands on a box beside its wheel's well and over it on the well's hump (the strut rises into
     # the hump and the seat's cushion)
     L.extend(seat_box(SEAT_X - 0.48, SEAT_X + 0.28, 0.32, WELL_IN_F - 0.006, SEAT_Z, 'fabric'))
@@ -390,8 +432,10 @@ def interior(ex):
         vp = np.array([mx - 0.03, sy * 0.58, D['ws_head'] + 0.01])
         C.extend(K.box_buf(vp + (-0.20, -0.27, -0.012), vp + (0.0, 0.27, 0.008), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 6, vp)))
     # ---------------------------------------------------------------- the room
-    # wood floor from the bed's platform to the cab
-    L.extend(K.box_buf((BED_X1 - 0.01, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, IN_Y, FLOOR_Z), 'wood', 0.004, 1))
+    # wood floor from the bed's platform to the cab (on the right without the entry door's stairwell)
+    C.extend(K.box_buf((BED_X1 - 0.01, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, FLOOR_Y, FLOOR_Z), 'wood', 0.004, 1))
+    xa, xb, y_in, _ = well_span()
+    C.extend(STP.floor_round(BED_X1 - 0.01, ROOM_FRONT_X - 0.02, 0.0, FLOOR_Y, FLOOR_Z - 0.03, FLOOR_Z, 'wood', (xa, xb, y_in, IN_Y + 0.1), 0.004).mirrored())
     # the dinette (left: as it is): bench A with its back to the cab, the table on its leg, bench B facing it
     for (x0, x1, back) in ((DIN_A[0], DIN_A[1], +1), (DIN_B[0], DIN_B[1], -1)):
         C.extend(K.box_buf((x0, DIN_Y, FLOOR_Z - 0.005), (x1, IN_Y, BENCH_Z - 0.10), 'wood', 0.01, 2))
@@ -403,15 +447,19 @@ def interior(ex):
     tl = np.array([(DIN_T[0] + DIN_T[1]) / 2, (DIN_Y + IN_Y) / 2 - 0.05, 0.0])
     C.extend(K.cyl_buf((tl[0], tl[1], FLOOR_Z), (tl[0], tl[1], TABLE_Z - 0.032), 0.032, 'chrome', 14))
     C.extend(K.cyl_buf((tl[0], tl[1], FLOOR_Z), (tl[0], tl[1], FLOOR_Z + 0.012), 0.16, 'chrome', 20))
-    # the pantry: a tall cupboard up to the lockers, its door to the aisle
-    C.extend(K.box_buf((PANTRY_X[0], GALLEY_Y, FLOOR_Z - 0.005), (PANTRY_X[1], IN_Y, LOCKER_Z[0] - 0.02), 'wood', 0.01, 2))
-    cupboard_doors(C, PANTRY_X[0], PANTRY_X[1], GALLEY_Y, FLOOR_Z + 0.06, LOCKER_Z[0] - 0.06, 1, -1, knob_z=FLOOR_Z + 0.98)
     # the galley along the left wall: its carcass, doors under drawers towards the aisle, the worktop, the sink at its
     # front end with the tap (the hobs stand on the rest of it), the splash board up to the window
     gx0, gx1, gy = GALLEY_X0, GALLEY_X1, GALLEY_Y
-    C.extend(K.box_buf((gx0, gy, FLOOR_Z - 0.005), (gx1, IN_Y, WORKTOP_Z - 0.035), 'wood', 0.01, 2))
-    nb = 4
-    w = (gx1 - gx0) / nb
+    cx0, cx1 = CUBBY_X
+    cz0, cz1 = CUBBY_Z
+    C.extend(K.box_buf((gx0, gy, FLOOR_Z - 0.005), (cx0, IN_Y, WORKTOP_Z - 0.035), 'wood', 0.01, 2))
+    C.extend(K.box_buf((cx1, gy, FLOOR_Z - 0.005), (gx1, IN_Y, WORKTOP_Z - 0.035), 'wood', 0.004, 1))
+    # (the cubby: its floor, its back at the wall, its top under the worktop)
+    C.extend(K.box_buf((cx0, gy, FLOOR_Z - 0.005), (cx1, IN_Y, cz0), 'wood', 0.004, 1))
+    C.extend(K.box_buf((cx0, IN_Y - 0.03, cz0), (cx1, IN_Y, WORKTOP_Z - 0.035), 'wood', 0.004, 1))
+    C.extend(K.box_buf((cx0, gy, cz1), (cx1, IN_Y - 0.03, WORKTOP_Z - 0.035), 'wood', 0.004, 1))
+    nb = 3
+    w = (cx0 - gx0) / nb
     for k in range(nb):
         a_, b_ = gx0 + k * w + 0.012, gx0 + (k + 1) * w - 0.012
         C.extend(K.box_buf((a_, gy - 0.014, FLOOR_Z + 0.08), (b_, gy + 0.001, WORKTOP_Z - 0.22), 'wood', 0.006, 2))
@@ -421,16 +469,17 @@ def interior(ex):
         C.extend(K.cyl_buf((b_ - 0.05, gy - 0.014, WORKTOP_Z - 0.34), (b_ - 0.05, gy - 0.034, WORKTOP_Z - 0.34), 0.012, 'chrome', 10))
     C.extend(K.box_buf((gx0 - 0.012, gy - 0.025, WORKTOP_Z - 0.035), (gx1 + 0.012, IN_Y, WORKTOP_Z), 'plastic_int', 0.008, 2))
     sx, sy_ = SINK_X, (gy + IN_Y) / 2
-    C.extend(K.box_buf((sx - 0.21, sy_ - 0.17, WORKTOP_Z - 0.002), (sx + 0.21, sy_ + 0.17, WORKTOP_Z + 0.008), 'chrome', 0.006, 2))
-    C.extend(K.box_buf((sx - 0.18, sy_ - 0.14, WORKTOP_Z + 0.008), (sx + 0.18, sy_ + 0.14, WORKTOP_Z + 0.0095), 'steel', 0.0, 1))
+    C.extend(K.box_buf((sx - SINK_HW, sy_ - 0.17, WORKTOP_Z - 0.002), (sx + SINK_HW, sy_ + 0.17, WORKTOP_Z + 0.008), 'chrome', 0.006, 2))
+    C.extend(K.box_buf((sx - SINK_HW + 0.03, sy_ - 0.14, WORKTOP_Z + 0.008), (sx + SINK_HW - 0.03, sy_ + 0.14, WORKTOP_Z + 0.0095), 'steel', 0.0, 1))
     C.extend(K.cyl_buf((sx, sy_, WORKTOP_Z + 0.0095), (sx, sy_, WORKTOP_Z + 0.011), 0.022, 'trim', 12))
     tap = np.array([(sx, IN_Y - 0.03, WORKTOP_Z), (sx, IN_Y - 0.03, WORKTOP_Z + 0.24), (sx, IN_Y - 0.10, WORKTOP_Z + 0.27), (sx, IN_Y - 0.16, WORKTOP_Z + 0.20)])
     C.extend(K.tube_buf(smooth_path(tap, 2), 0.012, 'chrome', 10))
     C.extend(K.cyl_buf((sx + 0.08, IN_Y - 0.04, WORKTOP_Z), (sx + 0.08, IN_Y - 0.04, WORKTOP_Z + 0.05), 0.017, 'chrome', 10))
     C.extend(K.box_buf((gx0, IN_Y - 0.015, WORKTOP_Z), (gx1, IN_Y - 0.002, D['win_gal'][2] - 0.02), 'ceramic', 0.004, 1))
     # the lockers over the left wall: over the galley and the pantry, over the dinette
-    lockers(C, GALLEY_X0, PANTRY_X[1] + 0.02, 5)
-    lockers(C, PANTRY_X[1] + 0.02, DIN_A[1], 3)
+    lockers(C, GALLEY_X0, GALLEY_X1 + 0.02, 5)
+    lockers(C, GALLEY_X1 + 0.02, DIN_A[1], 3)
+    lockers(C, DIN_A[1] + 0.02, ROOM_FRONT_X - 0.04, 2)
     # (right: in left coordinates) the fridge's cabinet behind the passenger's seat: its niche on a plinth over the front
     # wheel's hump (a drawer in the plinth) for a fridge to stand in, a cupboard over the niche up to the lockers' line
     fx0, fx1, fy = FRIDGE_X[0], FRIDGE_X[1], FRIDGE_Y
@@ -442,19 +491,8 @@ def interior(ex):
     R.extend(K.box_buf(((fx0 + fx1) / 2 - 0.08, fy - 0.028, PLINTH_Z - 0.10), ((fx0 + fx1) / 2 + 0.08, fy - 0.014, PLINTH_Z - 0.08), 'chrome', 0.004, 1))
     R.extend(K.box_buf((fx0, fy, NICHE_Z), (fx1, IN_Y, LOCKER_Z[1]), 'wood', 0.01, 2))
     cupboard_doors(R, fx0, fx1, fy, NICHE_Z + 0.03, LOCKER_Z[1] - 0.03, 2, -1, knob_z=NICHE_Z + 0.10)
-    # the entry door's step (right side, in left coordinates)
-    R.extend(K.box_buf((D['sd_x0'] + 0.03, IN_Y - 0.20, FLOOR_Z - 0.03), (D['sd_x1'] - 0.03, IN_Y + 0.04, D['sd_z0'] - 0.012), 'wood', 0.006, 2))
-    R.extend(K.box_buf((D['sd_x0'] + 0.03, IN_Y + 0.02, D['sd_z0'] - 0.016), (D['sd_x1'] - 0.03, IN_Y + 0.055, D['sd_z0'] - 0.004), 'alu', 0.003, 1))
-    # the sofa along the right wall: its base, the seat cushion, the back cushions against the wall, an arm at each end
-    s0, s1, sy = SOFA_X[0], SOFA_X[1], SOFA_Y
-    R.extend(K.box_buf((s0, sy, FLOOR_Z - 0.005), (s1, IN_Y, SOFA_Z - 0.12), 'wood', 0.01, 2))
-    for k in range(3):
-        a_, b_ = s0 + 0.12 + k * (s1 - s0 - 0.24) / 3 + 0.004, s0 + 0.12 + (k + 1) * (s1 - s0 - 0.24) / 3 - 0.004
-        R.extend(K.box_buf((a_, sy - 0.015, SOFA_Z - 0.12), (b_, IN_Y - 0.15, SOFA_Z), 'fabric', 0.035, 3))
-        R.extend(K.box_buf((a_, IN_Y - 0.17, SOFA_Z), (b_, IN_Y - 0.02, SOFA_Z + 0.50), 'fabric', 0.045, 3, xf=K.mat4_rot((1, 0, 0), -8, ((a_ + b_) / 2, IN_Y - 0.02, SOFA_Z))))
-    for x0, x1 in ((s0, s0 + 0.12), (s1 - 0.12, s1)):
-        R.extend(K.box_buf((x0, sy - 0.02, FLOOR_Z - 0.005), (x1, IN_Y - 0.01, SOFA_Z + 0.20), 'fabric', 0.04, 3))
-    # the lockers over the right wall, over the sofa (the fridge's cabinet goes up to their top)
+    # (the entry door's step that stood inside it is its stairwell now: _elephant_build.entry_well)
+    # the lockers over the right wall, where the sofa stands (the fridge's cabinet goes up to their top)
     lockers(R, SOFA_X[0], SOFA_X[1] + 0.02, 5)
     # ---------------------------------------------------------------- the bedroom
     # the bed's platform from the firewall forward over the rear wheels (their wells, the gearbox and the dampers' tops

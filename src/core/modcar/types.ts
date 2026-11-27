@@ -462,6 +462,13 @@ export interface FrameDef {
    */
   towed?: { coupler: V3; standY: number };
   chase: { dist: number; height: number; look: number };
+  /**
+   * The view from a front seat moved from her eyes along the vehicle's own axes (m: back, up): the cab seen as Nomad
+   * Drive's cabs are (the player's ask, 2026-11-26) — its speedometer some 0.75 m off and about 20° under the level
+   * line, a dial 7% of the screen's width, the whole wheel with her hands on it at the bottom, the dash's top well
+   * under the road ahead. Only her arms are drawn in a seat, so nothing of her stands in the way. Absent: her eyes.
+   */
+  cabView?: { back: number; up: number };
   mounts: MountDef[];
   /** how the frame model's moving pieces move (from its mounts JSON; absent for a placeholder) */
   rig?: FrameRig;
@@ -472,7 +479,7 @@ export interface FrameDef {
    * so many of a kind of thing, in a place for things of its own (cargo.ts zone id), spread along it, turned by yaw
    * (rad about up: its front, +x, to +z at -π/2 — towards the aisle from a galley on the left)
    */
-  fittings?: readonly { readonly item: string; readonly zone: string; readonly n: number; readonly yaw?: number }[];
+  fittings?: readonly { readonly item: string; readonly zone: string; readonly n: number; readonly yaw?: number; /** where in the zone (frame model space: x, z), instead of spread along it */ readonly at?: readonly [number, number] }[];
 }
 
 /**

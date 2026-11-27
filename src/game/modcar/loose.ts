@@ -206,6 +206,23 @@ export function partLook(inst: PartInstance): LookOf {
 /** the movers inside a part stay out of a merge (render/carMerge default rule plus the parts' movers) */
 const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_)/;
 
+/** a place on a board of a piece of furniture for a thing held out: where its origin goes (world), what the piece rides, how far along the line of sight the board's space begins */
+export interface BoardAim {
+  ok: boolean;
+  why: string;
+  x: number;
+  y: number;
+  z: number;
+  on: object | null;
+  dist: number;
+  /**
+   * A board of a container's (v3/nd-store): the thing goes into what the container holds, at this place, and is no
+   * thing lying about — how many of it did NOT go in (the rest stays in the hands), −1 none (it has said why).
+   * Absent: it stands there as a thing lying about.
+   */
+  put?(thing: { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | { kind: 'item'; item: ItemInstance }): number;
+}
+
 export class LooseThings {
   /** placed at the world's origin (render space): the things in it, and their merge, are in world metres */
   readonly root = new THREE.Group();
@@ -464,6 +481,54 @@ export class LooseThings {
     return g;
   }
 
+  /**
+   * An item's model in its colours, to be shown somewhere — on a board of an open fridge: not a thing of the world
+   * (nothing lies, is marked, weighed or saved by it). A stand-in at once, its own model when that is in; its box in
+   * its own frame in userData.box (and `fitted` called whenever that changes). `owner`: its look's name, dropped
+   * with dropShown.
+   */
+  shownItem(item: ItemInstance, owner: string, fitted: (g: THREE.Group) => void): THREE.Group {
+    const g = new THREE.Group();
+    const look = this.mats.look(owner, itemPaint(item));
+    const obj = itemStandIn(item);
+    applyMaterials(obj, look);
+    g.add(obj);
+    g.userData.box = new THREE.Box3().setFromObject(obj);
+    fitted(g);
+    void this.track(itemGlb(itemModelOf(item))).then((m) => {
+      if (!m || obj.parent !== g) return;
+      const real = cloneModel(m);
+      applyMaterials(real, look);
+      (g.userData.box as THREE.Box3).setFromObject(real);
+      obj.removeFromParent();
+      g.add(real);
+      fitted(g);
+    });
+    return g;
+  }
+
+  /** a shown thing's look let go, and where a shown thing is drawn told to its look */
+  dropShown(owner: string): void {
+    this.mats.drop(owner);
+  }
+
+  placeShown(owner: string, g: THREE.Object3D): void {
+    this.mats.setFrameOf(owner, g.matrixWorld);
+  }
+
+  /**
+   * Where a thing held out would stand on a board of a piece of furniture the line of sight goes into (render space;
+   * `box` the thing's own, `yaw` its heading; null: the line goes into none) — the home's to say (v3/nd-home
+   * boardAim), the careful placing's to ask (v3/nd-place).
+   */
+  boards: ((eye: THREE.Vector3, dir: THREE.Vector3, box: ThingBox, yaw: number, grid: boolean, reach: number) => BoardAim | null) | null = null;
+
+  /**
+   * The piece of furniture a thing lying about stands in or hangs on, by name (null: none) — the home's to say
+   * (v3/nd-home): the list of what a vehicle carries names it (docs/V3/plan/finish.md §十一 2).
+   */
+  keeper: ((l: Loose) => string | null) | null = null;
+
   /** a tool's look changed (a spray can's colour) */
   repaintTool(l: Loose): void {
     if (!l.tool) return;
@@ -471,8 +536,8 @@ export class LooseThings {
     this.unmerge();
   }
 
-  /** light up the thing the mark is on (null = none) */
-  highlight(l: Loose | null): void {
+  /** light up the thing the mark is on (null = none); or a look of a system's own (`owner`: a thing drawn in an open container, v3/nd-store) */
+  highlight(l: Loose | null, owner = ''): void {
     const id = l ? (this.mergeIds.get(l.uid) ?? -1) : -1;
     if (id !== this.litId) {
       this.mergedLook?.setHighlight(id > 0 ? id : null);
@@ -487,7 +552,7 @@ export class LooseThings {
         m.lit = mid;
       }
     }
-    this.mats.highlight(l && own ? ownerOf(l) : '');
+    this.mats.highlight(l && own ? ownerOf(l) : owner);
   }
 
   private unmerge(): void {

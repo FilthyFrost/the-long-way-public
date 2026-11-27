@@ -49,7 +49,7 @@ D = dict(
     r_rail=0.028, r_header=0.036, r_rheader=0.040,
     # cuts
     gap=0.005, edge_r=0.0022,
-    door_bot=0.27, fd_front=0.905, fd_rear=-0.175, rd_front=-0.185, rd_rear=-1.13,
+    door_bot=0.27, fd_front=0.905, fd_rear=-0.175, rd_front=-0.175, rd_rear=-1.13,
     bp_front=-0.172, bp_rear=-0.232, rail_z=1.36, cp_top=-1.095,
     cp_w=0.045,                                # the C pillar's body part behind the rear door frame
     dp_w=0.09,                                 # the D pillar on the side face, ahead of its corner

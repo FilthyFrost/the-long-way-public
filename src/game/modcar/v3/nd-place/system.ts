@@ -9,7 +9,9 @@
  * surface it meets (the ground, a floor, a vehicle's roof, bonnet or bumper: its box's lowest point on it, the highest
  * of five points under its footprint), its middle on the point looked at; else floating, short of what is in the way,
  * its ghost where it would come down. It is put down (the left button) exactly where it shows, if nothing is in the
- * way — the left button where it may not go says why, once, and goes (docs/V3/plan/prompts.md §五).
+ * way — the left button where it may not go says why, once, and goes (docs/V3/plan/prompts.md §五). Before all that, a
+ * slot of a system's the line of sight meets (slots.ts: a stove's burner for a pan, a pot or a kettle) takes it onto
+ * its middle, turned as it is held — Q and E turn it there on the burner's own squares — and it stays so turned.
  *
  * The grid (the user's "按下Q或者E就自动进入网格的模式…车的网格"): Q or E turns it a quarter round to the next square of
  * the grid it is on (0.2 s) and puts it on that grid — its footprint's edges on the lines of 10 cm squares, drawn round
@@ -20,7 +22,8 @@
  */
 import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
-import { footprint as zoneFootprint, gridAt, LIDLESS_WHY, zoneLidless, zonesOf, type Spot } from '../../../../core/modcar/cargo';
+import { footprint as zoneFootprint, gridAt, latticeOrigin, LIDLESS_WHY, zoneLidless, zonesFor, type CargoZone, type Placed, type Spot } from '../../../../core/modcar/cargo';
+import { itemDef } from '../../../../core/modcar/items';
 import { ND_FRIDGE } from '../../../../core/v3/nd/items';
 import { circleInRect, distToRect, firstBlocking, footprint, latticeShift, nearestQuarter, nextQuarter, outBack, outCubic, PLACE, pointInBlock, stepDistance, type Box3, type Rect } from '../../../../core/v3/nd/place';
 import type { Solid } from '../../../../core/world/solids';
@@ -28,10 +31,11 @@ import { applyGhost, type GhostKind } from '../../../render/carMaterials';
 import { massOf, type StowAim } from '../../cargo';
 import type { Action } from '../../hudItems';
 import type { GameContext } from '../../kernel/context';
-import type { Loose } from '../../loose';
+import type { BoardAim, Loose } from '../../loose';
 import { heldOf, type HandsUse, type Held } from '../../player';
 import type { ModVehicle } from '../../vehicle';
 import { PlaceGrid } from './grid';
+import { placeSlots, turnOnSlot, type SlotAim } from './slots';
 
 type Thing = NonNullable<Held>;
 
@@ -55,6 +59,10 @@ interface Aim {
   surface: boolean;
   /** on the surface the line of sight meets (shown there), not floating with its ghost below */
   onSurface?: boolean;
+  /** a slot of a system's it goes onto (a stove's burner: slots.ts), shown there turned as it is held */
+  slot?: SlotAim | null;
+  /** a container's board it goes onto (v3/nd-store): the container takes it, as what it holds (loose.ts BoardAim.put) */
+  put?: BoardAim['put'] | null;
 }
 
 /** the grid a thing is on: a vehicle's (in its model's frame, its lines through its first place for things' corner) or the world's */
@@ -68,6 +76,13 @@ interface GridFrame {
 }
 
 const WORLD: GridFrame = { v: null, yaw: 0, ox: 0, oz: 0 };
+
+/**
+ * A piece of furniture placed in a room goes against a wall its back is within this of (m), a wall or another piece
+ * its side is within this of (docs/V3/plan/finish.md §十一 3.2); as far into either counts as near
+ */
+const SNAP_BACK = 0.08;
+const SNAP_SIDE = 0.05;
 
 const wrapPi = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 const UP = new THREE.Vector3(0, 1, 0);
@@ -120,6 +135,7 @@ export class NdPlace implements System<GameContext> {
   /** the middle of where it is shown this frame (render space): the grid round it */
   private readonly mid = new THREE.Vector3();
   private readonly tq = new THREE.Quaternion();
+  private readonly tq2 = new THREE.Quaternion();
   private readonly tp = new THREE.Vector3();
   private readonly tp2 = new THREE.Vector3();
   private readonly m4 = new THREE.Matrix4();
@@ -127,8 +143,12 @@ export class NdPlace implements System<GameContext> {
   private readonly m3 = new THREE.Matrix3();
   private readonly lat = new THREE.Matrix4();
   private readonly near: Solid[] = [];
-  /** each vehicle's grid origin (its first place for things' corner, model x and z) */
+  /** each vehicle's grid origin (its first place for things' rear left corner — a room's walls' own: cargo.ts latticeOrigin; model x and z) */
   private readonly origins = new Map<string, { ox: number; oz: number }>();
+  /** the room a piece of furniture was last turned back to the wall in (vehicle and place): once as it comes onto its squares */
+  private backedIn = '';
+  /** the harness's: where the thing lands in a vehicle's place, in place of the line of sight's own (null: the game's) */
+  private forced: { v: ModVehicle; zone: CargoZone; x: number; z: number; dist: number } | null = null;
   /** put down so far (the harness) */
   placed = 0;
 
@@ -172,6 +192,7 @@ export class NdPlace implements System<GameContext> {
     // (facing one as it comes out, and so it stays until it is turned: not the view's every frame; off the grid until Q or E)
     this.yaw = ctx.input.lookYaw + Math.PI;
     this.gridOn = false;
+    this.backedIn = '';
     this.facing = false;
     this.turnT = 1;
     this.frozen = null;
@@ -229,11 +250,14 @@ export class NdPlace implements System<GameContext> {
     this.ctx?.sound('switch', 0.25);
   }
 
-  /** what the keys do while placing: Nomad Drive's few words (距离、释放、旋转、向左旋转、向右旋转、取消), the left button's only where it may go */
+  /**
+   * what the keys do while placing: Nomad Drive's few words (距离、释放、旋转、向左旋转、向右旋转、取消; Q and E 旋转 — the
+   * player's ask, 2026-11-26), the left button's only where it may go — onto a burner, its own word
+   */
   private words(): Action[] {
     const out: Action[] = [];
-    if (this.aim.ok) out.push({ keys: ['LMB'], text: '放下' });
-    out.push({ keys: ['Q', 'E'], text: '转 90°' }, { keys: ['RMB'], hold: true, text: '自由转' }, { keys: ['Wheel'], text: '距离' }, { keys: ['R'], text: '取消' });
+    if (this.aim.ok) out.push({ keys: ['LMB'], text: this.aim.slot?.word || '放下' });
+    out.push({ keys: ['Q', 'E'], text: '旋转' }, { keys: ['RMB'], hold: true, text: '自由转' }, { keys: ['Wheel'], text: '距离' }, { keys: ['R'], text: '取消' });
     return out;
   }
 
@@ -297,7 +321,12 @@ export class NdPlace implements System<GameContext> {
     const a = this.aim;
     const spot = a.stow ? (a.stow.spot ?? a.tryStow) : null;
     let k: number;
-    if (a.stow && spot) {
+    if (a.slot) {
+      // (onto a slot — a stove's burner: its own origin on the slot's middle, turned about the slot's up as it is held)
+      this.tq.copy(a.slot.q).multiply(this.tq2.setFromAxisAngle(UP, turnOnSlot(this.poseYaw(), a.slot.yaw)));
+      this.p.copy(centre).applyQuaternion(this.tq).add(a.slot.pos);
+      k = PLACE.planeK;
+    } else if (a.stow && spot) {
       const model = a.stow.v.view.model;
       model.updateMatrixWorld(true);
       this.m4.makeRotationY(spot.yaw);
@@ -331,7 +360,8 @@ export class NdPlace implements System<GameContext> {
       this.shownQ.slerp(this.tq, e);
     }
     this.mid.copy(this.p);
-    ctx.heldThing.pinFor({ pos: this.shownP, q: this.shownQ, at: centre });
+    // (seen through where it stands over the middle of the view, as it is carried)
+    ctx.heldThing.pinFor({ pos: this.shownP, q: this.shownQ, at: centre, see: true });
     this.showGhost(h, box, centre);
     this.showGrid(box);
   }
@@ -339,16 +369,61 @@ export class NdPlace implements System<GameContext> {
   // ------------------------------------------------------------------ the grid
 
   /** a vehicle's grid: its heading, its lattice through its first place for things' corner */
-  private frameOf(v: ModVehicle): GridFrame {
+  private frameOf(v: ModVehicle, zone?: CargoZone): GridFrame {
     const id = v.view.frame.id;
+    // (in a room: that room's own squares, from its walls' corner)
+    if (zone?.walls) return { v, yaw: headingOf(v, this.b9), ox: zone.x[0], oz: zone.z[0] };
     let g = this.origins.get(id);
     if (!g) {
-      const zones = zonesOf(id).filter((z) => !z.wall);
-      const first = zones.length ? zones.reduce((p, q) => (q.order < p.order ? q : p)) : null;
-      g = { ox: first ? first.x[0] : 0, oz: first ? first.z[0] : 0 };
+      const at = latticeOrigin(id);
+      g = { ox: at.x, oz: at.z };
       this.origins.set(id, g);
     }
     return { v, yaw: headingOf(v, this.b9), ox: g.ox, oz: g.oz };
+  }
+
+  /**
+   * A piece of furniture's place in a room moved against what it stands by (docs/V3/plan/finish.md §十一 3.2), in the
+   * room's frame. By where it is held (hx, hz — before the squares took it): its back within 8 cm of the wall behind
+   * it goes against that wall, a side within 5 cm of a wall against that; a side within 5 cm of another big thing's
+   * side, the two overlapping along it, goes against that one; a little into either counts as near. Along a way it
+   * goes against nothing it keeps to its squares (x, z). Only square to the room (a quarter turn of its frame): turned
+   * freely it is put where it is shown.
+   */
+  private againstWalls(box: Box3, hx: number, hz: number, x: number, z: number, sy: number, zone: CargoZone, placed: readonly Placed[]): { x: number; z: number } {
+    if (Math.abs(Math.sin(2 * sy)) > 0.03) return { x, z };
+    const ext = (q: [number, number][]): [number, number, number, number] => [Math.min(...q.map((p) => p[0])), Math.max(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[1]))];
+    const [x0, x1, z0, z1] = ext(zoneFootprint(box, hx, hz, sy));
+    // which way its back (its −x) faces in the room: −x, +x, −z or +z
+    const bx = -Math.cos(sy);
+    const bz = Math.sin(sy);
+    const lim = (dx: number, dz: number): number => (dx * bx + dz * bz > 0.7 ? SNAP_BACK : SNAP_SIDE);
+    const within = (d: number, l: number): boolean => d >= -l && d <= l;
+    // (how far to move it along x and along z to stand against something: NaN, nothing there)
+    let dx = NaN;
+    let dz = NaN;
+    // the walls
+    if (within(x0 - zone.x[0], lim(-1, 0))) dx = zone.x[0] - x0;
+    else if (within(zone.x[1] - x1, lim(1, 0))) dx = zone.x[1] - x1;
+    if (within(z0 - zone.z[0], lim(0, -1))) dz = zone.z[0] - z0;
+    else if (within(zone.z[1] - z1, lim(0, 1))) dz = zone.z[1] - z1;
+    // the pieces beside it (big things square to the room: a cupboard, a fridge — not a tin on the floor); along the
+    // other way it is where the wall or its squares put it
+    const ax = Number.isNaN(dx) ? x - hx : dx;
+    const az = Number.isNaN(dz) ? z - hz : dz;
+    for (const p of placed) {
+      if (Math.abs(Math.sin(2 * p.yaw)) > 0.03 || Math.max(p.box.maxX - p.box.minX, p.box.maxZ - p.box.minZ) < 0.35) continue;
+      const [a0, a1, c0, c1] = ext(zoneFootprint(p.box, p.x, p.z, p.yaw));
+      if (Number.isNaN(dx) && z0 + az < c1 - 0.05 && z1 + az > c0 + 0.05) {
+        if (within(x0 - a1, SNAP_SIDE)) dx = a1 - x0;
+        else if (within(a0 - x1, SNAP_SIDE)) dx = a0 - x1;
+      }
+      if (Number.isNaN(dz) && x0 + ax < a1 - 0.05 && x1 + ax > a0 + 0.05) {
+        if (within(z0 - c1, SNAP_SIDE)) dz = c1 - z0;
+        else if (within(c0 - z1, SNAP_SIDE)) dz = c0 - z1;
+      }
+    }
+    return { x: Number.isNaN(dx) ? x : hx + dx, z: Number.isNaN(dz) ? z : hz + dz };
   }
 
   /** the grid for a point (world): what it goes on, the vehicle one stands in, one within 3 m of it; else the world's */
@@ -418,7 +493,8 @@ export class NdPlace implements System<GameContext> {
     const a = this.aim;
     const fr = this.gf;
     const spot = a.stow ? (a.stow.spot ?? a.tryStow) : null;
-    const onIt = this.gridOn && !!this.thing && ((a.stow && spot && !a.stow.zone.wall) || (a.surface && a.onSurface));
+    // (not on a slot: a burner shows no squares, as Nomad Drive's cooking zones have none drawn)
+    const onIt = this.gridOn && !!this.thing && !a.slot && ((a.stow && spot && !a.stow.zone.wall) || (a.surface && a.onSurface));
     if (!onIt) {
       this.grid?.hide();
       return;
@@ -476,14 +552,35 @@ export class NdPlace implements System<GameContext> {
     a.on = null;
     a.surface = false;
     a.onSurface = false;
+    a.slot = null;
+    a.put = null;
     const o = ctx.core.origin;
     // (where the line of sight meets a vehicle first, once a frame: what it may go on or in, how far it may float)
     this.losHit(eye, dir, Math.max(PLACE.surfaceReach, this.range.max) + 0.5);
+    if (this.slotAim(h)) return;
     // a vehicle's place for things it lands in (not one behind the vehicle's own wall)
     const nearV: ModVehicle[] = [];
     for (const v of ctx.vehicles) if ((v.sim.px - (eye.x + o.x)) ** 2 + (v.sim.pz - (eye.z + o.z)) ** 2 <= 64) nearV.push(v);
     const inside = ctx.player.aboard?.v ?? null;
-    const L = nearV.length ? ctx.cargo.landing(nearV, this.ray, h, PLACE.planeReach, inside, this.los.dist) : null;
+    // a board of a piece of furniture the line of sight goes into (a bookshelf's, an open cupboard's — not through a
+    // vehicle's own wall): there, on that board. A piece of furniture itself goes on no board.
+    const board = !this.forced && ctx.loose.boards && !(h.kind === 'item' && itemDef(h.item.item).cat === 'furniture') ? ctx.loose.boards(eye, dir, box, this.poseYaw(), this.gridOn, PLACE.surfaceReach) : null;
+    if (board && board.dist <= this.los.dist) {
+      const on = ctx.vehicles.find((v) => v === board.on) ?? null;
+      a.on = on;
+      a.surface = true;
+      a.onSurface = true;
+      a.x = board.x;
+      a.y = board.y;
+      a.z = board.z;
+      a.ok = board.ok;
+      a.why = board.why;
+      a.put = board.put ?? null;
+      this.gf = this.frameAt(board.x, board.z, on);
+      return;
+    }
+    // (the harness may say where the line of sight comes down in a vehicle's place: the rest is as the game has it)
+    const L = this.forced ?? (nearV.length ? ctx.cargo.landing(nearV, this.ray, h, PLACE.planeReach, inside, this.los.dist) : null);
     if (L && 'spot' in L) {
       // (a living space's wall: hung there, as the stowing hangs it)
       a.stow = L;
@@ -500,12 +597,31 @@ export class NdPlace implements System<GameContext> {
       a.ok = false;
       a.why = LIDLESS_WHY;
       a.surface = true;
-      this.gf = this.frameOf(L.v);
+      this.gf = this.frameOf(L.v, L.zone);
       return;
     }
     if (L) {
-      const fr = this.frameOf(L.v);
+      const fr = this.frameOf(L.v, L.zone);
       this.gf = fr;
+      // (a piece of furniture come into a room: onto its squares, its back to the nearest wall — once; Q and E turn it on)
+      const room = L.zone.walls && h.kind === 'item' && itemDef(h.item.item).cat === 'furniture';
+      const key = room ? `${L.v.build.uid}:${L.zone.id}` : '';
+      if (room && key !== this.backedIn) {
+        this.backedIn = key;
+        const z = L.zone;
+        // (its back — the side its −x faces — to the wall nearest the point looked at: turned so in the model's frame)
+        const walls: [number, number][] = [
+          [L.x - z.x[0], 0],
+          [z.x[1] - L.x, Math.PI],
+          [L.z - z.z[0], -Math.PI / 2],
+          [z.z[1] - L.z, Math.PI / 2],
+        ];
+        const nearest = walls.reduce((p, q) => (q[0] < p[0] ? q : p));
+        this.yaw = fr.yaw - nearest[1];
+        this.turnT = 1;
+        this.gridOn = true;
+        this.facing = false;
+      }
       // its turn in the vehicle's model (as three turns things); its footprint's middle on the point looked at
       const sy = fr.yaw - this.poseYaw();
       const cx = (box.minX + box.maxX) / 2;
@@ -514,6 +630,9 @@ export class NdPlace implements System<GameContext> {
       const s = Math.sin(sy);
       let x = L.x - (cx * c + cz * s);
       let z = L.z - (-cx * s + cz * c);
+      // (where it is held, before the squares take it: what it goes against is by this)
+      const heldX = x;
+      const heldZ = z;
       if (this.gridOn) {
         const q = zoneFootprint(box, x, z, sy);
         const { du, dw } = latticeShift(
@@ -524,6 +643,7 @@ export class NdPlace implements System<GameContext> {
         x += du;
         z += dw;
       }
+      if (room) ({ x, z } = this.againstWalls(box, heldX, heldZ, x, z, sy, L.zone, ctx.cargo.placedIn(L.v, L.zone.id)));
       const y = ctx.cargo.restIn(L.v, L.zone, h, x, z, sy);
       const floor = gridAt(ctx.cargo.grid(L.v, L.zone), L.x, L.z);
       a.stow = { v: L.v, zone: L.zone, spot: y === null ? null : { x, y, z, yaw: sy }, why: y === null ? '放不下' : '', dist: L.dist };
@@ -623,6 +743,34 @@ export class NdPlace implements System<GameContext> {
     a.y = y;
     a.why = this.blocked(box, a.x, a.y, a.z, on);
     a.ok = !a.why;
+  }
+
+  /**
+   * A slot of a system's the line of sight meets before anything of a vehicle's (slots.ts: a stove's burner, for a pan
+   * or a pot): it goes onto its middle, its heading kept as it is held, Q and E turning it on the slot's own squares
+   * (true: aimed there). Not where the harness says where it lands.
+   */
+  private slotAim(h: Thing): boolean {
+    const ctx = this.ctx!;
+    if (this.forced) return false;
+    let best: SlotAim | null = null;
+    for (const s of placeSlots(ctx)) {
+      const sa = s.aim(h, this.ray, PLACE.surfaceReach);
+      if (sa && sa.dist <= this.los.dist + 0.05 && (!best || sa.dist < best.dist)) best = sa;
+    }
+    if (!best) return false;
+    const a = this.aim;
+    const o = ctx.core.origin;
+    a.slot = best;
+    a.ok = true;
+    a.why = '';
+    a.surface = true;
+    a.onSurface = true;
+    a.x = best.pos.x + o.x;
+    a.y = best.pos.y + o.y;
+    a.z = best.pos.z + o.z;
+    this.gf = { v: null, yaw: best.yaw, ox: 0, oz: 0 };
+    return true;
   }
 
   /**
@@ -820,6 +968,25 @@ export class NdPlace implements System<GameContext> {
     const pl = ctx.player;
     const i = pl.slots.indexOf(h);
     if (i < 0) return this.stop();
+    if (a.slot) {
+      // (onto the slot, turned as it is shown: the slot's system takes it out of the hands)
+      if (!a.slot.put(turnOnSlot(this.poseYaw(), a.slot.yaw))) {
+        ctx.ui.items.showDone('放不下', 1.5);
+        return;
+      }
+      this.placed++;
+      this.stop();
+      return;
+    }
+    // (into an open container: it takes the thing as what it holds — all of it, or what its weight allows)
+    if (a.put) {
+      const left = a.put(h);
+      if (left < 0) return;
+      if (left === 0) pl.slots[i] = null;
+      this.placed++;
+      this.stop();
+      return;
+    }
     let l: Loose;
     const yaw = this.poseYaw();
     if (a.stow?.spot) {
@@ -851,7 +1018,7 @@ export class NdPlace implements System<GameContext> {
 
   telemetry(): Record<string, unknown> {
     const a = this.aim;
-    return { placing: !!this.thing, d: +this.d.toFixed(2), yaw: +this.yaw.toFixed(3), grid: this.gridOn, frame: this.gf.v ? this.gf.v.view.frame.id : 'world', ok: a.ok, why: a.why, into: a.stow ? `${a.stow.zone.id}` : null, placed: this.placed };
+    return { placing: !!this.thing, d: +this.d.toFixed(2), yaw: +this.yaw.toFixed(3), grid: this.gridOn, frame: this.gf.v ? this.gf.v.view.frame.id : 'world', ok: a.ok, why: a.why, into: a.stow ? `${a.stow.zone.id}` : a.slot ? 'slot' : null, placed: this.placed };
   }
 
   readonly harness = {
@@ -879,8 +1046,19 @@ export class NdPlace implements System<GameContext> {
       this.turnT = 1;
       this.gridOn = false;
     },
-    /** where it would go now */
-    aim: (): { ok: boolean; why: string; into: string | null; x: number; y: number; z: number; surface: boolean; on: boolean; spot: Spot | null } => ({ ok: this.aim.ok, why: this.aim.why, into: this.aim.stow ? this.aim.stow.zone.id : null, x: this.aim.x, y: this.aim.y, z: this.aim.z, surface: this.aim.surface, on: !!this.aim.on, spot: this.aim.stow?.spot ?? null }),
+    /** where it would go now (onto a slot — a burner — into 'slot', turned on it so: rad about its up) */
+    aim: (): { ok: boolean; why: string; into: string | null; x: number; y: number; z: number; surface: boolean; on: boolean; spot: Spot | null; turn: number | null } => ({
+      ok: this.aim.ok,
+      why: this.aim.why,
+      into: this.aim.stow ? this.aim.stow.zone.id : this.aim.slot ? 'slot' : null,
+      x: this.aim.x,
+      y: this.aim.y,
+      z: this.aim.z,
+      surface: this.aim.surface,
+      on: !!this.aim.on,
+      spot: this.aim.stow?.spot ?? null,
+      turn: this.aim.slot ? turnOnSlot(this.poseYaw(), this.aim.slot.yaw) : null,
+    }),
     /** the left button */
     put: (): boolean => {
       const n = this.placed;
@@ -888,6 +1066,13 @@ export class NdPlace implements System<GameContext> {
       return this.placed > n;
     },
     placing: (): boolean => !!this.thing,
+    /** the thing held out lands at a point (model x, z) of a place of a vehicle, whatever the view looks at (null: as the game has it) */
+    landAt: (vi: number | null, zoneId = '', x = 0, z = 0): boolean => {
+      const v = vi === null ? null : (this.ctx?.vehicles[vi] ?? null);
+      const zone = v ? zonesFor(v.view.frame.id, v.build).find((q) => q.id === zoneId) : null;
+      this.forced = v && zone ? { v, zone, x, z, dist: 1 } : null;
+      return !!this.forced;
+    },
     /** the grid drawn now */
     gridShown: (): boolean => !!this.grid?.mesh.visible,
   };

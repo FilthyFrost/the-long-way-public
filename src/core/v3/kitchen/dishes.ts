@@ -13,12 +13,16 @@
  */
 export type Way = 'fry' | 'boil' | 'mix' | 'grill' | 'steam' | 'bake' | 'brew';
 
-/** the cookware of each way (the first three are the first batch: a pan, a pot, a bowl) */
+/**
+ * the cookware of each way (the first three are the first batch: a pan, a pot, a bowl). `gain`: how much more a dish
+ * feeds than its portions' own food — never under 1.6 for a dish to eat (docs/V3/plan/finish.md §八 3: 做的菜要明显比
+ * 罐头值, at least 1.6 times what went into it eaten raw; a drink is no dish to fill one)
+ */
 export const WAYS: Readonly<Record<Way, { zh: string; en: string; cookware: string; heats: boolean; gain: number }>> = {
   fry: { zh: '煎炒', en: 'Fry', cookware: 'pan', heats: true, gain: 1.7 },
   boil: { zh: '煮炖', en: 'Boil', cookware: 'pot', heats: true, gain: 1.9 },
-  mix: { zh: '拌', en: 'Toss', cookware: 'bowl', heats: false, gain: 1.2 },
-  grill: { zh: '烤', en: 'Grill', cookware: 'grill', heats: true, gain: 1.6 },
+  mix: { zh: '拌', en: 'Toss', cookware: 'bowl', heats: false, gain: 1.6 },
+  grill: { zh: '烤', en: 'Grill', cookware: 'grill', heats: true, gain: 1.7 },
   steam: { zh: '蒸', en: 'Steam', cookware: 'steamer', heats: true, gain: 1.7 },
   bake: { zh: '烘焙', en: 'Bake', cookware: 'oven', heats: true, gain: 1.9 },
   brew: { zh: '饮品', en: 'Brew', cookware: 'kettle', heats: true, gain: 1.0 },

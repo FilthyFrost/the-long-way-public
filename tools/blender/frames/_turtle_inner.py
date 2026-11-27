@@ -37,6 +37,12 @@ BENCH_X = -1.13
 # the mattress on it; the galley block along the left wall (its worktop, the sink in it)
 BED_X0 = -0.40
 BED_TOP = DECK_Z + 0.115
+# the upper bunk (docs/V3/plan/finish.md, decision 9: the bunk the pop-up roof was owed): a board with a thin mattress
+# across the back half of the roof's opening, just under the roof's line - the shell comes down over it; with the
+# shell up one sleeps under the canvas. Over the bed below, clear of where one stands (x beyond -0.38)
+BUNK_X = (-2.10, -0.38)
+BUNK_HW = 0.73
+BUNK_TOP = D['roof_z'] - 0.025
 GALLEY_X0 = -0.22
 GALLEY_X1 = 0.80
 GALLEY_Y = 0.46
@@ -349,6 +355,12 @@ def interior(ex):
     L.extend(K.prism_buf(corner_plan(D['xr'] + 0.03, FIREWALL_X + 0.012, 0.0, 0.88, 'R', 0.14), DECK_Z - 0.02, DECK_Z, 'fabric', 0.008, 2))
     L.extend(K.prism_buf(corner_plan(D['xr'] + 0.05, BED_X0 + 0.015, 0.0, 0.865, 'R', 0.13), DECK_Z, BED_TOP, 'fabric', 0.035, 3))
     L.extend(K.box_buf((D['xr'] + 0.10, 0.16, BED_TOP - 0.012), (D['xr'] + 0.44, 0.76, BED_TOP + 0.075), 'fabric', 0.035, 3))
+    # the upper bunk: its board on a rail along each side of the roof's opening, the mattress on it, a lip at its front
+    bx0, bx1 = BUNK_X
+    L.extend(K.box_buf((bx0, 0.0, BUNK_TOP - 0.075), (bx1, BUNK_HW, BUNK_TOP - 0.05), 'wood', 0.004, 1))
+    L.extend(K.box_buf((bx0 + 0.02, 0.0, BUNK_TOP - 0.05), (bx1 - 0.03, BUNK_HW - 0.03, BUNK_TOP), 'fabric', 0.02, 2))
+    L.extend(K.box_buf((bx0, BUNK_HW - 0.02, BUNK_TOP - 0.10), (bx1, BUNK_HW + 0.03, BUNK_TOP - 0.075), 'alu', 0.004, 1))
+    L.extend(K.box_buf((bx1 - 0.02, 0.0, BUNK_TOP - 0.075), (bx1, BUNK_HW, BUNK_TOP - 0.01), 'wood', 0.004, 1))
     # the galley along the left wall behind the driver (one side only: in C): its carcass, two doors and two drawers
     # towards the aisle, the worktop, the sink let into its front half with the tap, the stove's place behind it
     gx0, gx1, gy = GALLEY_X0, GALLEY_X1, GALLEY_Y

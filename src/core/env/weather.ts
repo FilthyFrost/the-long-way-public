@@ -94,6 +94,70 @@ export interface WeatherEvent {
 /** events are placed one per window of this many seconds (not every window has one) */
 export const EVENT_WINDOW = 1500;
 
+/**
+ * How slowly each of the weather's measures follows where it is going (seconds; docs/V3/plan/finish.md §十二 3):
+ * however the schedule, a border or an event's end would have it, the sky one is under changes no faster — from a
+ * clear sky to a downpour takes two minutes at the least.
+ */
+export const WEATHER_LAG = { cloud: 90, overcast: 60, fog: 75, fall: 25, wind: 20, dust: 45, temp: 120 } as const;
+
+/** which lag each measure follows by (what is not here is taken as it is: the event's own act and envelope, its kind) */
+const LAG_OF: readonly (readonly [keyof WeatherState & ('cloud' | 'overcast' | 'overcastCalm' | 'fog' | 'rain' | 'snow' | 'hail' | 'fall' | 'wind' | 'windDir' | 'dust' | 'temp' | 'murkRain' | 'murkSnow' | 'murkDust' | 'front' | 'lightning' | 'rainbow'), number])[] = [
+  ['cloud', WEATHER_LAG.cloud],
+  ['overcast', WEATHER_LAG.overcast],
+  ['overcastCalm', WEATHER_LAG.overcast],
+  ['front', WEATHER_LAG.overcast],
+  ['fog', WEATHER_LAG.fog],
+  ['rain', WEATHER_LAG.fall],
+  ['snow', WEATHER_LAG.fall],
+  ['hail', WEATHER_LAG.fall],
+  ['fall', WEATHER_LAG.fall],
+  ['lightning', WEATHER_LAG.fall],
+  ['rainbow', WEATHER_LAG.fall],
+  ['wind', WEATHER_LAG.wind],
+  ['windDir', WEATHER_LAG.wind],
+  ['dust', WEATHER_LAG.dust],
+  ['murkRain', WEATHER_LAG.dust],
+  ['murkSnow', WEATHER_LAG.dust],
+  ['murkDust', WEATHER_LAG.dust],
+  ['temp', WEATHER_LAG.temp],
+];
+
+/** a step of the world's clock longer than this (s) is a cut — a night slept through, a save read: the weather is then as the schedule has it at once (one's eyes were shut) */
+export const WEATHER_CUT = 20;
+
+/** how long an event takes to die away once it has been carried to where its kind does not belong (s) */
+export const CARRIED_FADE = 150;
+
+/**
+ * What an event is made of, by its kind: what falls as water, what falls as snow, dust in the air, fog. An event
+ * carried into another country goes on there if that country has weather of its own made of the same — a storm off
+ * the plains is a storm in the hills that have rain — and rain and snow are one for this: between them the event
+ * passes over by the air's temperature (COLD_FROM … COLD_TO), slowly. Only where nothing of the sort ever falls — rain
+ * driven into the sand seas, a sand wall into the woods — does it die away.
+ */
+const STUFF: Partial<Record<WeatherKind, 'wet' | 'snow' | 'dust' | 'fog'>> = {
+  rain: 'wet',
+  storm: 'wet',
+  hail: 'wet',
+  cloudburst: 'wet',
+  monsoon: 'wet',
+  drizzle: 'wet',
+  squall: 'wet',
+  thundery: 'wet',
+  snow: 'snow',
+  blizzard: 'snow',
+  flurries: 'snow',
+  sandstorm: 'dust',
+  dusthaze: 'dust',
+  fog: 'fog',
+  seafog: 'fog',
+};
+
+/** the air's temperature (°C) under which what falls is all snow, and over which it is all rain */
+export const COLD_FROM = -1;
+export const COLD_TO = 3;
+
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /**
@@ -174,8 +238,36 @@ export class WeatherSystem {
   private readonly a = new WeatherState();
   private readonly b = new WeatherState();
   private readonly ev: WeatherEvent = { t0: 0, t1: 0, t2: 0, t3: 0, strength: 0, pick: 0 };
+  /**
+   * The event one is under (step's; docs/V3/plan/finish.md §十二 2): the window it belongs to, and the kind it was
+   * where it began to brew over one — it is that kind to its end, whatever country it is driven into; and when it was
+   * first carried into a country that has no such weather (from then it dies away by itself, CARRIED_FADE).
+   */
+  private evWindow = NaN;
+  private evKind: WeatherKind = 'clear';
+  private evFadeAt = Infinity;
+  /** how far what the event lets fall goes by the air's temperature, not by its kind (0 … 1: carried between rain's country and snow's) */
+  private evByTemp = 0;
+  /** the world's clock at the last step (NaN: none yet — the first is taken as the schedule has it) */
+  private lastT = NaN;
 
-  constructor(readonly seed: number) {}
+  /**
+   * The weather that only changes slowly (docs/V3/plan/finish.md §十二), as the game has it since: `slow` — each
+   * measure follows the schedule by its own lag, an event keeps the kind it began as, nothing falls out of a deck
+   * that is not there yet; `oneSky` — the cloud cover is one curve for the whole world (a world of version 7's:
+   * the schedule of an older world stays what its saves came from). Without them: the schedule itself, as recorded
+   * (harness/sim/worldTrace.ts weatherTrace).
+   */
+  private readonly slow: boolean;
+  private readonly oneSky: boolean;
+
+  constructor(
+    readonly seed: number,
+    opts: { slow?: boolean; oneSky?: boolean } = {},
+  ) {
+    this.slow = !!opts.slow;
+    this.oneSky = !!opts.oneSky;
+  }
 
   /** The event (if any) belonging to schedule window k. */
   eventInWindow(k: number, out: WeatherEvent): boolean {
@@ -202,13 +294,19 @@ export class WeatherSystem {
     return kinds[kinds.length - 1][1];
   }
 
-  /** fills the instantaneous (non-accumulating) fields for one biome */
-  private manifest(biome: number, t: number, hour: number, daylight: number, out: WeatherState): void {
+  /**
+   * fills the instantaneous (non-accumulating) fields for one biome. `as`: the kind the event is, whatever this
+   * biome would make of it (null: this biome's own); `fade`: how much of it is left (an event dying away where its
+   * kind does not belong)
+   */
+  private manifest(biome: number, t: number, hour: number, daylight: number, out: WeatherState, as: WeatherKind | null = null, fade = 1): void {
     const B = BIOMES[biome];
     const id = B.id;
     const calm = calmOf(B);
-    // ---- calm weather (the drift of each region is its own: its index in the registry seeds it)
-    const drift = fbm1(t / 760, this.seed + 17 + regionSalt(biome) * 3, 2);
+    // ---- calm weather: one drift for the whole world (docs/V3/plan/finish.md §十二 1) — a region only takes its own
+    // share of it, so the cover across a border is the same sky thinned or thickened, never another sky cut to.
+    // (Before version 7 the drift of each region was its own: its index in the registry seeded it.)
+    const drift = fbm1(t / 760, this.seed + 17 + (this.oneSky ? 0 : regionSalt(biome) * 3), 2);
     let cloud = smoothstep(-0.38, 0.42, drift) * calm.cloud;
     let overcast = smoothstep(0.62, 1.0, cloud) * 0.45;
     let rain = 0;
@@ -284,7 +382,7 @@ export class WeatherSystem {
       }
     } else if (this.eventInWindow(k, ev) && t >= ev.t0 && t < ev.t3) {
       has = true;
-      evKind = WeatherSystem.kindFor(id, ev.pick);
+      evKind = as ?? WeatherSystem.kindFor(id, ev.pick);
       if (t < ev.t1) {
         severity = smoothstep(ev.t0, ev.t1, t);
         buildU = (t - ev.t0) / (ev.t1 - ev.t0);
@@ -295,6 +393,11 @@ export class WeatherSystem {
       } else {
         severity = 1 - smoothstep(ev.t2, ev.t3, t);
         act = 3;
+      }
+      // (dying away where its kind does not belong: as its own aftermath would have it, sooner)
+      if (fade < 1) {
+        severity *= fade;
+        if (act !== 1) act = 3;
       }
     }
     let front = 0;
@@ -484,11 +587,11 @@ export class WeatherSystem {
    * Instantaneous weather for a biome mix at time t (pure function of its arguments).
    * Slow fields (wetness, snowCover) are left untouched.
    */
-  targets(t: number, hour: number, daylight: number, ba: number, bb: number, bt: number, out: WeatherState): void {
-    this.manifest(ba, t, hour, daylight, out);
+  targets(t: number, hour: number, daylight: number, ba: number, bb: number, bt: number, out: WeatherState, as: WeatherKind | null = null, fade = 1): void {
+    this.manifest(ba, t, hour, daylight, out, as, fade);
     if (bt > 0 && bb !== ba) {
       const b = this.b;
-      this.manifest(bb, t, hour, daylight, b);
+      this.manifest(bb, t, hour, daylight, b, as, fade);
       for (const key of ['cloud', 'overcast', 'rain', 'snow', 'hail', 'dust', 'fog', 'wind', 'lightning', 'temp', 'severity', 'rainbow', 'windDir', 'front', 'fall', 'overcastCalm', 'murkRain', 'murkSnow', 'murkDust'] as const) {
         out[key] = lerp(out[key], b[key], bt);
       }
@@ -500,13 +603,115 @@ export class WeatherSystem {
     }
   }
 
+  /** the next step is a cut: the weather as the schedule has it at once (a night slept through, the hour set by hand) */
+  cut(): void {
+    this.lastT = NaN;
+  }
+
+  /** the kinds an event may be in a biome: is this one of them */
+  static hasKind(biomeId: string, kind: WeatherKind): boolean {
+    return regionRow(EVENT_KINDS, regionById(biomeId)).some((k) => k[1] === kind);
+  }
+
+  /**
+   * An event of a kind carried into a biome: 'same' — that biome has weather made of the same; 'phase' — it has
+   * rain where the event is snow, or snow where it is rain (the event goes on, what falls by the temperature);
+   * 'none' — nothing of the sort falls there (it dies away)
+   */
+  static carried(biomeId: string, kind: WeatherKind): 'same' | 'phase' | 'none' {
+    const stuff = STUFF[kind];
+    if (!stuff) return 'same';
+    let phase = false;
+    for (const k of regionRow(EVENT_KINDS, regionById(biomeId))) {
+      const s = STUFF[k[1]];
+      if (s === stuff) return 'same';
+      if ((s === 'wet' && stuff === 'snow') || (s === 'snow' && stuff === 'wet')) phase = true;
+    }
+    return phase ? 'phase' : 'none';
+  }
+
+  /**
+   * The event one is under, kept the kind it began as (docs/V3/plan/finish.md §十二 2): where one was — the biome
+   * that had the greater share — when it began to brew, that biome's kind of it, to its end. Carried into a
+   * country that has no such weather it dies away from then on (how much of it is left: 1 … 0).
+   */
+  private latch(t: number, ba: number, bb: number, bt: number): number {
+    const k = Math.floor(t / EVENT_WINDOW);
+    const ev = this.ev;
+    if (this.force || !this.eventInWindow(k, ev) || t < ev.t0 || t >= ev.t3) {
+      this.evWindow = NaN;
+      return 1;
+    }
+    const here = BIOMES[bt > 0.5 ? bb : ba].id;
+    if (this.evWindow !== k) {
+      this.evWindow = k;
+      this.evKind = WeatherSystem.kindFor(here, ev.pick);
+      this.evFadeAt = Infinity;
+      this.evByTemp = 0;
+    } else {
+      const how = WeatherSystem.carried(here, this.evKind);
+      if (how === 'none' && this.evFadeAt === Infinity) this.evFadeAt = t;
+      // (into the other's country — or half way into it: by as much the temperature has the say)
+      const a = WeatherSystem.carried(BIOMES[ba].id, this.evKind) === 'phase' ? 1 : 0;
+      const b = WeatherSystem.carried(BIOMES[bb].id, this.evKind) === 'phase' ? 1 : 0;
+      this.evByTemp = a + (b - a) * bt;
+    }
+    return this.evFadeAt === Infinity ? 1 : 1 - smoothstep(0, CARRIED_FADE, t - this.evFadeAt);
+  }
+
   /** Advance the slow state and return the full weather. Call with the simulation's fixed step. */
   step(dt: number, t: number, hour: number, daylight: number, ba: number, bb: number, bt: number): WeatherState {
     const s = this.state;
     const wet = s.wetness;
     const cover = s.snowCover;
-    this.targets(t, hour, daylight, ba, bb, bt, this.a);
-    s.copy(this.a);
+    const a = this.a;
+    if (!this.slow) {
+      // (the schedule itself, as it ever was)
+      this.targets(t, hour, daylight, ba, bb, bt, a);
+      s.copy(a);
+      return this.settle(s, dt, wet, cover, daylight);
+    }
+    const fade = this.latch(t, ba, bb, bt);
+    this.targets(t, hour, daylight, ba, bb, bt, a, Number.isNaN(this.evWindow) ? null : this.evKind, fade);
+    // each measure follows where it is going no faster than its own lag (docs/V3/plan/finish.md §十二 3), by the
+    // world's clock — a cut of it (the first step, a night slept through, a save read; a forced weather) is taken
+    // as the schedule has it
+    const gone = t - this.lastT;
+    this.lastT = t;
+    // (an event carried between rain's country and snow's: what it lets fall is rain or snow by the air's own
+    // temperature — the one followed slowly, below —, so it passes from the one to the other over minutes)
+    if (!Number.isNaN(this.evWindow) && this.evByTemp > 0) {
+      const lagged = !this.force && gone >= 0 && gone <= WEATHER_CUT ? s.temp + (a.temp - s.temp) * (1 - Math.exp(-gone / WEATHER_LAG.temp)) : a.temp;
+      const cold = 1 - smoothstep(COLD_FROM, COLD_TO, lagged);
+      const k = this.evByTemp;
+      const fall = a.rain + a.snow;
+      a.rain += (fall * (1 - cold) - a.rain) * k;
+      a.snow += (fall * cold - a.snow) * k;
+      const murk = a.murkRain + a.murkSnow;
+      a.murkRain += (murk * (1 - cold) - a.murkRain) * k;
+      a.murkSnow += (murk * cold - a.murkSnow) * k;
+    }
+    if (!this.force && gone >= 0 && gone <= WEATHER_CUT) {
+      // (nothing falls out of a deck that is not there yet: the cloud comes in slowly — its lag is the longest — and
+      // what it lets fall waits for it; so from an open sky to a downpour is two minutes and more. How much of the
+      // cloud the schedule asks for is over one already:)
+      const cloud = s.cloud + (a.cloud - s.cloud) * (1 - Math.exp(-gone / WEATHER_LAG.cloud));
+      const deck = smoothstep(0.5, 0.95, Math.min(1, (cloud + 0.02) / Math.max(a.cloud, 0.02)));
+      a.rain *= deck;
+      a.snow *= deck;
+      a.hail *= deck;
+      a.fall *= deck;
+      for (let i = 0; i < LAG_OF.length; i++) {
+        const key = LAG_OF[i][0];
+        a[key] = s[key] + (a[key] - s[key]) * (1 - Math.exp(-gone / LAG_OF[i][1]));
+      }
+    }
+    s.copy(a);
+    return this.settle(s, dt, wet, cover, daylight);
+  }
+
+  /** the slow state on from what it was: how wet the ground is, how much snow lies */
+  private settle(s: WeatherState, dt: number, wet: number, cover: number, daylight: number): WeatherState {
     // wetness: soaks in under rain, dries slowly (faster in daylight and wind)
     let w = wet;
     if (s.rain > 0.02) w += s.rain * 0.022 * dt;

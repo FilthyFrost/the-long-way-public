@@ -11,7 +11,7 @@ import { cleanItem, hasItem, itemCatalogueProblems, itemDef, itemIdNow, itemMode
 import { ingredient } from '../../src/core/v3/cooking/ingredients';
 import { FISH } from '../../src/core/v3/fishing/lite/fish';
 import { BAITS, RODS } from '../../src/core/v3/fishing/lite/gear';
-import { BAIT_TAG, canGoLive, CREEL, fishItem, fishModelOf, fishOfItem, FISHING_ITEMS, rodOfItem } from '../../src/core/v3/fishing/lite/items';
+import { BAIT_TAG, canGoLive, CREEL, fishItem, fishModelOf, fishOfItem, FISHING_ITEMS, PANTRY_BAIT, rodOfItem } from '../../src/core/v3/fishing/lite/items';
 import { bottleNote, cleanLog, crateContents, newLog, rigOf, settle } from '../../src/core/v3/fishing/lite/log';
 import { Pond, roundLake } from '../../src/core/v3/fishing/lite/pond';
 import { Session, type SessionHost } from '../../src/core/v3/fishing/lite/session';
@@ -33,7 +33,8 @@ describe('the fishing module: its things', () => {
     for (let i = 0; i < FISH.length; i++) expect(hasItem(fishItem(i)), FISH[i].id).toBe(true);
     for (const r of RODS) expect(hasItem(r.id), r.id).toBe(true);
     for (const b of BAITS) expect(hasItem(`bait_${b.id}`), b.id).toBe(true);
-    expect(FISHING_ITEMS.length).toBe(FISH.length + RODS.length + BAITS.length + 6);
+    // (and the two baits out of the larder: a loaf and a cob pulled apart — docs/V3/plan/finish.md §九)
+    expect(FISHING_ITEMS.length).toBe(FISH.length + RODS.length + BAITS.length + Object.keys(PANTRY_BAIT).length + 6);
     const ours = itemCatalogueProblems().filter((p) => /fish_|rod_|bait_|fishing_/.test(p));
     expect(ours).toEqual([]);
   });

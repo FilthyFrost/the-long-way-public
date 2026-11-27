@@ -76,6 +76,7 @@ void main() {
   #include <logdepthbuf_fragment>
   if (uHide > 0.5) discard;
   seeThroughBox();
+  seeViewFade(vPos);
   float stuff = vCloth.z;
   float s = vCloth.x;
   float d = vCloth.y;

@@ -76,6 +76,32 @@ export class GhostLayer {
 
   private readonly rc = new THREE.Raycaster();
 
+  /**
+   * The ghost that is drawn (`only`), met by its box grown by `pad` (m) rather than by its meshes: the hologram one
+   * sees is what one aims at, and the mark anywhere over it is on it — between a seat's cushion and its back too, where
+   * the ray meets nothing of the seat and went on to the next seat's ghost. Null: none drawn, or the ray misses it.
+   */
+  castShown(origin: THREE.Vector3, dir: THREE.Vector3, far: number, pad: number): { key: string; dist: number; mid: number } | null {
+    const g = this.only ? this.ghosts.get(this.only) : undefined;
+    if (!g?.model) return null;
+    g.obj.updateWorldMatrix(true, true);
+    const box = this.box.setFromObject(g.model, true);
+    if (box.isEmpty()) return null;
+    box.expandByScalar(pad);
+    const ray = this.ray.set(origin, dir);
+    const at = ray.intersectBox(box, this.hit);
+    if (!at) return null;
+    const dist = at.distanceTo(origin);
+    // (how far along the ray its middle is: what of the vehicle stands before that is in front of it — a shut door, a
+    // shut bonnet — though the box's edge may reach out to it)
+    const mid = box.getCenter(this.hit).sub(origin).dot(ray.direction);
+    return dist <= far ? { key: g.key, dist, mid } : null;
+  }
+
+  private readonly box = new THREE.Box3();
+  private readonly ray = new THREE.Ray();
+  private readonly hit = new THREE.Vector3();
+
   /** show exactly these ghosts (others go away) */
   show(list: GhostSpec[]): void {
     const keep = new Set(list.map((g) => g.key));

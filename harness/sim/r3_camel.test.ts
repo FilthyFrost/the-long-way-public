@@ -1,6 +1,6 @@
 /**
  * R3 (docs/V3/plan/rv.md): the Camel, a school bus made a motorhome.
- *   - the frame: 9.5 m by 2.4, its hood in front with the diesel six under it, the driver's seat behind the cowl, the
+ *   - the frame: 10.6 m by 2.4 (9.5 until docs/V3/plan/finish.md §18), its hood in front with the diesel six under it, the driver's seat behind the cowl, the
  *     entry door, the emergency door in the tail, a roof for a long rack with a ladder up its side, a house battery
  *   - found emptied: no seat behind the entry door, no beds built in — its floor is one place for things nearly the
  *     whole length and width of it
@@ -25,12 +25,12 @@ import { ND_BUILDINGS } from '../../src/core/v3/nd/cards';
 import '../../src/game/modcar/v3/nd-home';
 
 describe('R3: the Camel', () => {
-  it('the frame: a school bus 9.5 m by 2.4, its hood with the diesel six under it in front of the cab, two doors, a roof for a rack and a ladder, a house battery', () => {
+  it('the frame: a school bus 10.6 m by 2.4, its hood with the diesel six under it in front of the cab, two doors, a roof for a rack and a ladder, a house battery', () => {
     const f = frameDef('camel');
     expect(f.kind).toBe('rv');
     const size = frameSize('camel');
-    expect(size.length).toBeGreaterThan(9.2);
-    expect(size.length).toBeLessThan(9.8);
+    expect(size.length).toBeGreaterThan(10.3);
+    expect(size.length).toBeLessThan(10.9);
     expect(size.width).toBeGreaterThan(2.3);
     expect(size.width).toBeLessThan(2.5);
     const at = (id: string) => f.mounts.find((m) => m.id === id)!;
@@ -76,7 +76,7 @@ describe('R3: the Camel', () => {
       expect(Math.max(Math.abs(r.z0), Math.abs(r.z1))).toBeLessThan(f.body.halfWidth);
     }
     expect(inArea(...a.doors[0].inside)).toBe(true);
-    expect(inArea(...a.aft)).toBe(true);
+    expect(inArea(...a.aft!)).toBe(true);
     // (the rear wheels' humps kept out of the floor one walks on: none of it over the well's side of the aisle there)
     const wellX = f.mounts.find((m) => m.id === 'hub_RL')!.pos.x;
     expect(inArea(wellX, 1.0)).toBe(false);

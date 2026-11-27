@@ -142,7 +142,7 @@ try {
   ok(lit.fire === 2 && lit.watts === 1000 + 25 + 60 && lit.c1 < lit.c0 && lit.done > 0, `a pan with an egg on a hob, lit, the lamp on: the hob, the lamp and the fridge draw ${lit.watts} W on the house battery (${lit.c0} → ${lit.c1}), the egg cooking (${lit.done})`);
   // the galley from the aisle: the four hobs, the pan on the glowing one (across the aisle, looking left and down)
   const hx = await page.evaluate(() => +window.__hobs[0].riding.pos.x.toFixed(2));
-  await standIn(0.4, 0.35, -Math.PI / 2 - 0.55, -0.62);
+  await standIn(-1.1, 0.35, -Math.PI / 2 - 0.55, -0.62);
   await shot('03_galley_hob.png');
   void hx;
   let w = await words();
@@ -266,7 +266,7 @@ try {
   });
   ok(back.aboard, `stopped, back from the seat into the room (${JSON.stringify(back)})`);
   // (down the aisle at the bed's foot, looking at it)
-  await standIn(-1.55, 0.0, Math.PI, -0.5);
+  await standIn(-3.05, 0.0, Math.PI, -0.5);
   w = await words();
   ok(/睡觉/.test(w), `tired, at the bed across the back: 长按 睡觉 (${w.split('\n').filter((l) => l.includes('睡')).join(' · ') || '—'})`);
   await shot('07_bed.png');

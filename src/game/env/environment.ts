@@ -93,9 +93,11 @@ export class Environment {
   constructor(
     private readonly core: RenderCore,
     readonly seed: number,
-    opts: { hour?: number; weather?: string; stage?: number } = {},
+    opts: { hour?: number; weather?: string; stage?: number; slow?: boolean; world?: number } = {},
   ) {
-    this.weather = new WeatherSystem(seed);
+    // (the weather that only changes slowly, docs/V3/plan/finish.md §十二: asked for by the game; a world of version 7
+    // has one sky's cloud for the whole of it)
+    this.weather = new WeatherSystem(seed, { slow: !!opts.slow, oneSky: !!opts.slow && (opts.world ?? 0) >= 7 });
     this.state = this.weather.state;
     if (opts.hour !== undefined && Number.isFinite(opts.hour)) this.clock.setHour(opts.hour, 0);
     if (opts.weather && (WEATHER_KINDS as readonly string[]).includes(opts.weather)) this.weather.force = opts.weather as WeatherKind;
@@ -124,6 +126,11 @@ export class Environment {
     this.lastTime = time;
     const sky = this.sky;
     this.clock.state(time, sky);
+    // (a cut of the clock — a night slept through, the hour set by hand: the weather is as the schedule has it at
+    // once; one's eyes were shut. docs/V3/plan/finish.md §十二 7)
+    const dh = Math.abs(sky.hour - this.lastHour);
+    if (Math.min(dh, 24 - dh) > 0.5) this.weather.cut();
+    this.lastHour = sky.hour;
 
     // weather advances in fixed steps so its slow state is reproducible (from the system's own state: the
     // dials' copy of it is made again each frame)
@@ -336,8 +343,12 @@ export class Environment {
     skyUniforms.uFlash.value = this.flash;
     skyUniforms.uRainbow.value = w.rainbow * sky.daylight * (sky.sunElev > 0.03 && sky.sunElev < 0.75 ? 1 : 0);
     // (the cold nights and the dry ones have it: by the region's kin)
-    const ar = BIOMES[bt < 0.5 ? ba : bb];
-    const biomeAurora = ar.earth?.palette?.air.night?.aurora ?? (ar.kin === 'alpine' ? 1 : ar.kin === 'desert' ? 0.4 : 0.12);
+    // (across a border: each country's share of it — not the nearer one's, cut to half way)
+    const auroraOf = (i: number): number => {
+      const ar = BIOMES[i];
+      return ar.earth?.palette?.air.night?.aurora ?? (ar.kin === 'alpine' ? 1 : ar.kin === 'desert' ? 0.4 : 0.12);
+    };
+    const biomeAurora = auroraOf(ba) + (auroraOf(bb) - auroraOf(ba)) * bt;
     const auroraDrift = THREE.MathUtils.smoothstep(fbm1(time / 500, this.seed + 7, 2), -0.1, 0.35);
     skyUniforms.uAurora.value = sky.night * (1 - Math.min(1, w.cloud * 1.3)) * auroraDrift * biomeAurora;
 
@@ -375,6 +386,8 @@ export class Environment {
     this.dark = sky.daylight < 0.42 || w.overcast > 0.72 || w.fog > 0.5 || w.dust > 0.4 || w.snow > 0.6;
   }
 
+  /** the hour at the last update (a jump of it is a cut of the clock) */
+  private lastHour = NaN;
   /** the heaps' share of the fair-weather cover (the place's, less when the night is the show) and how far they tower */
   private heapShare = 1;
   /** how much the night's sky is the show (stars, the Milky Way, an aurora, meteors): the fair weather's own clouds thin for it */
@@ -414,7 +427,12 @@ export class Environment {
     // (C1: the place's own measure of its layers)
     skyUniforms.uSkyVar.value.set(t?.scale ?? mix((s) => s.scale ?? 1, 1), t?.thick ?? mix((s) => s.thick ?? 0.5, 0.5), t?.ragged ?? mix((s) => s.ragged ?? 0.5, 0.5), t?.feather ?? mix((s) => s.feather ?? 0, 0));
     const wv = skyUniforms.uWaves.value;
-    wv.set((t?.waves ?? mix((s) => s.waves, 0) * night) * open, near?.waveDir ?? 0, t?.spacing ?? near?.waveSpacing ?? 900, t?.ribbon ?? near?.ribbon ?? 0);
+    // (the wave clouds lie one way, so far apart, in each country: across a border the nearer country's are drawn —
+    // thinning to none by half way, where the other's begin; their lie is never turned while any are in the sky.
+    // docs/V3/plan/finish.md §十二 5)
+    const turned = !!sa && !!sb && (sa.waveDir !== sb.waveDir || sa.waveSpacing !== sb.waveSpacing || sa.ribbon !== sb.ribbon);
+    const waves = turned ? (near?.waves ?? 0) * Math.abs(1 - 2 * bt) : mix((s) => s.waves, 0);
+    wv.set((t?.waves ?? waves * night) * open, near?.waveDir ?? 0, t?.spacing ?? near?.waveSpacing ?? 900, t?.ribbon ?? near?.ribbon ?? 0);
     skyUniforms.uNlc.value = (t?.nlc ?? mix((s) => s.nlc, 0)) * THREE.MathUtils.smoothstep(elev, -16, -9) * (1 - THREE.MathUtils.smoothstep(elev, -6, -3)) * open;
     // the heaps: the place's number of them, fewer when the night is the show; their base; their towers
     this.heapShare = (t?.cumulus ?? mix((s) => s.cumulus, 1)) * (1 - 0.6 * show);

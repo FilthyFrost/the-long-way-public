@@ -15,9 +15,9 @@ import { KITCHEN_CAT } from '../../../../core/v3/appliances/items';
 import { asksFor, cleanBook, knows, newBook, pinned, type BookData } from '../../../../core/v3/kitchen/book';
 import { dishesWith } from '../../../../core/v3/kitchen/cook';
 import { WAYS } from '../../../../core/v3/kitchen/dishes';
-import { BOARD, GAS, GAS_FULL, HOB, INGREDIENT_CAT, KITCHEN_ITEMS, MEAL_CAT, portionOf, STOVE, VESSEL, WAY_OF } from '../../../../core/v3/kitchen/items';
-import { CHOPS, fireOf, gasOf, hasCanister, kitOf, phaseOf, potOf, TOSSES, vesselOf } from '../../../../core/v3/kitchen/kit';
-import { FOOD, FOODS, LARDER_SHELF } from '../../../../core/v3/kitchen/pantry';
+import { BOARD, GAS, GAS_FULL, HOB, INGREDIENT_CAT, KITCHEN_ITEMS, MEAL_CAT, portionOf, STOVE, STOVE2, VESSEL, WAY_OF } from '../../../../core/v3/kitchen/items';
+import { burnersOf, CHOPS, fireOf, gasOf, hasCanister, kitOf, phaseOf, potOf, TOSSES, vesselOf } from '../../../../core/v3/kitchen/kit';
+import { FOOD, FOODS, GARDEN_BED, LARDER_SHELF, LIKES } from '../../../../core/v3/kitchen/pantry';
 import { addLarder } from '../../../../core/modcar/loot';
 import { registerItemCardLines, type ItemCard } from '../../itemInfo';
 import type { GameContext } from '../../kernel/context';
@@ -50,7 +50,9 @@ registerItemCat(MEAL_CAT);
 registerItems(KITCHEN_ITEMS);
 // (what of the pantry the places by the road keep, and on which shelf: a world of version 7's cupboards, refrigerators
 // and cool boxes hold it — docs/V3/plan/finish.md §二 4, §八 1)
-addLarder(FOODS.filter((f) => LARDER_SHELF[f.id]).map((f) => ({ item: `ing_${f.id}`, star: f.star, shelf: LARDER_SHELF[f.id] })));
+addLarder(FOODS.filter((f) => LARDER_SHELF[f.id]).map((f) => ({ item: `ing_${f.id}`, star: f.star, shelf: LARDER_SHELF[f.id], ...(LIKES[f.id] ? { likes: LIKES[f.id] } : {}) })));
+// (and what still comes up in a garden's bed behind a house: docs/V3/plan/finish.md §八 1)
+addLarder(GARDEN_BED.map((id) => ({ item: `ing_${id}`, star: FOOD[id].star, shelf: 'bed' as const, ...(LIKES[id] ? { likes: LIKES[id] } : {}) })));
 
 /** the game's one kitchen */
 export const kitchen = new Kitchen();
@@ -99,6 +101,15 @@ registerItemCardLines({ item: STOVE }, (inst, card) => {
   const v = vesselOf(inst);
   card.rows.push({ value: v ? itemDef(v).name.zh : '空着', label: '炉头上' });
   potLines(card, inst);
+});
+// (the two-burner stove: each burner's canister, flame and vessel)
+registerItemCardLines({ item: STOVE2 }, (inst, card) => {
+  burnersOf(inst).forEach((b, i) => {
+    const side = i === 0 ? '左' : '右';
+    const f = fireOf(b);
+    const v = vesselOf(b);
+    card.rows.push({ value: `${hasCanister(b) ? `气 ${Math.round((gasOf(b) / GAS_FULL) * 100)}%` : '没有燃气罐'} · ${f === 2 ? '大火' : f === 1 ? '小火' : '关着'} · ${v ? itemDef(v).name.zh : '空着'}`, label: `${side}边的炉头` });
+  });
 });
 // (the hob: its heat and what stands on it; the power it draws on is the power module's line)
 registerItemCardLines({ item: HOB }, (inst, card) => {

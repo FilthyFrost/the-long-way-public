@@ -27,6 +27,33 @@ U = S.U_END
 T = S.V_T
 ZMAT = {0: 'paint', 1: 'paint_b'}
 WALL = -0.03          # the lining inside the shell
+# the entry door's leaf goes on down to the stairwell inside it, as Nomad Drive's class A has one (frames/_steps.py;
+# core/modcar/aboard.ts BoardDoor.well: one tread at the door, 0.25 m deep, 0.207 under the floor), and the opening's
+# edges from the door's foot down
+WELL = dict(tops=(0.413,), depth=0.25)
+WELL_X = (D['sd_x0'] - DELTA, D['sd_x1'] + DELTA)
+
+
+def notch_uv():
+    """The entry door's opening on down to its stairwell, on the loft: (u0, u1, t over the door's foot)."""
+    xa, xb = WELL_X
+    u0, u1 = float(S.u_of_x(xb)), float(S.u_of_x(xa))
+    return u0, u1, float(S.t_of_z(0.5 * (u0 + u1), D['sd_z0'] + 0.01)[0])
+
+
+def notch_lines(side):
+    if side != 'R':
+        return []
+    u0, u1, t1 = notch_uv()
+    return [(0, u0, T[0] - 0.05, t1 + 0.01), (0, u1, T[0] - 0.05, t1 + 0.01)]
+
+
+def notch_zone(side, cen, z):
+    """Zone 9 (left out) for the wall under the entry door's opening (side 'R')."""
+    if side != 'R':
+        return z
+    u0, u1, t1 = notch_uv()
+    return np.where((cen[:, 0] > u0) & (cen[:, 0] < u1) & (cen[:, 1] < t1), 9, z)
 
 
 def zone_waist(cen):
@@ -149,7 +176,7 @@ class Exterior:
             x0, x1, z0, z1, r = d['win_' + name]
             self.win[name] = self._side_win(rr(x0, x1, z0, z1, r))
         # the entry door (right side, built in left coordinates) and its window
-        loop = rr(d['sd_x0'], d['sd_x1'], d['sd_z0'], d['sd_z1'], d['sd_r'], rb=0.035)
+        loop = rr(d['sd_x0'], d['sd_x1'], d['sd_z0'], d['sd_z1'], d['sd_r'], rb=0.006)
         self.cut['side'] = Cut(to_ccw(S.side_uv(loop)), True, +1.0)
         x0, x1, z0, z1, r = d['sd_win']
         self.win['side'] = self._side_win(rr(x0, x1, z0, z1, r))
@@ -262,8 +289,9 @@ class Exterior:
         loop = self.body_loop()
         holes = self.body_holes(side)
         pts, sp = S.grid_from(self.us, self.ts)
-        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines_waist(), zone_fn=zone_waist, spacing=sp, line_step=0.05)
-        return K.add_zones(K.Buf(), V, N, Tr, Z, ZMAT)
+        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines_waist() + notch_lines(side),
+                                          zone_fn=lambda c: notch_zone(side, c, zone_waist(c)), spacing=sp, line_step=0.05)
+        return K.split_mat(K.add_zones(K.Buf(), V, N, Tr, Z, {**ZMAT, 9: 'DROP'}), ('DROP',))[0]
 
     def roof(self, level=0.0):
         """The middle of the roof (left half), on the height-field chart, bounded by the loft's top row."""
@@ -287,7 +315,8 @@ class Exterior:
             V, N, Tr = K.mesh_region(S.CT, [K.Loop(P[:, :2], P, Nn)], [], g, spacing=sp)
             return K.Buf().add(V, N, Tr, 'paint_b')
         V, N, Tr = K.mesh_region(S.CT, [K.Loop(P[:, :2])], [], g, spacing=sp, level=level)
-        return K.Buf().add(V, -N, Tr, 'paint_b')
+        # (the headliner: the room's lining, a warm dark grey over the walls' cream as Nomad Drive's - carMaterials.ts)
+        return K.Buf().add(V, -N, Tr, 'lining')
 
     def lining(self, side):
         """The inside of the shell, WALL in, facing in: plastic in the cab, wood panels below the windows in the room,
@@ -309,14 +338,15 @@ class Exterior:
             u, t = c[:, 0], c[:, 1]
             z = np.zeros(len(u), np.int64)                     # 0 the cab: plastic
             room = (u > u_cab) & (u < u_fw)
-            z[room] = 3                                        # 3 the room's upper walls: cream
+            z[room] = 3                                        # 3 the room's upper walls: their lining (camel)
             z[room & (t < t_pan)] = 1                          # 1 wood panels below the windows
             z[u > u_fw] = 3                                    # (round the tailgate inside)
             z[(u > u_fw) & (t < t_deck)] = 2                   # 2 the engine bay: painted
             z[t > t_roll] = 3                                  # the headliner
             return z
-        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines, zone_fn=zf, spacing=sp, level=WALL, line_step=0.12)
-        return K.add_zones(K.Buf(), V, N, Tr, Z, {0: 'plastic_int', 1: 'wood', 2: 'paint', 3: 'paint_b'}, flip=True)
+        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines + notch_lines(side), zone_fn=lambda c: notch_zone(side, c, zf(c)),
+                                          spacing=sp, level=WALL, line_step=0.12)
+        return K.split_mat(K.add_zones(K.Buf(), V, N, Tr, Z, {0: 'plastic_int', 1: 'wood', 2: 'paint', 3: 'lining', 9: 'DROP'}, flip=True), ('DROP',))[0]
 
     # ------------------------------------------------------------------ panel skins
     def door_skin(self, key):

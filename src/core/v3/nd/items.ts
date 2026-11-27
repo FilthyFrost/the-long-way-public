@@ -30,6 +30,10 @@ export const ND_SOFA_2 = 'nd_sofa_2';
 export const ND_WC = 'nd_wc';
 export const ND_WALL_SHELF = 'nd_wall_shelf';
 export const ND_CABINET = 'nd_cabinet';
+/** furniture for a home on wheels (docs/V3/plan/finish.md §十一 2): a tool board and a rod rack for the wall, a workbench */
+export const ND_PEGBOARD = 'nd_pegboard';
+export const ND_ROD_RACK = 'nd_rod_rack';
+export const ND_WORKBENCH = 'nd_workbench';
 /** a folding camp cot (docs/V3/plan/rv.md R3: our own, a bed to put in a motorhome): tools/blender/items/nd_home.py */
 export const ND_COT = 'nd_cot';
 
@@ -45,13 +49,42 @@ export const ND_COFFEE_PACK = 'nd_coffee_pack';
 export const ND_MUG = 'nd_mug';
 
 export const ND_POT = 'nd_plant_pot';
+export const ND_PLANTER = 'nd_planter';
 export const ND_GRINDER = 'nd_grinder';
 
-/** the four crops: their seeds and what they bear */
-export const ND_SEEDS = { apple: 'nd_seeds_apple', potato: 'nd_seeds_potato', tomato: 'nd_seeds_tomato', watermelon: 'nd_seeds_watermelon' } as const;
+/**
+ * The crops (docs/V3/plan/finish.md §八 2: the garden's sixteen, and the apple there was from the first): each its packet
+ * of seeds' colour, how hard the seeds are to come by (1–3), and how many it bears. Nomad Drive's four first, as they were.
+ */
+const CROP_ROWS = {
+  apple: ['苹果', 'Apple', 2, 4, 0xc8372f],
+  potato: ['土豆', 'Potato', 1, 4, 0xb8915c],
+  tomato: ['番茄', 'Tomato', 1, 4, 0xd8452e],
+  watermelon: ['西瓜', 'Watermelon', 3, 1, 0x2f6b34],
+  carrot: ['胡萝卜', 'Carrot', 1, 4, 0xe8822a],
+  onion: ['洋葱', 'Onion', 1, 3, 0xc88a45],
+  cabbage: ['卷心菜', 'Cabbage', 1, 1, 0xbfd98a],
+  cucumber: ['黄瓜', 'Cucumber', 1, 3, 0x7fb85a],
+  corn: ['玉米', 'Maize', 1, 2, 0xf2cf4a],
+  lettuce: ['生菜', 'Lettuce', 1, 2, 0x9fd06a],
+  garlic: ['大蒜', 'Garlic', 1, 3, 0xf0e8d8],
+  pepper: ['青椒', 'Green pepper', 2, 3, 0x5fa84a],
+  eggplant: ['茄子', 'Aubergine', 2, 2, 0x6a3f8a],
+  pumpkin: ['南瓜', 'Pumpkin', 2, 1, 0xe89a2e],
+  broccoli: ['西兰花', 'Broccoli', 2, 1, 0x4f8f3a],
+  chili: ['辣椒', 'Chilli', 2, 4, 0xd6281e],
+  strawberry: ['草莓', 'Strawberry', 2, 4, 0xe0304a],
+} as const satisfies Record<string, readonly [zh: string, en: string, stars: number, bears: number, paint: number]>;
+export type CropId = keyof typeof CROP_ROWS;
+export const CROP_IDS = Object.keys(CROP_ROWS) as CropId[];
+/** each crop's name, how hard its seeds are to come by and how many it bears at a time */
+export const CROP_INFO: Readonly<Record<CropId, { zh: string; en: string; stars: number; bears: number; paint: number }>> = Object.fromEntries(
+  CROP_IDS.map((id) => [id, { zh: CROP_ROWS[id][0], en: CROP_ROWS[id][1], stars: CROP_ROWS[id][2], bears: CROP_ROWS[id][3], paint: CROP_ROWS[id][4] }]),
+) as Record<CropId, { zh: string; en: string; stars: number; bears: number; paint: number }>;
+/** the crops' seeds and what they bear */
+export const ND_SEEDS = Object.fromEntries(CROP_IDS.map((id) => [id, `nd_seeds_${id}`])) as { readonly [K in CropId]: `nd_seeds_${K}` };
 /** what each bears: the kitchen's own ingredients (docs/V3/plan/growth.md §三: one of each) */
-export const ND_FRUIT = { apple: 'ing_apple', potato: 'ing_potato', tomato: 'ing_tomato', watermelon: 'ing_watermelon' } as const;
-export type CropId = keyof typeof ND_SEEDS;
+export const ND_FRUIT = Object.fromEntries(CROP_IDS.map((id) => [id, `ing_${id}`])) as { readonly [K in CropId]: `ing_${K}` };
 
 // ------------------------------------------------------------------ categories
 
@@ -93,7 +126,7 @@ export function ndItemRows(kitchen: string): ItemRow[] {
     { id: ND_KITCHEN_STAND, cat: 'furniture', carryWalk: HEAVY, name: { zh: '橱柜', en: 'Kitchen stand' }, stars: 2, mass: 38, carry: 'large', salvage: { scrap: 4 }, blurb: '两门两抽屉的厨房矮柜，台面是一整块砧板木。', paint: 0x8fb0a6, paint2: 0xf1e8d4 },
     { id: ND_TOP_CABINET, cat: 'furniture', carryWalk: FREE, name: { zh: '吊柜', en: 'Wall cabinet' }, stars: 1, mass: 12, carry: 'large', salvage: {}, blurb: '玻璃门的厨房吊柜，挂在墙上。', paint: 0x8fb0a6, paint2: 0xf1e8d4 },
     { id: ND_COT, cat: 'furniture', carryWalk: FREE, name: { zh: '折叠床', en: 'Camp cot' }, stars: 1, mass: 9, carry: 'large', salvage: { scrap: 4 }, blurb: '铝架帆布的行军床，打开铺在车厢里就是一张床：困了长按，在上面睡一觉，和床一样快。', paint: 0x557a46, paint2: 0xede3c8 },
-    { id: ND_NIGHTSTAND, cat: 'furniture', carryWalk: FREE, name: { zh: '床头柜', en: 'Nightstand' }, stars: 1, mass: 8, carry: 'medium', salvage: {}, blurb: '一个抽屉、一层隔板的小床头柜，台面上放得下一盏灯。', paint: 0x8fb0a6, paint2: 0xe9dcc0 },
+    { id: ND_NIGHTSTAND, cat: 'furniture', carryWalk: FREE, name: { zh: '床头柜', en: 'Nightstand' }, stars: 1, mass: 8, carry: 'medium', salvage: {}, blurb: '一个抽屉、一层隔板的小床头柜，台面上放得下一盏灯。拉开抽屉，里面放得下几样小东西。', paint: 0x8fb0a6, paint2: 0xe9dcc0, holds: { slots: 3, accepts: ['*'], maxKg: 2.5, shut: true } },
     { id: ND_CHAIR_FOLD, cat: 'furniture', carryWalk: FREE, name: { zh: '折叠椅', en: 'Folding chair' }, stars: 1, mass: 3.5, carry: 'medium', salvage: { scrap: 2 }, blurb: '铝管帆布的露营折叠椅，扶手上带个杯托。', paint: 0x3e7f96, paint2: 0x5a5f66 },
     { id: ND_DINNER_TABLE, cat: 'furniture', carryWalk: FREE, name: { zh: '方餐桌', en: 'Kitchen table' }, stars: 1, mass: 9, carry: 'large', salvage: {}, blurb: '铺着格子油布的小方桌，四个人挤一挤也能吃饭。', paint: 0xd8673a, paint2: 0xe9dcc0 },
     { id: ND_DINNER_CHAIR, cat: 'furniture', carryWalk: FREE, name: { zh: '餐椅', en: 'Kitchen chair' }, stars: 1, mass: 3, carry: 'medium', salvage: { scrap: 1 }, blurb: '弯木靠背的圆座椅子。', paint: 0x8a5a3c, paint2: 0xc8372f },
@@ -102,6 +135,9 @@ export function ndItemRows(kitchen: string): ItemRow[] {
     { id: ND_WC, cat: 'furniture', carryWalk: FREE, name: { zh: '马桶', en: 'Toilet' }, stars: 1, mass: 25, carry: 'large', salvage: { scrap: 4 }, blurb: '高水箱的老式马桶，拉绳一拉哗啦一声。能坐。', paint: 0xf1ece0, paint2: 0x8a5a3c },
     { id: ND_WALL_SHELF, cat: 'furniture', carryWalk: FREE, name: { zh: '壁挂置物架', en: 'Wall shelf' }, stars: 1, mass: 2.5, carry: 'medium', salvage: {}, blurb: '两层木板的挂墙架子，挂到车厢墙上放杯子、磁带正好。', paint: 0x7d977a, paint2: 0x6b4a2f },
     { id: ND_CABINET, cat: 'furniture', carryWalk: FREE, name: { zh: '双门柜', en: 'Cupboard' }, stars: 1, mass: 22, carry: 'large', salvage: {}, blurb: '两扇门的矮柜，里面一层隔板，台面能放东西。', paint: 0x6c8fae, paint2: 0xf1e8d4 },
+    { id: ND_PEGBOARD, cat: 'furniture', carryWalk: FREE, name: { zh: '工具挂板', en: 'Tool board' }, stars: 2, mass: 4, carry: 'medium', salvage: { scrap: 3 }, blurb: '挂到车厢墙上的洞洞板：撬棍、铁锹、探测器、清理铲、手电筒、打磨机各有一个钩子。', paint: 0xd9c9a3, paint2: 0x8a5a3c },
+    { id: ND_ROD_RACK, cat: 'furniture', carryWalk: FREE, name: { zh: '鱼竿架', en: 'Rod rack' }, stars: 2, mass: 1.5, carry: 'medium', salvage: { scrap: 2 }, blurb: '挂在车厢墙上的竿架，三根鱼竿横着搁在上面。', paint: 0x6b4a2f, paint2: 0xd9c9a3 },
+    { id: ND_WORKBENCH, cat: 'furniture', carryWalk: FREE, name: { zh: '车载工作台', en: 'Van workbench' }, stars: 3, mass: 34, carry: 'large', salvage: { scrap: 20 }, blurb: '带台钳和灯的小工作台。放进有电的车里，路上也能照学会的图纸做东西。', paint: 0x4f6f8a, paint2: 0xb98a5a },
     // ---------------------------------------------------------------- photography
     { id: ND_CAMERA, cat: 'photo', name: { zh: '拍立得相机', en: 'Instant camera' }, stars: 4, mass: 0.6, carry: 'small', salvage: { scrap: 4, components: 1 }, blurb: '一台拍立得，照片十二秒显影。', paint: 0xe9e1cd, paint2: 0x3a3d42 },
     { id: ND_FILM, cat: 'photo', name: { zh: '拍立得相纸', en: 'Instant film' }, stars: 2, mass: 0.15, carry: 'small', salvage: {}, blurb: '一盒十张的相纸。', paint: 0x2e4a6b, paint2: 0xf0e8d6 },
@@ -114,11 +150,23 @@ export function ndItemRows(kitchen: string): ItemRow[] {
     { id: ND_MUG, cat: kitchen, name: { zh: '搪瓷杯', en: 'Enamel mug' }, stars: 1, mass: 0.3, carry: 'small', salvage: { scrap: 1 }, blurb: '一个搪瓷马克杯。', paint: 0x3e7f96, paint2: 0xf1ece0, drink: { litres: 0.35, liquid: 'coffee', rate: 0.1, empty: true } },
     // (frying, Nomad Drive's stoves, pans and meat: the kitchen's — docs/V3/plan/growth.md §三)
     // ---------------------------------------------------------------- the garden
-    { id: ND_POT, cat: 'garden', name: { zh: '花盆', en: 'Plant pot' }, stars: 3, mass: 6, carry: 'medium', salvage: { scrap: 1 }, blurb: '陶土花盆，土已经备好。一升水够它长成，缺水就停着等你。', paint: 0xc0673f, paint2: 0xe8d6b0 },
-    { id: ND_SEEDS.apple, cat: 'garden', name: { zh: '苹果种子', en: 'Apple seeds' }, stars: 2, mass: 0.05, carry: 'small', salvage: {}, model: 'nd_seed_packet', blurb: '一包苹果种子，结四个苹果。', paint: 0xc8372f, paint2: 0xf1e6c8 },
-    { id: ND_SEEDS.potato, cat: 'garden', name: { zh: '土豆种子', en: 'Potato seeds' }, stars: 1, mass: 0.05, carry: 'small', salvage: {}, model: 'nd_seed_packet', blurb: '一包土豆种子，结四个土豆。', paint: 0xb8915c, paint2: 0xf1e6c8 },
-    { id: ND_SEEDS.tomato, cat: 'garden', name: { zh: '番茄种子', en: 'Tomato seeds' }, stars: 1, mass: 0.05, carry: 'small', salvage: {}, model: 'nd_seed_packet', blurb: '一包番茄种子，结四个番茄。', paint: 0xd8452e, paint2: 0xf1e6c8 },
-    { id: ND_SEEDS.watermelon, cat: 'garden', name: { zh: '西瓜种子', en: 'Watermelon seeds' }, stars: 3, mass: 0.05, carry: 'small', salvage: {}, model: 'nd_seed_packet', blurb: '一包西瓜种子，结一个大西瓜。', paint: 0x2f6b34, paint2: 0xf1e6c8 },
+    { id: ND_POT, cat: 'garden', name: { zh: '花盆', en: 'Plant pot' }, stars: 3, mass: 6, carry: 'medium', salvage: { scrap: 1 }, blurb: '陶土花盆，土已经备好。种下去，白天晒着太阳长，一两天能收；土里的一升水够它长一刻钟，干了就停着等你。收完还会再结。', paint: 0xc0673f, paint2: 0xe8d6b0 },
+    { id: ND_PLANTER, cat: 'garden', name: { zh: '种植箱', en: 'Planter box' }, stars: 3, mass: 11, carry: 'medium', salvage: { scrap: 2 }, blurb: '长条的木箱，土已经备好，一箱能种三棵。放在房车窗边、车顶行李架上都行；浇一次水，三棵一起喝。', paint: 0x7a8f5a, paint2: 0xe8d6b0 },
+    ...CROP_IDS.map(
+      (id): ItemRow => ({
+        id: ND_SEEDS[id],
+        cat: 'garden',
+        name: { zh: `${CROP_INFO[id].zh}种子`, en: `${CROP_INFO[id].en} seeds` },
+        stars: CROP_INFO[id].stars,
+        mass: 0.05,
+        carry: 'small',
+        salvage: {},
+        model: 'nd_seed_packet',
+        blurb: `一包${CROP_INFO[id].zh}种子，种在花盆里，一次结${['', '一', '两', '三', '四'][CROP_INFO[id].bears]}个${CROP_INFO[id].zh}，收完还会再结。`,
+        paint: CROP_INFO[id].paint,
+        paint2: 0xf1e6c8,
+      }),
+    ),
     // ---------------------------------------------------------------- water (core/v3/nd/water.ts: they are found a quarter to wholly full)
     { id: ND_WATER_CAN, cat: 'gear', name: { zh: '储水罐', en: 'Water can' }, stars: 2, mass: 1.2, carry: 'medium', salvage: { scrap: 1 }, blurb: '十五升的蓝色储水罐；渴了直接对嘴喝。', paint: 0x3d78b0, paint2: 0xf1ece0, drink: { litres: 15, liquid: 'water', rate: 0.1, empty: true } },
     { id: ND_BUCKET, cat: 'gear', name: { zh: '水桶', en: 'Bucket' }, stars: 2, mass: 1.1, carry: 'medium', salvage: { scrap: 2 }, blurb: '十升的搪瓷水桶。放在露天、头顶没遮挡，下雨就慢慢接满（大雨四分钟）。拿着它能接水、倒水，也能直接喝。', paint: 0xe9e1cd, paint2: 0x3e6f8f, drink: { litres: 10, liquid: 'water', rate: 0.1, empty: true } },

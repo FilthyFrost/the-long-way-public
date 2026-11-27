@@ -56,6 +56,10 @@ export const CAR_MATERIAL_NAMES = [
   'leather',
   'wood',
   'plastic_int',
+  // (a living space's own — docs/V3/plan/finish.md §十一 1: the lining of its walls and ceiling, the covering of its
+  // floor; each vehicle's in its own colour, CarLookOptions.bases)
+  'lining',
+  'lino',
   'gauge',
   'ceramic',
   'rust',
@@ -116,6 +120,10 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
   leather: { family: 'matte', base: [0.2, 0.075, 0.035], look: [0.25, 0.985, 0.2, 0.15], pattern: 2, cabin: true, ink: 0.56 },
   wood: { family: 'matte', base: [0.36, 0.17, 0.07], look: [0.4, 0.993, 0.2, 0.0], pattern: 3, cabin: true, ink: 0.68 },
   plastic_int: { family: 'matte', base: [0.07, 0.068, 0.07], look: [0.1, 0.985, 0.15, 0.1], pattern: 6, cabin: true, ink: 0.37 },
+  // (a painted board lining: cream unless the vehicle says otherwise; a rubber floor covering: grey)
+  // (pattern 7: the fabric-textured cream of Nomad Drive's campers on the walls, a warm dark grey on the ceiling)
+  lining: { family: 'matte', base: [0.72, 0.66, 0.54], look: [0.04, 0.985, 0.08, 0.1], pattern: 7, cabin: true, ink: 0.06 },
+  lino: { family: 'matte', base: [0.27, 0.28, 0.29], look: [0.08, 0.985, 0.12, 0.1], pattern: 6, cabin: true, ink: 0.47 },
   // (a window takes crust whole: a barn find's are caked over until scraped)
   glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.33, wear: [0.6, 0, 0, 1], ink: 0.0 },
   glass_dark: { family: 'glass', base: [0.004, 0.006, 0.008], look: [1.0, 0.9992, 0.0, 0], tint: [0.012, 0.016, 0.02], opacity: 0.86, wear: [0.6, 0, 0, 1], ink: 0.0 },
@@ -168,6 +176,8 @@ export interface CarLookOptions {
    * rim this share of a car's clear coat (default 1)
    */
   matte?: number;
+  /** its own colour for a material that has one by the vehicle (a living space's lining and floor covering): sRGB hex by the material's name */
+  bases?: Partial<Record<CarMaterialName, number>>;
 }
 
 export interface CarLights {
@@ -267,7 +277,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uPattern;
   uniform float uInkSeed;
   uniform vec4 uHighlight;     // rgb, strength 0…1
-  uniform vec4 uSeeThrough;    // the held thing seen through: x how far (0…1), y 1 within uSeeBox (0: about the middle of the view), zw the frame's size in pixels
+  uniform vec4 uSeeThrough;    // seen through: x how far (0…1), y 1 within uSeeBox (0: about the middle of the view; 2: drawn alone into a layer — its alpha how much it covers), zw the frame's size in pixels
   uniform vec4 uSeeBox;        // a box on the screen it is seen through in (the instruments behind the wheel): its middle, its half size (px)
   uniform float uHighlightId;  // merged meshes: the part to light (aPartId); < 0 = the whole material
   uniform vec3 uTint;          // glass: tint; lens: the lamp's light
@@ -820,6 +830,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // the AO; only real crevices: the broad soft AO round a mirror or a bumper must not become a blurred shadow)
     float sunAO = smoothstep(0.1, 0.32, ao);
     vec3 diffuse = mix(shadeTone * sky * mix(0.55, 1.0, ao), paint * (sky * mix(0.7, 1.0, ao) + uSunColor * (0.3 + 0.08 * full) * sunAO), lit);
+    // (under a roof — a living space's painted lining, a door's inner frame — it is lit as the room is, not by the open
+    // sky: a ceiling's "sky" is the ground under the car, and a cream one went green over grass. docs/V3/plan/finish.md
+    // §十一 1)
+    diffuse = mix(diffuse, rtCabin(paint, n, 0.0) * mix(0.62, 1.0, ao), underRoof);
     // (wet, the colour deepens under the film of water and the coat mirrors more)
     diffuse *= 1.0 - 0.12 * wet;
     col = diffuse;
@@ -829,7 +843,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float f = 0.3 + 0.7 * pow(1.0 - ndv, 3.0);
     // (under the roof a painted door frame or dashboard mirrors little: the open country's bands, drawn on its
     // facets from inside, would break up into a patchwork)
-    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet + 0.7 * coatWet) * (1.0 - 0.8 * underRoof);
+    // (and nothing of the open country at all inside a living space's box: the horizon's band across a wall's lining)
+    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet + 0.7 * coatWet) * (1.0 - mix(0.8, 0.97, inCabin) * underRoof);
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
     // (blue sky added to red reads salmon pink once it is in sRGB)
     vec3 hue = paint / pk;
@@ -929,6 +944,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     int pat = int(uPattern + 0.5);
     float sheenMask = 1.0;
     float skySheen = 0.0;
+    // (how dark the baked occlusion takes it in a cabin at the most)
+    float aoMin = 0.45;
     if (pat == 1) {
       // cloth: a fine weave and a soft nap
       vec2 q = (abs(on.x) > 0.5 ? vObj.yz : abs(on.y) > 0.5 ? vObj.xz : vObj.xy) * 260.0;
@@ -946,6 +963,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       float g = (abs(on.y) > 0.5 ? vObj.z : vObj.y) * 90.0 + sin(wl * 7.0 + (abs(on.y) > 0.5 ? vObj.z : vObj.y) * 30.0) * 0.8;
       float grain = rtStep(abs(fract(g) - 0.5) - 0.32, 0.02);
       albedo *= mix(1.0, 0.72, grain) * (0.92 + 0.16 * rtTriNoise(vObj, on, 1.5).a);
+      // what lies flat facing up inside is laid in boards, as Nomad Drive's campers' floors are: 12 cm boards along the
+      // vehicle, each a little apart in tone, their ends butted at staggered places
+      if (nCar.y > 0.9 && inCabin > 0.5) {
+        float bw = vCar.z / 0.12;
+        float row = floor(bw);
+        float along = vCar.x / 1.2 + fract(row * 0.618) ;
+        float seam = max(1.0 - smoothstep(0.0, 0.012 / 0.12 + fwidth(bw), min(fract(bw), 1.0 - fract(bw))),
+                         1.0 - smoothstep(0.0, 0.006 / 1.2 + fwidth(along), min(fract(along), 1.0 - fract(along))));
+        albedo *= (0.9 + 0.2 * fract(sin(row * 12.9898) * 43758.5453)) * mix(1.0, 0.55, seam * (1.0 - smoothstep(2.5, 6.0, dist)));
+      }
     } else if (pat == 4) {
       // rubber: matte, a touch lighter where worn; a tyre worn down (its look's wear is the tread gone, tyres.ts)
       // smoother and greyer on its running face (the axle is the model's z: the face is what does not face it)
@@ -964,9 +991,19 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     } else if (pat == 6) {
       // plastic: a faint pebble
       albedo *= 0.94 + 0.12 * rtTriNoise(vObj, on, 0.05).b;
+    } else if (pat == 7) {
+      // a living space's lining, as Nomad Drive's are: a cream covering with a fine fabric texture on the walls, the
+      // ceiling over them a warm dark grey (what faces down); the baked occlusion only a soft deepening into the
+      // corners (across its large facets it read as dark triangles fanning over the walls)
+      vec2 q = (abs(on.x) > 0.5 ? vObj.yz : abs(on.y) > 0.5 ? vObj.xz : vObj.xy) * 190.0;
+      float weave = 0.5 + 0.5 * sin(q.x) * sin(q.y);
+      albedo *= 0.965 + 0.07 * weave * (1.0 - smoothstep(1.0, 3.0, dist));
+      albedo *= 0.95 + 0.1 * rtTriNoise(vObj, on, 0.12).b;
+      albedo *= mix(vec3(1.0), vec3(0.38, 0.37, 0.37), smoothstep(-0.45, -0.8, nCar.y));
+      aoMin = 0.84;
     }
     #ifdef RT_CABIN
-    col = rtCabin(albedo, n, sh) * mix(0.45, 1.0, ao);
+    col = rtCabin(albedo, n, sh) * mix(aoMin, 1.0, ao);
     #else
     col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full) * smoothstep(0.1, 0.32, ao));
     #endif
@@ -1268,9 +1305,14 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #endif
     gl_FragColor = vec4(col, ink);
     #endif
-    // (held and over the middle of the view: seen through there — the alpha is its opacity now, blended over)
+    // (held and over the middle of the view: seen through there — the alpha is its opacity now, blended over; drawn
+    // alone into a layer that is laid over the frame — render/frame.ts SeeLayer — the alpha says where it is)
     #ifndef RT_MEASURE
-    if (uSeeThrough.x > 0.0) {
+    if (uSeeThrough.y > 1.5) {
+      #if !((defined(RT_GLASS) || defined(RT_LENS)) && !defined(RT_CRUSTCUT))
+      gl_FragColor.a = 1.0;
+      #endif
+    } else if (uSeeThrough.x > 0.0) {
       float see;
       if (uSeeThrough.y > 0.5) {
         // (in a box: to a quarter within it, back to whole a little way outside it)
@@ -1388,6 +1430,7 @@ export class CarLook {
   private readonly gloss: number;
 
   constructor(opts: CarLookOptions = {}) {
+    this.bases = opts.bases ?? {};
     this.gloss = opts.matte ?? 1;
     this.fixedHeight = opts.bodyHeight !== undefined;
     if (opts.bodyHeight !== undefined) this.shared.uBodyHeight.value = opts.bodyHeight;
@@ -1395,6 +1438,9 @@ export class CarLook {
     this.paint2.set(opts.paint2 ?? 0xe6dccb);
     this.shared.uWear.value.set(opts.dirt ?? 0, opts.rust ?? 0, opts.wear ?? 0, opts.crust ?? 0);
   }
+
+  /** the vehicle's own colours for the materials that have one by the vehicle (CarLookOptions.bases) */
+  private readonly bases: Partial<Record<CarMaterialName, number>>;
 
   /** the material for a conventional name (created on first use, then shared by every mesh like it) */
   material(name: CarMaterialName, v: Variant = { ao: true, vpaint: false, vwear: false, vpart: false, vmask: false }): THREE.ShaderMaterial {
@@ -1424,6 +1470,8 @@ export class CarLook {
     const base = new THREE.Color(r.base[0], r.base[1], r.base[2]);
     if (name === 'paint') base.copy(this.paint);
     if (name === 'paint_b') base.copy(this.paint2);
+    const own = this.bases[name];
+    if (own !== undefined) base.set(own);
     const mat = new THREE.ShaderMaterial({
       defines,
       vertexColors: v.ao,
@@ -1759,6 +1807,17 @@ export class CarLook {
   }
 
   private seeing = false;
+
+  /**
+   * Drawn alone into a layer of its own that is laid over the frame, seen through there (render/frame.ts SeeLayer: the
+   * thing carried, as Nomad Drive does): its materials write how much of each pixel they cover in place of their ink,
+   * and stay as they are otherwise — not blended, nothing to compile
+   */
+  drawnAlone(on: boolean): void {
+    const u = this.shared.uSeeThrough.value;
+    if (on) u.set(0, 2, u.z, u.w);
+    else if (u.y > 1.5) u.set(0, 0, u.z, u.w);
+  }
 
   /** the blended twins of the look's materials (warmSeeThrough), how many materials they were made for, and whether their programs are ready */
   private readonly twins: THREE.ShaderMaterial[] = [];

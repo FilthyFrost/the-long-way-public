@@ -230,16 +230,25 @@ export const RECIPES: readonly Recipe[] = [
   // 4 — the garden, 50–75 km
   R('cot', '折叠床', 'Folding cot', 4, item('nd_cot'), { scrap: 70 }),
   R('battery', '电池', 'Battery cell', 4, item('nd_battery'), { scrap: 20, components: 2 }),
+  // (the bucket that fills in the rain: for the garden's water — docs/V3/plan/finish.md §六 2 接雨桶)
+  R('rain_bucket', '接雨桶', 'Rain bucket', 4, item('nd_bucket'), { scrap: 50, components: 2 }),
   // 5 — fishing, 75–105 km
   R('shovel', '铁锹', 'Shovel', 5, item('nd_shovel'), { scrap: 50 }),
   R('creel', '鱼篓', 'Creel', 5, item('fishing_creel'), { scrap: 30 }),
   R('spoon', '亮片', 'Spoon lure', 5, item('bait_spoon'), { scrap: 15 }),
+  // (the ribbed plate that goes on the stove: for what is caught — §六 2 烤网)
+  R('grill', '烤盘', 'Grill plate', 5, item('kit_grill'), { scrap: 25 }),
   R('hitch_ball', '挂钩', 'Tow hitch', 5, part('hitch_ball'), { scrap: 40 }),
   // 6 — a home, 105–140 km
   R('rod_swift', '「飞燕」碳素竿', 'Swift carbon rod', 6, item('rod_swift'), { scrap: 120, components: 6 }),
   R('grinder', '打磨机', 'Grinder', 6, item('nd_grinder'), { scrap: 90, components: 8 }),
   R('polisher', '抛光机', 'Polisher', 6, item('nd_polisher'), { scrap: 90, components: 8 }),
   R('wall_shelf', '壁挂置物架', 'Wall shelf', 6, item('nd_wall_shelf'), { scrap: 40 }),
+  // (a home on wheels' own, docs/V3/plan/finish.md §十一 2: the tool board, the rod rack, a cupboard, the van workbench)
+  R('pegboard', '工具挂板', 'Tool board', 6, item('nd_pegboard'), { scrap: 40 }),
+  R('rod_rack', '鱼竿架', 'Rod rack', 6, item('nd_rod_rack'), { scrap: 30 }),
+  R('locker', '储物柜', 'Cupboard', 6, item('nd_cabinet'), { scrap: 90 }),
+  R('van_bench', '车载工作台', 'Van workbench', 6, item('nd_workbench'), { scrap: 150, components: 10 }),
   // 7 — craft, 140–190 km
   R('metal_detector', '金属探测器', 'Metal detector', 7, item('nd_metal_detector'), { scrap: 110, components: 12 }),
   R('rod_pro', '「镜心」专业竿', 'Mirrorheart pro rod', 7, item('rod_pro'), { scrap: 220, components: 14 }),
