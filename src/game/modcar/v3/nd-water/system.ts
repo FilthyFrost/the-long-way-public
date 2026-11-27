@@ -333,14 +333,26 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
     clear: () => this.left.clear(),
   };
 
-  /** F held: the other way, where it may go too */
+  /** wheel flips pour/siphon direction when both directions are possible; E held also transfers (RMB stays free for eye zoom) */
+  private flip = false;
+  private flipDev: WaterThing | null = null;
   readonly hands: HandsUse = {
     id: 'nd-water',
-    claims: (h) => !!this.otherWay(h),
-    takesF: (h) => !!this.otherWay(h),
-    step: (h, dt, f) => this.handStep(h, dt, f),
+    claims: (h) => this.aimedWater(h) !== null,
+    takesF: (h) => this.aimedWater(h) !== null,
+    wheel: (h) => {
+      if (!this.canFlip(h)) return false;
+      this.flip = !this.flip;
+      this.ctx?.sound('switch', 0.35);
+      return true;
+    },
+    step: (h, dt, e) => this.handStep(h, dt, e),
     words: (h) => this.handWords(h),
-    gone: () => this.unpin(),
+    gone: () => {
+      this.flip = false;
+      this.flipDev = null;
+      this.unpin();
+    },
   };
 
   init(ctx: GameContext): void {
@@ -444,12 +456,22 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
 
   // ------------------------------------------------------------------ E: what runs which way
 
-  /** the way E runs it, the source and the target; null: the hands hold no vessel */
+  /** the active transfer direction, respecting wheel flip when both directions are possible */
   private wayAt(dev: WaterThing): { into: boolean; src: Vessel; dst: Vessel } | null {
     const hv = this.heldV();
     if (!hv) return null;
+    if (this.flipDev !== dev) {
+      this.flipDev = dev;
+      this.flip = false;
+    }
     const ov = dev.vessel();
-    const into = intoHands(hv, ov);
+    let into = intoHands(hv, ov);
+    if (this.flip) {
+      const altInto = !into;
+      const altSrc = altInto ? ov : hv;
+      const altDst = altInto ? hv : ov;
+      if (flowWhy(altSrc, altDst, false) === 'ok') into = altInto;
+    }
     return into ? { into, src: ov, dst: hv } : { into, src: hv, dst: ov };
   }
 
@@ -560,39 +582,35 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
     return w.into ? T('灌水', 'Fill from it') : T(`倒进 <b>${name}</b>`, 'Pour into it');
   }
 
-  // ------------------------------------------------------------------ F: the other way
+  // ------------------------------------------------------------------ Wheel flips direction; E also transfers
 
-  /** with a vessel in the hands and the mark on a vessel: the other way's source and target, where that may go at all */
-  private otherWay(h: NonNullable<Held>): { dev: WaterThing; into: boolean; src: Vessel; dst: Vessel } | null {
+  private aimedWater(h: NonNullable<Held>): WaterThing | null {
     const t = this.ctx?.player.target;
     if (!t || t.kind !== 'device' || !(t.device instanceof WaterThing)) return null;
-    const hv = this.heldV();
-    if (!hv || this.ctx!.player.held !== h) return null;
-    const dev = t.device;
-    const ov = dev.vessel();
-    const into = !intoHands(hv, ov);
-    const src = into ? ov : hv;
-    const dst = into ? hv : ov;
-    const why = flowWhy(src, dst, false);
-    if (why !== 'ok') return null;
-    return { dev, into, src, dst };
+    if (!this.heldV() || this.ctx!.player.held !== h) return null;
+    return t.device;
   }
 
-  private handStep(h: NonNullable<Held>, dt: number, f: boolean): void {
-    if (!f) return;
-    const o = this.otherWay(h);
-    if (!o) return;
-    this.run(o.dev, o.into, o.src, o.dst, dt);
+  private canFlip(h: NonNullable<Held>): boolean {
+    const dev = this.aimedWater(h);
+    const hv = this.heldV();
+    if (!dev || !hv) return false;
+    const ov = dev.vessel();
+    return flowWhy(hv, ov, false) === 'ok' && flowWhy(ov, hv, false) === 'ok';
+  }
+
+  private handStep(h: NonNullable<Held>, dt: number, e: boolean): void {
+    if (!e) return;
+    const dev = this.aimedWater(h);
+    if (!dev) return;
+    const w = this.wayAt(dev);
+    if (!w || flowWhy(w.src, w.dst) !== 'ok') return;
+    this.run(dev, w.into, w.src, w.dst, dt);
   }
 
   private handWords(h: NonNullable<Held>): Action[] {
-    const o = this.otherWay(h);
-    if (!o) return [];
-    const why = flowWhy(o.src, o.dst);
-    const there = o.dev instanceof PumpThing ? '水泵' : nameOf((o.dev as VesselThing).ly.l);
-    const text = o.into ? '灌水' : `倒进 <b>${there}</b>`;
-    if (why !== 'ok') return [{ keys: ['RMB'], hold: true, text, off: true, why: this.whyWord(o.dev, h, o.into, why) }];
-    return [{ keys: ['RMB'], hold: true, text }];
+    if (!this.canFlip(h)) return [];
+    return [{ keys: ['Wheel'], text: '切换倒/抽方向' }];
   }
 
   // ------------------------------------------------------------------ the frame

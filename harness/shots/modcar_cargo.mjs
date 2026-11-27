@@ -39,9 +39,9 @@ try {
         }
         target = window.__rt.telemetry().target;
       }
-      g.player.press();
+      g.mouseDown(0);
       g.step(1 / 60, 1);
-      g.player.release();
+      g.mouseUp(0);
       g.simulate(0);
       return { target, can: `loose:${l.uid}`, held: window.__rt.telemetry().held, fuel: g.player.held?.tool?.fuel ?? '' };
     });

@@ -189,7 +189,7 @@ export class CraftUi {
             const s = shortOf(stock, r.recipe.cost);
             return `<div class="row ${r.recipe.id === sel?.recipe.id ? 'sel' : ''}" data-id="${r.recipe.id}">${img(r.icon)}<div class="nm">${esc(r.name)}<small class="${s ? 'short' : ''}">${this.costPlain(r.recipe.cost)}</small></div></div>`;
           })
-          .join('')}<div class="more">路上找到图纸，拿在手里按右键学会，这里就多一样。</div></div>
+          .join('')}<div class="more">路上找到图纸，拿在手里按 E 学会，这里就多一样。</div></div>
         <div class="det">${
           sel
             ? `<div class="top">${img(sel.icon)}<div><div class="cat">${esc(sel.card.cat)}</div><h4>${esc(sel.name)}</h4>${stars(sel.card.stars)}</div></div>

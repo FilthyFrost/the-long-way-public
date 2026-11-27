@@ -61,8 +61,8 @@ export class Blueprints implements System<GameContext> {
   private wordsOf(h: NonNullable<Held>): Action[] {
     const r = this.recipeOf(h);
     if (!r) return [];
-    if (this.ctx?.learned?.has(r.id)) return [{ keys: ['RMB'], text: `学会 <b>${r.name.zh}</b>`, off: true, why: `已经会做${r.name.zh}了` }];
-    return [{ keys: ['RMB'], text: `学会 <b>${r.name.zh}</b>` }];
+    if (this.ctx?.learned?.has(r.id)) return [{ keys: ['E'], text: `学会 <b>${r.name.zh}</b>`, off: true, why: `已经会做${r.name.zh}了` }];
+    return [{ keys: ['E'], text: `学会 <b>${r.name.zh}</b>` }];
   }
 
   /** a making learnt (the game's own: GameContext.learn); true: new */

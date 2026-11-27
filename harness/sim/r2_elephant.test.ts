@@ -3,10 +3,10 @@
  *   - the frame: a flat-fronted motorhome 9.8 m by 2.4 (8.2 until docs/V3/plan/finish.md §18), its V8 at the back under the bed on a three-speed, duals behind,
  *     a roof for a rack with a ladder up the side, a house battery on its own mount, no boot (its back is the bedroom's
  *     window); heavy and slow
- *   - its places for things inside its body under the ceiling: the aisle's floor, the bed, the galley's worktop, the
- *     table, the sofa, the fridge's niche — and the four hobs it is found with, on the worktop
- *   - its living space: the aisle and the floor by the entry door inside its body, the door's inside on it, the bed
- *     across the back over its floor
+ *   - its places for things inside its body under the ceiling: its floor in three and the deck over the engine — an empty
+ *     shell since docs/V3/plan/finish.md §十九 step 7, as Nomad Drive's campers are, found with nothing in it
+ *   - its living space: its floor wall to wall inside its body back to the engine deck, the door's inside on it; no bed
+ *     built in
  *   - the house battery: charged by the alternator while running and by a solar roof (all of the solar's), the
  *     appliances drawn from it; with none, from the starter battery only down to the share it keeps to crank on
  *   - a fridge with no power keeps nothing cold: what is in it goes off at the open air's rate, and back
@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { aboardOf } from '../../src/core/modcar/aboard';
 import { fitPart, newInstance, removePart, stockBuild } from '../../src/core/modcar/build';
 import { zonesFor } from '../../src/core/modcar/cargo';
+import elephantBox from '../../src/core/modcar/data/mounts/elephant.json';
 import { FRAMES, frameDef, frameSize } from '../../src/core/modcar/frames';
 import { runProblems, warnings } from '../../src/core/modcar/rules';
 import { boxDecay, newItem, putInside, setUnpowered } from '../../src/core/modcar/items';
@@ -94,35 +95,37 @@ describe('R2: the Old Elephant', () => {
     }
   });
 
-  it('its places for things lie inside its body under the ceiling; it is found with four hobs on the galley’s worktop', () => {
+  it('its places for things lie inside its body under the ceiling: its floor in three and the deck over the engine; it is found with nothing in it', () => {
     const f = frameDef('elephant');
     const zones = zonesFor('elephant', stockBuild('elephant'));
-    // (the sofa that was built in is gone — a sofa one can move stands on the floor there — and the corner behind the
-    // driver and the cubby under the sink are places of their own: docs/V3/plan/finish.md §十一 1)
-    for (const id of ['cabin', 'nook', 'bed', 'galley', 'table', 'cubby', 'fridge', 'pass', 'dash', 'wall']) expect(zones.some((z) => z.id === id), id).toBe(true);
-    expect(zones.some((z) => z.id === 'sofa')).toBe(false);
+    // (an empty shell since docs/V3/plan/finish.md §十九 step 7: the galley's worktop, the cubby under its sink, the
+    // dinette's table, the fridge's niche and the bed that were places of their own are gone)
+    for (const id of ['cabin', 'lounge', 'fore', 'nook', 'pass', 'dash', 'wall']) expect(zones.some((z) => z.id === id), id).toBe(true);
+    for (const id of ['bed', 'galley', 'table', 'cubby', 'fridge', 'sofa']) expect(zones.some((z) => (z.id as string) === id), id).toBe(false);
     for (const z of zones) {
       expect(z.x[0], z.id).toBeGreaterThanOrEqual(f.body.rear);
       expect(z.x[1], z.id).toBeLessThanOrEqual(f.body.front);
       expect(Math.max(Math.abs(z.z[0]), Math.abs(z.z[1])), z.id).toBeLessThanOrEqual(f.body.halfWidth);
-      // (the floor is drawn looking down from the zone's top: under the ceiling, 3.065, and the lockers, 2.48)
+      // (the floor is drawn looking down from the zone's top: under the ceiling, 3.065)
       expect(z.top, z.id).toBeLessThanOrEqual(2.46);
     }
     const by = (id: string) => zones.find((z) => z.id === id)!;
-    expect(by('galley').floor).toBeGreaterThan(by('cabin').floor + 0.8);
-    expect(by('bed').floor).toBeGreaterThan(by('cabin').floor + 0.7);
-    // (the fridge's niche: on a plinth over the front wheel's hump, tall enough for Nomad Drive's fridge, 1.36)
-    expect(by('fridge').floor).toBeGreaterThan(by('cabin').floor + 0.25);
-    expect(by('fridge').top - by('fridge').floor).toBeGreaterThan(1.4);
-    expect(f.fittings).toEqual([
-      { item: HOB, zone: 'galley', n: 4, yaw: -Math.PI / 2 },
-      { item: 'nd_sofa_2', zone: 'cabin', n: 1, yaw: Math.PI / 2, at: [-2.22, 0.7] },
-    ]);
-    // (the aisle: a metre and a tenth at the least, all its length — it was 76 cm)
+    // (the floor in three, as Nomad Drive's class A's: the back, the strip by the entry door short of its stairwell, the
+    // front — side by side, wall to wall but by the stairwell; the engine deck behind them, 66 cm over the floor)
+    const [back, door, front, deck] = [by('cabin'), by('lounge'), by('fore'), by('nook')];
+    expect(deck.x[1]).toBeCloseTo(back.x[0], 6);
+    expect(back.x[1]).toBeCloseTo(door.x[0], 6);
+    expect(door.x[1]).toBeCloseTo(front.x[0], 6);
+    for (const z of [back, front, deck]) expect(z.z[1] - z.z[0], z.id).toBeGreaterThan(2.3);
+    expect(door.z[1]).toBeLessThan(0.95);
+    expect(deck.floor).toBeGreaterThan(back.floor + 0.6);
+    // (no hobs on a worktop, no sofa: what is in it the player puts in)
+    expect(f.fittings ?? []).toEqual([]);
+    // (between its wheels' humps a metre and a tenth at the least, as its aisle was made — it was 76 cm)
     for (const r of aboardOf('elephant')!.areas) expect(r.z1 - r.z0, r.name).toBeGreaterThanOrEqual(1.1 - 1e-9);
   });
 
-  it('its living space: the aisle and the floor by the entry door inside its body, the door’s inside on it, the bed across the back', () => {
+  it('its living space: its floor wall to wall inside its body back to the engine deck, the door’s inside on it, no bed built in', () => {
     const f = frameDef('elephant');
     const a = aboardOf('elephant')!;
     expect(a.roof).toBeFalsy();
@@ -136,13 +139,15 @@ describe('R2: the Old Elephant', () => {
     expect(a.doors[0].mount).toBe('door_side');
     expect(inArea(...a.doors[0].inside)).toBe(true);
     expect(inArea(...a.aft!)).toBe(true);
-    // (back from the seat: behind the seats, ahead of the bed)
+    // (back from the seat: behind the seats)
     expect(a.aft![0]).toBeLessThan(f.mounts.find((m) => m.id === 'seat_driver')!.pos.x);
-    const bed = a.beds![0];
-    expect(bed.x1 - bed.x0).toBeGreaterThan(1.9);
-    expect(bed.z1 - bed.z0).toBeGreaterThan(2.0);
-    expect(bed.top).toBeGreaterThan(a.areas[0].floor + 0.6);
-    expect(bed.x1).toBeLessThanOrEqual(Math.min(...a.areas.map((r) => r.x0)) + 0.05);
+    // (no bed built in: a cot put in is one)
+    expect(a.beds ?? []).toHaveLength(0);
+    // (its floor back to the engine deck's front, wall to wall: the model's own room — data/mounts/elephant.json)
+    const room = (elephantBox as never as { room: { x: number[]; z: number[] } }).room;
+    expect(Math.min(...a.areas.map((r) => r.x0))).toBeGreaterThanOrEqual(room.x[0] - 1e-9);
+    expect(Math.min(...a.areas.map((r) => r.x0))).toBeLessThan(room.x[0] + 0.15);
+    expect(Math.max(...a.areas.map((r) => r.z1)) - Math.min(...a.areas.map((r) => r.z0))).toBeGreaterThan(2.0);
   });
 });
 

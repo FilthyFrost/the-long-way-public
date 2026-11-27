@@ -66,18 +66,17 @@ try {
     page.evaluate(
       ({ s, release }) => {
         const g = window.__rt.game;
-        g.player.press();
+        g.mouseDown(0);
         let puffs = 0;
         let ring = 0;
         for (let t = 0; t < s - 1e-9; t += 1 / 60) {
-          g.player.primary = true;
           g.step(1 / 60, 1);
           puffs = Math.max(puffs, g.mist?.count ?? 0);
           ring = Math.max(ring, g.player.progress ?? 0);
         }
         const left = g.player.held?.tool?.paint ?? null;
         if (release) {
-          g.player.release();
+          g.mouseUp(0);
           g.simulate(0);
         }
         return { puffs, ring, left };
@@ -86,11 +85,12 @@ try {
     );
   /**
    * Strokes drawn on a door with the button held, the view turned from point to point along each (u along the car,
-   * v up, metres from the door's middle); let go between strokes. speed: m/s along a stroke; dwell: s on a single point
+   * v up, metres from the door's middle); let go between strokes. speed: m/s along a stroke; dwell: s on a single point.
+   * The left button as the hand presses it (ModGame.mouseDown): the spray can's and the grinder's alike.
    */
-  const draw = (mount, strokes, speed = 0.12, dwell = 0.7, from = 'key') =>
+  const draw = (mount, strokes, speed = 0.12, dwell = 0.7) =>
     page.evaluate(
-      ({ mount, strokes, speed, dwell, from }) => {
+      ({ mount, strokes, speed, dwell }) => {
         const g = window.__rt.game;
         const v = g.vehicles[0];
         const at = g.__drawFrame?.(mount);
@@ -106,10 +106,9 @@ try {
         for (const st of strokes) {
           lookAt(st[0][0], st[0][1]);
           g.simulate(0);
-          g.player.press(from);
+          g.mouseDown(0);
           if (st.length === 1) {
             for (let t = 0; t < dwell; t += 1 / 60) {
-              g.player.primary = true;
               g.step(1 / 60, 1);
               frames++;
             }
@@ -120,18 +119,17 @@ try {
               const n = Math.max(1, Math.round((Math.hypot(u1 - u0, v1 - v0) / speed) * 60));
               for (let k = 1; k <= n; k++) {
                 lookAt(u0 + ((u1 - u0) * k) / n, v0 + ((v1 - v0) * k) / n);
-                g.player.primary = true;
                 g.step(1 / 60, 1);
                 frames++;
               }
             }
           }
-          g.player.release(from);
+          g.mouseUp(0);
           g.simulate(0);
         }
         return frames;
       },
-      { mount, strokes, speed, dwell, from },
+      { mount, strokes, speed, dwell },
     );
 
   await page.goto(`${url}/modcar.html?new=1`, { waitUntil: 'domcontentloaded' });
@@ -189,7 +187,7 @@ try {
   const spot = await sprayHold(1.2, false);
   await shot('spot');
   await page.evaluate(() => {
-    window.__rt.game.player.release();
+    window.__rt.game.mouseUp(0);
     window.__rt.game.simulate(0);
   });
   const open1 = await page.evaluate(() => window.__rt.game.vehicles[0].view.panelOpen('door_FL'));
@@ -292,7 +290,7 @@ try {
   await rt('aim', 0, 'door_RL', 0.8);
   await rt('simulate', 0.2);
   const rows = [[[-0.3, 0.12], [0.02, 0.12], [0.02, 0.0], [-0.3, 0.0], [-0.3, -0.12], [0.02, -0.12], [0.02, -0.2], [-0.3, -0.2]]];
-  for (let k = 0; k < 2; k++) await draw('door_RL', rows, 0.3, 0, 'mouse');
+  for (let k = 0; k < 2; k++) await draw('door_RL', rows, 0.3, 0);
   const scraped = await coverOf('door_RL');
   console.log('ground', JSON.stringify({ set, scraped }));
   if (!(scraped.dry < plastic.dry * 0.35)) fail(`the grinder did not take the set half off (${plastic.dry} → ${scraped.dry})`);
@@ -353,10 +351,10 @@ try {
     await rt('simulate', 0.2);
     // (the disc is where the grinder is held, a little off the mark: a sweep over the bands takes some of them each time)
     const sweep = [[[-0.32, 0.05], [0.32, 0.05], [0.32, -0.12], [-0.32, -0.12]]];
-    await draw('door_FR', sweep, 0.25, 0, 'mouse');
+    await draw('door_FR', sweep, 0.25, 0);
     const g1 = await coverOf('door_FR');
-    await draw('door_FR', sweep, 0.25, 0, 'mouse');
-    await draw('door_FR', sweep, 0.25, 0, 'mouse');
+    await draw('door_FR', sweep, 0.25, 0);
+    await draw('door_FR', sweep, 0.25, 0);
     const g3 = await coverOf('door_FR');
     console.log('grinder', JSON.stringify({ g0, g1, g3 }));
     if (!g0 || !(g0.dry > 0.1)) fail(`no white bands on the right front door to grind (${JSON.stringify(g0)})`);

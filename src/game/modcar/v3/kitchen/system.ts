@@ -218,11 +218,12 @@ export class KitDevice implements GarageDevice {
     this.sys.give(this, held);
   }
 
-  /** where the line of sight meets it: its own boxes (a stove's part), or its model's box, a hand's breadth more all round */
+  /**
+   * where the line of sight meets it: its own boxes (a stove's part), or its model's box, a hand's breadth more all
+   * round — riding in a vehicle too, where it is met (appliances' hit says why)
+   */
   hit(ray: THREE.Ray, reach: number): number | null {
-    const d = this.along(ray, reach);
-    if (d === null) return null;
-    return this.unit.loose.riding ? Math.max(0, d - 1.2) + d * 0.001 : d;
+    return this.along(ray, reach);
   }
 
   /** how far along the line of sight it is met, within reach (null: not) */

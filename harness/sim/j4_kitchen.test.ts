@@ -58,9 +58,9 @@ describe('J4: the kitchen things are things like any other', () => {
     cookRight(rig);
     rig.aim(stove, 'knob');
     rig.pressE();
-    // the pan off the burner, held down on it: in the hands with what is in it
+    // the pan off the burner (Hold E 0.5 s on a functional device): in the hands with what is in it
     rig.aim(stove, 'top');
-    rig.holdL();
+    rig.holdE();
     expect(rig.held()?.item).toBe(VESSEL.fry);
     expect(potOf(rig.held()!)?.items.length).toBe(2);
     expect(vesselOf(stove.item)).toBe(null);
@@ -106,7 +106,7 @@ describe('J4: the kitchen things are things like any other', () => {
     expect(done0).toBeGreaterThan(0.05);
     rig.empty();
     rig.aim(stove, 'top');
-    rig.holdL();
+    rig.holdE();
     const pan = rig.held()!;
     expect(pan.item).toBe(VESSEL.fry);
     const lifted = potOf(pan)!.done ?? 0;

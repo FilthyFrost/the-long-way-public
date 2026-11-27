@@ -558,7 +558,7 @@ export function derive(build: Build): Derived {
     steering: {
       // tyres bigger or wider than the arches were made for rub at full lock: less of it
       maxDeg: single ? frame.steering.maxDeg : frame.steering.maxDeg * Math.max(0.45, 1 - 1.1 * (Math.max(0, rF - frame.hubRadius * 1.04) / frame.hubRadius + Math.max(0, sideF - stockWidth(frame) - 0.03) / 0.3)),
-      ratio: st?.ratio ?? 16,
+      ratio: st?.ratio ?? 1.5,
       rateLow: frame.steering.rateLow * (st?.rate ?? 1),
       rateHigh: frame.steering.rateHigh * (st?.rate ?? 1),
       // (a quick wheel answers sooner: its input filtered less; a lazy one, a ship's wheel, more)
@@ -566,7 +566,7 @@ export function derive(build: Build): Derived {
       returnScale: frame.steering.returnScale,
       ackermann: frame.steering.ackermann,
       // (a quicker ratio turns the road wheels further for the same hand: full lock asks for more grip at speed)
-      gripLimitG: frame.steering.gripLimitG * Math.max(0.6, Math.min(1.35, Math.pow(16 / (st?.ratio ?? 16), 0.6))),
+      gripLimitG: frame.steering.gripLimitG * Math.max(0.6, Math.min(1.35, Math.pow(1.5 / (st?.ratio ?? 1.5), 0.6))),
       slipMarginDeg: frame.steering.slipMarginDeg,
     },
     body: {

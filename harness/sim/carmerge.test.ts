@@ -138,7 +138,7 @@ describe('car materials', () => {
     expect(paint.uniforms.uShelter.value).toBe(1);
   });
 
-  it('gives ghosts a depth twin, and an x-ray twin when focused or replacing', () => {
+  it('gives ghosts a depth twin and an always-on 20% see-through x-ray twin (ND holograms)', () => {
     const part = new THREE.Group();
     part.add(box('steel', 0.5, 0.5, 0.5, 0, 0, 0));
     applyGhost(part, 'replace');
@@ -147,7 +147,7 @@ describe('car materials', () => {
     expect(mesh.children.filter((c) => c.userData.ghostXray)).toHaveLength(1);
     expect(mesh.layers.isEnabled(LAYER_SHADOW_FAR)).toBe(false);
     applyGhost(part, 'empty');
-    expect(mesh.children.filter((c) => c.userData.ghostXray)).toHaveLength(0);
+    expect(mesh.children.filter((c) => c.userData.ghostXray)).toHaveLength(1);
     expect(mesh.children.filter((c) => c.userData.ghostDepth)).toHaveLength(1);
     applyGhost(part, 'empty', true);
     expect(mesh.children.filter((c) => c.userData.ghostXray)).toHaveLength(1);

@@ -32,6 +32,9 @@ export const CARD_CSS = `
 .mc-ic.compact .nm svg { width: 17px; height: 17px; flex: none; opacity: 0.8; }
 .mc-ic .st { display: flex; gap: 4px; margin-top: 5px; }
 .mc-ic .st svg { width: 15px; height: 15px; }
+.mc-ic .st.lv svg { width: 17px; height: 17px; }
+.mc-ic .cd { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 6px; font-size: 16px; font-weight: 700; }
+.mc-ic .cd span { color: #fffaf0; }
 .mc-ic .tg { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 12.5px; color: var(--tx-2); }
 .mc-ic .tg span { display: inline-flex; align-items: center; gap: 5px; }
 .mc-ic .tg span::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--tx-3); }
@@ -114,6 +117,33 @@ export function condWord(c: number): string {
   return c < 0.35 ? '差' : c < 0.6 ? '一般' : c < 0.85 ? '好' : '很好';
 }
 
+/**
+ * A part's condition as Nomad Drive's card says it: the percentage (a part not quite gone never reads 0 %), and the
+ * state's word in its colour by it — 状态极佳 from 75, 良好 from 50, 一般 from 25, 较差 above nothing, 已损坏 at 0.
+ */
+export function stateOf(c: number): { pct: number; word: string; colour: string } {
+  const pct = c > 0 ? Math.max(1, Math.min(100, Math.round(c * 100))) : 0;
+  if (pct >= 75) return { pct, word: '状态极佳', colour: '#54b554' };
+  if (pct >= 50) return { pct, word: '状态良好', colour: '#8ab34d' };
+  if (pct >= 25) return { pct, word: '状态一般', colour: '#f2b340' };
+  if (pct > 0) return { pct, word: '状态较差', colour: '#ed8545' };
+  return { pct, word: '已损坏', colour: '#e6594d' };
+}
+
+/** a part's level as Nomad Drive's badge draws it: so many of three stars, bronze, silver or gold; the rest faint */
+const LEVEL_COLOUR = ['#b88c66', '#c7ccd1', '#ffc74d'];
+function levelHtml(level: number): string {
+  const c = LEVEL_COLOUR[Math.min(3, level) - 1];
+  const one = (on: boolean): string => `<svg viewBox="0 0 24 24"><path d="${STAR_PATH}" fill="${on ? c : 'rgba(255,255,255,0.22)'}" stroke="${on ? c : 'none'}" stroke-width="1.2" stroke-linejoin="round" /></svg>`;
+  return `<div class="st lv" data-stars="${level}" data-level="${level}" title="${level} 星">${[0, 1, 2].map((i) => one(i < level)).join('')}</div>`;
+}
+
+/** the state line under a part's name (cardHtml); its percentage is written again in place as it changes (CardView) */
+function stateHtml(c: number): string {
+  const s = stateOf(c);
+  return `<div class="cd"><b style="color:${s.colour}">${s.word}</b><span>${s.pct}%</span></div>`;
+}
+
 /** the condition's cross and the weight's bell, as Arctic Drive draws them in a card's last line */
 const COND = '<svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round" /></svg>';
 const MASS = '<svg viewBox="0 0 16 16"><path d="M5.2 6.2h5.6l2.4 7.6H2.8z" fill="#fff" /><circle cx="8" cy="4.2" r="1.9" fill="none" stroke="#fff" stroke-width="1.6" /></svg>';
@@ -160,9 +190,9 @@ function barHtml(bar: CardBar, i: number, legend = true): string {
   return `<div class="br" data-bar="${i}"><div class="t">${esc(bar.label)}</div><div class="tr">${fills}</div><div class="n">${esc(bar.text)}</div>${lines}</div>`;
 }
 
-/** the card's HTML without its bars' moving numbers (what decides whether it is drawn again) */
+/** the card's HTML without its bars' moving numbers nor its state's percentage (what decides whether it is drawn again) */
 function structureOf(c: ItemCard): string {
-  return JSON.stringify({ ...c, bars: c.bars.map((b) => ({ label: b.label, tone: b.tone, colour: b.colour, parts: b.parts?.map((p) => p.tone) })) });
+  return JSON.stringify({ ...c, state: c.state === undefined ? undefined : stateOf(c.state).word, bars: c.bars.map((b) => ({ label: b.label, tone: b.tone, colour: b.colour, parts: b.parts?.map((p) => p.tone) })) });
 }
 
 /** "缺发动机" in the before column: nothing to compare against */
@@ -173,7 +203,9 @@ const beforeOf = (s: string): string => (/\d/.test(s) ? s : '—');
  * what the mark is on but for what lies on the ground — docs/V3/plan/prompts.md §五 4)
  */
 export function cardHtml(c: ItemCard, compact = false, notes = true): string {
-  const stars = c.stars > 0 ? `<div class="st" data-stars="${c.stars}" title="${c.stars} 星">${[0, 1, 2, 3, 4].map((i) => star(i < c.stars, c.stars >= 4)).join('')}</div>` : '';
+  // (a part: Nomad Drive's one to three stars of its level, and its state under the name)
+  const stars = c.level ? levelHtml(c.level) : c.stars > 0 ? `<div class="st" data-stars="${c.stars}" title="${c.stars} 星">${[0, 1, 2, 3, 4].map((i) => star(i < c.stars, c.stars >= 4)).join('')}</div>` : '';
+  const state = c.state !== undefined ? stateHtml(c.state) : '';
   const tags = c.badges.length ? `<div class="tg">${c.badges.map((b) => `<span class="${b.tone}">${esc(b.text)}</span>`).join('')}</div>` : '';
   const secs: string[] = [];
   if (compact) {
@@ -181,7 +213,7 @@ export function cardHtml(c: ItemCard, compact = false, notes = true): string {
     if (notes && c.notes.length) secs.push(`<div class="sec">${c.notes.map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
     // (what is wanting of its set: on the cut-down card too — it is what one is looking out for)
     if (c.wanting) secs.push(`<div class="sec"><div class="nt info">${esc(c.wanting)}</div></div>`);
-    return `<div class="hd"><div class="nm">${iconSvg(c.icon)}${esc(c.name)}</div>${stars}</div>${secs.length ? `<div class="bd">${secs.join('')}</div>` : ''}`;
+    return `<div class="hd"><div class="nm">${iconSvg(c.icon)}${esc(c.name)}</div>${stars}${state}</div>${secs.length ? `<div class="bd">${secs.join('')}</div>` : ''}`;
   }
   if (c.blurb) secs.push(`<div class="sec"><div class="desc">${esc(c.blurb)}</div></div>`);
   if (c.curve) secs.push(`<div class="sec"><div class="lab">${esc(c.curve.label)}</div>${curveSvg(c.curve)}</div>`);
@@ -203,7 +235,7 @@ export function cardHtml(c: ItemCard, compact = false, notes = true): string {
   if (f.cond !== undefined) foot.push(`<span>${COND}${Math.round(f.cond * 100)}%<em>${condWord(f.cond)}</em></span>`);
   if (f.mass !== undefined) foot.push(`<span>${MASS}${f.mass >= 100 ? f.mass.toFixed(0) : f.mass.toFixed(1)} kg</span>`);
   if (foot.length) secs.push(`<div class="sec"><div class="ft">${foot.join('')}</div></div>`);
-  return `<div class="hd"><div class="cat">${iconSvg(c.icon)}${esc(c.cat)}</div><div class="nm">${esc(c.name)}</div>${stars}${tags}</div><div class="bd">${secs.join('')}</div>`;
+  return `<div class="hd"><div class="cat">${iconSvg(c.icon)}${esc(c.cat)}</div><div class="nm">${esc(c.name)}</div>${stars}${state}${tags}</div><div class="bd">${secs.join('')}</div>`;
 }
 
 /** one card on screen; showing the same contents again only moves its bars */
@@ -248,7 +280,12 @@ export class CardView {
       this.drawn++;
       return;
     }
-    // the same card: its bars to their new values
+    // the same card: its state's percentage and its bars to their new values
+    if (c.state !== undefined) {
+      const p = this.el.querySelector('.cd span');
+      const text = `${stateOf(c.state).pct}%`;
+      if (p && p.textContent !== text) p.textContent = text;
+    }
     c.bars.forEach((bar, i) => {
       const e = this.el.querySelector(`[data-bar="${i}"]`);
       if (!e) return;

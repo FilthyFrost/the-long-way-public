@@ -2,8 +2,9 @@
  * R1 (docs/V3/plan/rv.md): the Turtle, a camper van with an elevating roof, and the beds.
  *   - the frame: a motorhome of its own, its roof an elevating shell lifted straight up (a pop-up driven by the roof, its
  *     bellows), no roof mount (no rack on the shell), its living space standing only with the roof up
- *   - its places for things inside its body: the floor, the bed, the galley's worktop under the shell's underside
- *   - the beds: the Turtle's across the back, the Whale's over the cab, inside their bodies, over the floors
+ *   - its places for things inside its body: the floor and the decks at the back, under the shell's underside (an empty
+ *     shell as Nomad Drive's camper van since docs/V3/plan/finish.md §十九 step 7: no bed, no bunk, no galley)
+ *   - the beds: only the Whale's bunk over the cab, as Nomad Drive's class C keeps its own; any other bed is one put in
  *   - sleeping: six hours from nothing in a bed, eight in a seat, never under two; half again the health in a bed
  *   - the plan: at 50–70 km the Whale or the Turtle, about as often each
  */
@@ -32,7 +33,8 @@ describe('R1: the Turtle and the beds', () => {
     // (its shell on the roof: at the top of the body)
     expect(p.pivot[1]).toBeGreaterThan(f.body.top - 0.2);
     expect(f.mounts.some((m) => m.cat === 'roof')).toBe(false);
-    expect(f.mounts.some((m) => m.cat === 'ladder')).toBe(false);
+    // Turtle has a left-rear side ladder mount matching Nomad Drive's camper van (finish.md §19 step 5)
+    expect(f.mounts.some((m) => m.cat === 'ladder')).toBe(true);
     // (the Loaf's parts on it: a stock build has its engine, its seats, its doors)
     const b = stockBuild('turtle');
     for (const m of ['engine', 'seat_driver', 'seat_pass', 'door_side', 'trunk', 'hood']) expect(b.parts[m], m).toBeTruthy();
@@ -41,10 +43,11 @@ describe('R1: the Turtle and the beds', () => {
     expect(aboardOf('rv')?.roof).toBeFalsy();
   });
 
-  it('its places for things lie inside its body, under the shell, the worktop and the bed above the floor', () => {
+  it('its places for things lie inside its body, under the shell: the floor, and the decks at the back above it — no bed, no galley', () => {
     const f = frameDef('turtle');
     const zones = zonesFor('turtle', stockBuild('turtle'));
-    for (const id of ['cabin', 'bed', 'galley', 'pass']) expect(zones.some((z) => z.id === id), id).toBe(true);
+    for (const id of ['cabin', 'nook', 'pass']) expect(zones.some((z) => z.id === id), id).toBe(true);
+    for (const id of ['bed', 'galley']) expect(zones.some((z) => (z.id as string) === id), id).toBe(false);
     for (const z of zones) {
       expect(z.x[0], z.id).toBeGreaterThanOrEqual(f.body.rear);
       expect(z.x[1], z.id).toBeLessThanOrEqual(f.body.front);
@@ -53,36 +56,39 @@ describe('R1: the Turtle and the beds', () => {
       expect(z.top, z.id).toBeLessThan(2.0);
     }
     const by = (id: string) => zones.find((z) => z.id === id)!;
-    expect(by('galley').floor).toBeGreaterThan(by('cabin').floor + 0.6);
-    expect(by('bed').floor).toBeGreaterThan(by('cabin').floor + 0.4);
+    // (the deck over the rear axle 38 cm over the floor, as Nomad Drive's camper van's; the engine's behind it higher:
+    // the room's back, by the tailgate too)
+    expect(by('nook').floor).toBeGreaterThan(by('cabin').floor + 0.3);
+    expect(by('nook').x[1]).toBeCloseTo(by('cabin').x[0], 6);
+    expect(by('nook').via).toContain('trunk');
   });
 
-  it('the beds: the Turtle’s across the back, the Whale’s over the cab and across its back, inside their bodies, over their floors', () => {
-    // (inside the model's own box — data/mounts: the frame's `body` is the box its bumpers and its blows go by, and the
-    // Whale's stops half a metre short of its living box's back wall, where its bed stands since docs/V3/plan/finish.md §十一 1)
-    const boxes: Record<string, { bbox: { min: number[]; max: number[] } }> = { turtle: turtleBox as never, rv: rvBox as never };
-    expect(aboardOf('rv')!.beds!.length).toBe(2);
-    for (const id of ['turtle', 'rv']) {
-      const f = frameDef(id);
-      const a = aboardOf(id)!;
-      const box = boxes[id].bbox;
-      expect(a.beds?.length, id).toBeGreaterThanOrEqual(1);
-      for (const b of a.beds!) {
-        expect(b.x0).toBeLessThan(b.x1);
-        expect(b.z0).toBeLessThan(b.z1);
-        expect(b.x1 - b.x0, `${id}: long enough to lie on`).toBeGreaterThan(0.9);
-        expect(b.x0).toBeGreaterThanOrEqual(box.min[0]);
-        expect(b.x1).toBeLessThanOrEqual(box.max[0]);
-        expect(Math.max(Math.abs(b.z0), Math.abs(b.z1))).toBeLessThanOrEqual(f.body.halfWidth);
-        expect(b.top).toBeGreaterThan(Math.min(...a.areas.map((r) => r.floor)));
-        expect(b.top).toBeLessThan(f.body.top);
-      }
-    }
-    // (the Turtle's room: inside its body, behind the front seats, in front of the bed)
+  it('the beds: only the Whale’s bunk over the cab, inside its body over its floor; the Turtle, the Old Elephant, the Camel none built in', () => {
+    // (docs/V3/plan/finish.md §十九 step 7: the living spaces empty shells, as Nomad Drive's campers are — its class C keeps
+    // its bed over the cab; a bed anywhere else is one the player puts in, a camp cot)
+    const f = frameDef('rv');
+    const a = aboardOf('rv')!;
+    const box = (rvBox as never as { bbox: { min: number[]; max: number[] } }).bbox;
+    expect(a.beds).toHaveLength(1);
+    const b = a.beds![0];
+    expect(b.x0).toBeLessThan(b.x1);
+    expect(b.z0).toBeLessThan(b.z1);
+    expect(b.x1 - b.x0, 'long enough to lie on').toBeGreaterThan(0.9);
+    expect(b.x0).toBeGreaterThanOrEqual(box.min[0]);
+    expect(b.x1).toBeLessThanOrEqual(box.max[0]);
+    expect(Math.max(Math.abs(b.z0), Math.abs(b.z1))).toBeLessThanOrEqual(f.body.halfWidth);
+    // (over the cab: ahead of the living space's floor, high over it)
+    expect(b.x0).toBeGreaterThan(Math.max(...a.areas.map((r) => r.x1)));
+    expect(b.top).toBeGreaterThan(Math.min(...a.areas.map((r) => r.floor)) + 1.2);
+    expect(b.top).toBeLessThan(f.body.top);
+    for (const id of ['turtle', 'elephant', 'camel', 'snail', 'trailer']) expect(aboardOf(id)!.beds ?? [], id).toHaveLength(0);
+    // (the Turtle's room: inside its body, behind the front seats, ahead of the deck over its rear axle)
     const t = aboardOf('turtle')!;
     const room = t.areas[0];
+    const deck = (turtleBox as never as { room: { deck: { x: number[] } } }).room.deck;
     expect(room.x1).toBeLessThan(frameDef('turtle').mounts.find((m) => m.id === 'seat_driver')!.pos.x);
-    expect(room.x0).toBeGreaterThanOrEqual(t.beds![0].x1 - 1e-9);
+    expect(room.x0).toBeGreaterThanOrEqual(deck.x[1] - 1e-9);
+    expect(room.z1 - room.z0, 'wall to wall').toBeGreaterThan(1.9);
   });
 
   it('sleeping: six hours from nothing in a bed, eight in a seat, never under two; half again the health in a bed', () => {

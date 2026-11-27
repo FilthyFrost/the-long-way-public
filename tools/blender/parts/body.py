@@ -930,7 +930,7 @@ PARTS = {
     **{f'moto_rack@{f}': _moto_rack_for(f) for f in ('goat', 'rhino', 'fox', 'snail', 'rv')},
     'ladder': build_ladder,
     # (each roofed frame's ladder, made for its roof: J9e — the Whale's is its own model's)
-    **{f'ladder@{f}': _ladder_for(f) for f in ('sedan', 'fox', 'pickup', 'van', 'goat', 'wagon', 'buffalo', 'rhino', 'snail', 'elephant', 'camel')},
+    **{f'ladder@{f}': _ladder_for(f) for f in ('sedan', 'fox', 'pickup', 'van', 'goat', 'wagon', 'buffalo', 'rhino', 'snail', 'elephant', 'camel', 'turtle')},
     'arm_plates': build_arm_plates,
     'arm_planks': build_arm_planks,
     'door_armor_overlay': build_door_armor_overlay,

@@ -128,15 +128,26 @@ export class NdFuel implements System<GameContext>, InteractSource, BuildingWatc
     clear: () => this.left.clear(),
   };
 
-  /** the nozzle in the hands: held to a filler, the right button runs the pump */
+  /** the nozzle in the hands: held to a filler, E (or LMB) held runs the pump */
+  private lmbDown = false;
   readonly hands: HandsUse = {
     id: 'nd-fuel',
     claims: (h) => isNozzle(h),
     takesF: (h) => isNozzle(h),
     press: (h, from) => this.press(h, from),
-    step: (h, dt, f) => this.handStep(h, dt, f),
+    release: (_h, from) => {
+      if (from === 'mouse' && this.lmbDown) {
+        this.lmbDown = false;
+        return true;
+      }
+      return false;
+    },
+    step: (h, dt, e) => this.handStep(h, dt, e || this.lmbDown),
     words: (h) => this.words(h),
-    gone: () => this.hang('gone'),
+    gone: () => {
+      this.lmbDown = false;
+      this.hang('gone');
+    },
   };
 
   init(ctx: GameContext): void {
@@ -313,9 +324,11 @@ export class NdFuel implements System<GameContext>, InteractSource, BuildingWatc
 
   private press(h: NonNullable<Held>, from: 'key' | 'mouse'): boolean {
     if (!isNozzle(h)) return false;
-    // (the left button does nothing with it; E is the game's — the pump's device hangs it back — but not while it is
-    // in a filler: it would put the nozzle away into the vehicle it is in)
-    return from === 'mouse' || !!this.out?.into;
+    if (from === 'mouse' && this.out?.into) {
+      this.lmbDown = true;
+      return true;
+    }
+    return !!this.out?.into;
   }
 
   private handStep(h: NonNullable<Held>, dt: number, f: boolean): void {
@@ -495,20 +508,20 @@ export class NdFuel implements System<GameContext>, InteractSource, BuildingWatc
 
   private words(h: NonNullable<Held>): Action[] {
     const o = this.out;
-    const F: Action['keys'] = ['F', 'RMB'];
+    const EKEY: Action['keys'] = ['E'];
     if (!o || h.kind !== 'item' || h.item.uid !== o.uid) return [{ keys: ['Q'], text: '挂回去', off: true, why: '挂回加油机' }];
     const p = o.pump;
     const left = this.litres(p);
     const acts: Action[] = [];
     void left;
-    if (!o.into) acts.push({ keys: F, hold: true, text: '加油', off: true, why: '对着加油口' });
+    if (!o.into) acts.push({ keys: EKEY, hold: true, text: '加油', off: true, why: '对着加油口' });
     else {
       const can = this.canRun(p, o.into);
       const what = o.into.kind === 'filler' ? o.into.v.view.frame.name.zh : '油桶';
       const room = this.room(o.into);
       void room;
-      if (!can.ok) acts.push({ keys: F, hold: true, text: '加油', off: true, why: can.why ?? '加不进去' });
-      else acts.push({ keys: F, hold: true, text: `加${FUEL_ZH[p.fuel]} <b>${what}</b>` });
+      if (!can.ok) acts.push({ keys: EKEY, hold: true, text: '加油', off: true, why: can.why ?? '加不进去' });
+      else acts.push({ keys: EKEY, hold: true, text: `加${FUEL_ZH[p.fuel]} <b>${what}</b>` });
     }
     acts.push({ keys: ['Q'], text: '挂回去' });
     return acts;

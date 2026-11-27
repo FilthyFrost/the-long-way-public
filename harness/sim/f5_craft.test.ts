@@ -165,7 +165,7 @@ describe('F5: what the bench makes', () => {
       const d = itemDef(id);
       expect(d.name.zh).toBe(`图纸：${r.name.zh}`);
       expect(d.tags).toContain('blueprint');
-      expect(d.blurb).toContain('按右键学会');
+      expect(d.blurb).toContain('按 E 学会');
       expect(d.blurb).toContain(costWords(r.cost));
       expect(recipeOfBlueprint(id)).toBe(r);
     }
@@ -202,7 +202,7 @@ describe('F5: learning', () => {
     const h = r.slots[0]!;
     expect(r.use.claims(h)).toBe(true);
     expect(r.use.takesF?.(h)).toBe(true);
-    expect(r.use.words?.(h)).toEqual([{ keys: ['RMB'], text: '学会 <b>车顶行李架</b>' }]);
+    expect(r.use.words?.(h)).toEqual([{ keys: ['E'], text: '学会 <b>车顶行李架</b>' }]);
     expect(recipeOpen(recipeDef('roof_rack'), r.learned)).toBe(false);
     // (the button held as the sheet came into the hands: nothing — it was down for something else)
     r.use.step?.(h, 1 / 60, true);
@@ -221,7 +221,7 @@ describe('F5: learning', () => {
     const r = rig();
     r.learned.add('roof_rack');
     const h = r.slots[0]!;
-    expect(r.use.words?.(h)).toEqual([{ keys: ['RMB'], text: '学会 <b>车顶行李架</b>', off: true, why: '已经会做车顶行李架了' }]);
+    expect(r.use.words?.(h)).toEqual([{ keys: ['E'], text: '学会 <b>车顶行李架</b>', off: true, why: '已经会做车顶行李架了' }]);
     r.use.step?.(h, 1 / 60, false);
     r.use.step?.(h, 1 / 60, true);
     expect(r.slots[0]).toBe(h);

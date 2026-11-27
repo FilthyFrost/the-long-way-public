@@ -85,6 +85,16 @@ def to_ccw(uv):
     return K.ccw(np.asarray(uv, float))
 
 
+def trim_sweep(P, up, prof, mat, closed):
+    """A rubber or chrome trim swept round a window, its foot closed by a strip facing in (open, from inside through
+    the glass the eye went in under the trim and out through its far faces: a light line between a window's reveal and
+    its seal, round every window)."""
+    V, N, Tr = K.sweep(P, up, prof, closed=closed)
+    b = K.Buf().add(V, N, Tr, mat)
+    V, N, Tr = K.sweep(P, up, prof[[0, -1]], prof_n=np.array([(0.0, -1.0), (0.0, -1.0)]), closed=closed)
+    return b.add(V, N, Tr, mat)
+
+
 class Cut:
     """A cut line in the loft chart and its two offset boundaries ('in' = the panel side, 'out' = the body side)."""
 
@@ -233,7 +243,7 @@ class Exterior:
         self.win['ws'] = dict(uv=uv, P=P, N=N, yz=yz)
 
     # ------------------------------------------------------------------ the body region
-    def body_loop(self, coarse=False):
+    def body_loop(self, coarse=False, lining=False):
         """Outer loop of the body region on the loft (left half). coarse: no fixed points (the lining)."""
         us, ts = self.us, self.ts
         p = Path()
@@ -256,24 +266,50 @@ class Exterior:
         # top row forwards
         uu = us[(us > 1e-6) & (us < U - 1e-6)][::-1]
         p.add(np.stack([np.concatenate([uu, [0.0]]), np.full(len(uu) + 1, T[-1])], 1))
-        # front centre line down, round the windscreen (its outline runs top -> bottom)
+        # front centre line down, round the windscreen (its outline runs top -> bottom; the lining's edge round its
+        # flange)
         ws = self.win['ws']
-        tt = ts[(ts > ws['uv'][0, 1] + 0.004) & (ts < T[-1] - 1e-6)][::-1]
+        wuv = ws['uv']
+        if lining:
+            wuv = self.lining_edge(ws, 0.004, np.array([ws['P'][:, 0].mean() - 0.1, 0.0, ws['P'][:, 2].mean()]), False)
+            wuv[0, 0] = wuv[-1, 0] = 0.0
+        tt = ts[(ts > wuv[0, 1] + 0.004) & (ts < T[-1] - 1e-6)][::-1]
         p.add(np.stack([np.zeros(len(tt)), tt], 1))
-        p.add(ws['uv'], ws['P'], ws['N'])
-        tt = ts[(ts > T[0] + 1e-6) & (ts < ws['uv'][-1, 1] - 0.004)][::-1]
+        if lining:
+            p.add(wuv)
+        else:
+            p.add(ws['uv'], ws['P'], ws['N'])
+        tt = ts[(ts > T[0] + 1e-6) & (ts < wuv[-1, 1] - 0.004)][::-1]
         p.add(np.stack([np.zeros(len(tt)), tt], 1))
         loop = p.loop()
         if coarse:
             return K.Loop(coarse_loop(loop.uv, 0.08))
         return loop
 
-    def body_holes(self, side, coarse=False):
+    @staticmethod
+    def lining_edge(w, flange, cen=None, closed=True):
+        """The lining's edge round an opening, on the chart: 3 mm out past the opening's flange (`flange` in from its
+        outline, as edges() rolls it) where the flange passes the lining's depth - found in 3D and mapped back. (On
+        the corner rolls the chart's level runs along the proxy's normal, not the skin's, and an edge set on the chart
+        landed out past the flange there, on the pillar's side: into the hollow shell between them the eye went and out
+        through the skin - from the driver's seat a line of the outside showed down the A pillar on either side of
+        its lining, at the quarter window's reveal and at the windscreen's flange.)"""
+        P, N = w['P'], w['N']
+        E = side_dir(P, N, np.tile(P.mean(0) if cen is None else cen, (len(P), 1)), closed)
+        return S.CV.to2d(P + E * (flange + 0.003) + N * WALL)
+
+    def body_holes(self, side, coarse=False, lining=False):
         def L(d_):
             return K.Loop(d_['uv']) if coarse else K.Loop(d_['uv'], d_['P'], d_['N'])
-        holes = [L(self.open_tail), L(self.win['rw'])] + [L(self.win[n]) for n in self.row]
+
+        def W(d_):
+            # (the lining's openings for the fixed windows round their reveals' flanges, 3 mm in from the outlines)
+            if coarse and lining:
+                return K.Loop(K.ccw(self.lining_edge(d_, 0.003)))
+            return L(d_)
+        holes = [L(self.open_tail), W(self.win['rw'])] + [W(self.win[n]) for n in self.row]
         if side == 'L':
-            holes += [L(self.win['drv']), L(self.win['quarter'])]
+            holes += [W(self.win['drv']), W(self.win['quarter'])]
             if not coarse:                  # the lining closes over the filler's pocket
                 holes += [L(self.cut['fuel'].side('out'))]
         else:
@@ -318,8 +354,8 @@ class Exterior:
         """The inside of the shell, WALL in, facing in: plastic in the cab, wood panels below the windows in the room,
         painted metal round the engine bay, the headliner over the roof roll (left half; 'R' in left coordinates)."""
         from frames import _camel_inner as IN
-        loop = self.body_loop(coarse=True)
-        holes = [K.Loop(K.resample(h.uv, 0.06, closed=True)) for h in self.body_holes(side, coarse=True)]
+        loop = self.body_loop(coarse=True, lining=True)
+        holes = [K.Loop(K.resample(h.uv, 0.06, closed=True)) for h in self.body_holes(side, coarse=True, lining=True)]
         us = S.v_u_samples(0.20, 0.12, 0.06)
         ts = S.v_t_samples(0.20, 6)
         pts, sp = S.grid_from(us, ts)
@@ -594,8 +630,7 @@ class Exterior:
             k = K.coarse_idx(np.vstack([w['P'], w['P'][:1]]), 0.001)
             k = k[k < len(w['P'])]
             P, N, E = w['P'][k], w['N'][k], E[k]
-            V, Nn, Tr = K.sweep(P + E * 0.007 - N * 0.009, N, prof, closed=True)
-            b.add(V, Nn, Tr, 'rubber')
+            b.extend(trim_sweep(P + E * 0.007 - N * 0.009, N, prof, 'rubber', True))
         return b
 
     def ws_trims(self):
@@ -606,11 +641,9 @@ class Exterior:
         k = K.coarse_idx(w['P'], 0.0012)
         P, Nn, E = w['P'][k], w['N'][k], E[k]
         prof = np.array([(-0.007, -0.006), (-0.006, 0.003), (0.0, 0.0055), (0.006, 0.003), (0.007, -0.006)])
-        V, NN, Tr = K.sweep(P + E * 0.006 - Nn * 0.004, Nn, prof, closed=False)
-        b.add(V, NN, Tr, 'rubber')
+        b.extend(trim_sweep(P + E * 0.006 - Nn * 0.004, Nn, prof, 'rubber', False))
         prof = np.array([(-0.0045, -0.001), (-0.0035, 0.003), (0.0035, 0.003), (0.0045, -0.001)])
-        V, NN, Tr = K.sweep(P + E * 0.0015 + Nn * 0.0005, Nn, prof, closed=False)
-        b.add(V, NN, Tr, 'chrome')
+        b.extend(trim_sweep(P + E * 0.0015 + Nn * 0.0005, Nn, prof, 'chrome', False))
         return b
 
     def drip_rail(self):

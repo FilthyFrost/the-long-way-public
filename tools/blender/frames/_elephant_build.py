@@ -308,7 +308,7 @@ def mounts(ex, panels):
     E.append(mount('battery', IN.BATTERY, dict(cat='battery', space_min=[-0.19, -0.11, 0.0], space_max=[0.19, 0.11, 0.26],
                                                note='on a tray at the front of the cab, between the footwells')))
     E.append(mount('houseBattery', IN.HOUSE_BATTERY, dict(cat='houseBattery', space_min=[-0.26, -0.13, 0.0], space_max=[0.26, 0.13, 0.26],
-                                                         note='the house battery: on the floor in the dinette\'s footwell, by the wall')))
+                                                         note='the house battery: on the floor by the left wall, where the dinette\'s footwell was')))
     E.append(mount('fuelTank', IN.TANK, dict(cat='fuelTank', space_min=[-0.53, -0.42, 0.0], space_max=[0.56, 0.42, 0.43],
                                              note='under the floor between the rails, yawed 180 deg: the filler neck of the tank part (+z) '
                                                   'points to the flap on the left'),
@@ -366,17 +366,16 @@ def json_extra(objs, panels, needles, wipers, tris, total):
     from frames._sedan_build import json_extra as je
     out = je(objs, panels, needles, wipers, tris, total)
     out['eye_default'] = game_vec(np.array(IN.EYE))
-    # the room's plan (game frame: x along, z across = -y): the floor between the furniture, the bed's top, the
-    # galley's worktop and the cubby under its sink, the dinette's table and benches, the fridge's niche — for the walk
-    # areas, the bed and the places for things (core/modcar/aboard.ts, cargo.ts)
+    # the room's plan (game frame: x along, z across = -y), an empty shell since docs/V3/plan/finish.md section 19 step
+    # 7: its floor from the engine deck's front to the cab, wall to wall; the rear wheels' humps in it (out from z_in to
+    # the walls); the deck over the engine behind it — for the walk areas and the places for things (core/modcar/
+    # aboard.ts, cargo.ts)
     z = lambda y0, y1: sorted([round(-y0, 3), round(-y1, 3)])  # noqa: E731
-    out['room'] = dict(floor_y=IN.FLOOR_Z, x=[IN.BED_X1, IN.ROOM_FRONT_X], aisle_z=z(IN.DIN_Y, -IN.IN_Y),
-                       bed=dict(x=[D['xr'] + 0.05, IN.BED_X1], z=z(IN.IN_Y, -IN.IN_Y), top=IN.BED_TOP),
-                       galley=dict(x=[IN.GALLEY_X0, IN.GALLEY_X1], z=z(IN.IN_Y, IN.GALLEY_Y), top=IN.WORKTOP_Z, sink_x=IN.SINK_X),
-                       table=dict(x=list(IN.DIN_T), z=z(IN.IN_Y, IN.DIN_Y + 0.04), top=IN.TABLE_Z),
-                       benches=dict(x=[list(IN.DIN_A), list(IN.DIN_B)], z=z(IN.IN_Y, IN.DIN_Y), top=IN.BENCH_Z),
-                       cubby=dict(x=list(IN.CUBBY_X), z=z(IN.IN_Y - 0.03, IN.GALLEY_Y), floor=IN.CUBBY_Z[0], top=IN.CUBBY_Z[1]),
-                       niche=dict(x=[IN.FRIDGE_X[0] + 0.022, IN.FRIDGE_X[1] - 0.022], z=z(-IN.FRIDGE_Y, -IN.IN_Y), floor=IN.PLINTH_Z, top=IN.NICHE_Z),
+    hr = IN.WELL_R + 0.015
+    out['room'] = dict(floor_y=IN.FLOOR_Z, x=[IN.FIREWALL_X + 0.02, IN.ROOM_FRONT_X], z=z(IN.IN_Y, -IN.IN_Y),
+                       humps=dict(x=[IN.FIREWALL_X + 0.02, round(IN.hump_front(D['ax_r'], hr), 4)], z_in=round(IN.WELL_IN_R - 0.006, 4),
+                                  top=round(D['hub_z'] + hr, 4)),
+                       deck=dict(x=[D['xr'] + 0.03, IN.FIREWALL_X + 0.02], top=IN.DECK_Z),
                        ceiling=IN.CEIL_Z)
     return out
 

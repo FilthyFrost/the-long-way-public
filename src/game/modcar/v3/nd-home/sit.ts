@@ -147,12 +147,8 @@ export class Sitting {
       const z = p.eye.z + o.z + Math.sin(p.heading) * SIT.standOut;
       const ab = ctx.player.aboard;
       if (ab) {
-        // (inside a vehicle's living space: the walk in its frame takes up in front of the seat)
-        const m = ab.v.view.model;
-        m.updateMatrixWorld(true);
-        const q = this.v.set(x - o.x, p.floor, z - o.z);
-        m.worldToLocal(q);
-        ab.w.place(q.x, q.z, ab.w.yaw);
+        // Inside a vehicle's living space: free 3D walker takes up on the cabin floor in front of the seat.
+        w.placeAt(x, p.floor, z, w.heading);
       } else w.place(x, z, w.heading, 1.5);
     }
     ctx.sound('cloth', 0.35);

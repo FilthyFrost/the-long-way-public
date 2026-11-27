@@ -34,20 +34,20 @@ try {
   const held = () => page.evaluate(() => { const h = window.__rt.game.player.held; return h?.kind === 'item' ? { item: h.item.item, litres: h.item.litres, liquid: h.item.state?.liquid ?? null } : null; });
   /** E held for `seconds`, a shot taken at `at` s into it (still held) */
   const holdE = async (seconds, at = -1, name = '') => {
-    await page.evaluate(() => window.__rt.game.player.press());
+    await page.evaluate(() => window.__rt.game.mouseDown(0));
     const dt = 1 / 60;
     let t = 0;
     let shotDone = at < 0;
     while (t < seconds) {
       const n = !shotDone && at - t < 0.5 ? Math.max(1, Math.round((at - t) / dt)) : 30;
-      await page.evaluate((n) => { const g = window.__rt.game; for (let i = 0; i < n; i++) { g.player.primary = true; g.step(1 / 60, 1); } }, n);
+      await page.evaluate((n) => { const g = window.__rt.game; for (let i = 0; i < n; i++) { g.step(1 / 60, 1); } }, n);
       t += n * dt;
       if (!shotDone && t >= at - 1e-6) {
         await shot(name);
         shotDone = true;
       }
     }
-    await page.evaluate(() => { const g = window.__rt.game; g.player.release(); g.simulate(0); });
+    await page.evaluate(() => { const g = window.__rt.game; g.mouseUp(0); g.simulate(0); });
   };
   const places = await H('nd-build', 'places');
   const P = places.find((p) => p.prefab === 'pump');

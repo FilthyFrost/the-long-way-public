@@ -25,6 +25,8 @@ import { itemNow } from './itemTime';
 import { applyMaterials, matNames, type CarMaterials, type LookOf } from './materials';
 import { castMesh } from '../render/triGrid';
 import { glassName } from './grime';
+import { footprint, rectsOverlap } from '../../core/v3/nd/place';
+import type { Solid } from '../../core/world/solids';
 
 /** a part lying about that can be cleaned (grime.ts): its look's meshes with MASK UVs (a wheel: its rim, its tyre) */
 export interface LooseGrime {
@@ -64,6 +66,23 @@ export interface Loose {
   lie?: 'z' | 'x';
   /** where it will land as it falls: found once when it starts, the floor or a vehicle's surface */
   landing?: { y: number; on: Carrier | null };
+  /**
+   * Come to rest on a surface (docs/V3/plan/finish.md §十九 step 6): the height of what its lowest point lies on (world),
+   * its box's lowest point as it was then, and how it came there — 'fell': let fall or thrown, the surface found under
+   * it, and moved aside to the nearest place clear of everything where it came down in something's way; 'laid': laid by
+   * a place on the ground, the surface found under it, never moved; 'given': laid on a height it was given (a counter, a
+   * shelf of a place's). Its shape changing (its model come in, a system setting it straight) sets it on that surface
+   * again. Absent: put where it is, just so, by whoever put it there (it stays exactly there).
+   */
+  seat?: number;
+  seatLow?: number;
+  seatHow?: 'fell' | 'laid' | 'given';
+  /** the thing it lies on (a chest's lid, a table's top): taken away or let fall, this one comes down too */
+  under?: Loose | null;
+  /** seconds since it came to rest, for a little while (whoever drew it falling sets it straight as it lands: its shape is looked at again) */
+  fresh?: number;
+  /** thrown, flying (docs/V3/plan/finish.md §十九 step 6, Nomad Drive's throw): its velocity, its turn, how long it has flown and been still, the height it flew from */
+  fly?: { vx: number; vy: number; vz: number; spin: number; t: number; still: number; fromY: number } | null;
   /** an item: the kind its model was made for (one that has gone off is another kind now: its model is made again) */
   madeAs?: string;
   /**
@@ -93,7 +112,39 @@ export interface Carrier {
   surfaceAt(x: number, z: number, fromY: number): number | null;
   /** the group the things on it ride in (render space, moving with it) */
   readonly frame: THREE.Object3D;
+  /** its body as one of the world's solids (a vehicle's: core/onfoot/vehicle.ts VehicleSolid) — what rides in it is inside it, not in its way */
+  readonly solid?: { readonly solid: Solid };
+  /** tag prefix of composite walkable solids owned by this carrier (VehicleWalkSolids.prefix) */
+  readonly solidTag?: string;
 }
+
+/** what a thing comes down onto: the height of that surface (world), the vehicle it rides with there, the thing lying about it lies on */
+export interface Support {
+  y: number;
+  on: Carrier | null;
+  under: Loose | null;
+}
+
+/**
+ * How far over what it lies on a thing comes to rest (m): Nomad Drive puts a thing dropped 1 mm over the surface its ray
+ * meets (its drop settings' surface offset as the game has it, 0.001; the code's own default, 5 cm, is not what it uses).
+ */
+export const REST_GAP = 0.001;
+/** a thing's box shrunk to this to be tested against what it would be in the way of (Nomad Drive's drop: 85 %) */
+export const DROP_SHRINK = 0.85;
+/** what is said when a thing may not be let go where it would come down (Nomad Drive's words) */
+export const DROP_BLOCKED = '位置被挡住，无法在此丢弃';
+/**
+ * Nomad Drive's throw: a thing flying comes to rest once it is slower than 0.12 m/s and turns slower than 0.35 rad/s for
+ * 0.35 s; flying longer than 8 s, or fallen 150 m below where it flew from (through the world), it is put on the surface
+ * below it (above it) 2 cm over it; it turns 4 rad/s as it leaves the hand.
+ */
+export const THROW = { still: 0.12, stillSpin: 0.35, stillS: 0.35, maxS: 8, fallM: 150, gap: 0.02, spin: 4 } as const;
+/** how long after it comes to rest a thing's shape is looked at again (s) */
+const FRESH_S = 0.6;
+/** a thing whose model is not in yet: a point */
+const POINT: ThingBox = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 };
+const DOWN = new THREE.Vector3(0, -1, 0);
 
 /** where a thing lies in its carrier's frame (render metres and turn) */
 export interface Riding {
@@ -256,6 +307,9 @@ export class LooseThings {
 
   /** the vehicles things can be put on (the game fills this in) */
   carriers: () => readonly Carrier[] = () => [];
+  /** the world's solids near (x, z) within r — walls, props, the vehicles' bodies: what a thing put down may be in the way of (the game fills this in) */
+  solidsNear: ((x: number, z: number, r: number, out: Solid[]) => void) | null = null;
+  private readonly near: Solid[] = [];
   /**
    * Goes up whenever the things lying about change: one comes or goes, lands or is lifted, becomes another
    * kind, or is said to have changed in itself (touch). A list of them is built again only when it has moved.
@@ -536,6 +590,39 @@ export class LooseThings {
     this.unmerge();
   }
 
+  private readonly outlineBuf: { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null } = { root: this.root, partId: -1, extra: null };
+
+  /** silhouette outline target for a loose item or specific device subtree (render/frame.ts; zero per-frame alloc) */
+  outlineTarget(l: Loose | null, sub: THREE.Object3D | null = null): { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null } | null {
+    if (sub) {
+      this.outlineBuf.root = sub;
+      this.outlineBuf.partId = -1;
+      this.outlineBuf.extra = null;
+      return this.outlineBuf;
+    }
+    if (!l) return null;
+    const id = this.mergeIds.get(l.uid) ?? -1;
+    if (id > 0 && this.merged) {
+      this.outlineBuf.root = this.merged.group;
+      this.outlineBuf.partId = id;
+      this.outlineBuf.extra = null;
+      return this.outlineBuf;
+    }
+    for (const m of this.matteMerges.values()) {
+      const mid = m.ids.get(l.uid) ?? -1;
+      if (mid > 0) {
+        this.outlineBuf.root = m.merged.group;
+        this.outlineBuf.partId = mid;
+        this.outlineBuf.extra = null;
+        return this.outlineBuf;
+      }
+    }
+    this.outlineBuf.root = l.obj;
+    this.outlineBuf.partId = -1;
+    this.outlineBuf.extra = null;
+    return this.outlineBuf;
+  }
+
   /** light up the thing the mark is on (null = none); or a look of a system's own (`owner`: a thing drawn in an open container, v3/nd-store) */
   highlight(l: Loose | null, owner = ''): void {
     const id = l ? (this.mergeIds.get(l.uid) ?? -1) : -1;
@@ -632,6 +719,8 @@ export class LooseThings {
   }
 
   private measure(l: Loose): void {
+    // (its model came in: its box for the hand and for lying on things measured anew — the model took the stand-in's place, as many children as before)
+    this.hitBoxes.delete(l.obj);
     const box = new THREE.Box3();
     l.obj.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(l.obj.matrixWorld).invert();
@@ -641,11 +730,15 @@ export class LooseThings {
     const size = box.getSize(new THREE.Vector3());
     l.radius = Math.max(0.12, Math.max(size.x, size.z, size.y) * 0.5);
     l.mid = (box.min.y + box.max.y) / 2;
+    // (its model come in: lying on something, it lies on it as this shape)
+    this.reshaped(l);
   }
 
   remove(l: Loose): void {
     this.unmerge();
     this.rev++;
+    // (what lay on it comes down onto what is under it)
+    this.dropAbove(l);
     const i = this.list.indexOf(l);
     if (i >= 0) this.list.splice(i, 1);
     l.obj.removeFromParent();
@@ -653,29 +746,27 @@ export class LooseThings {
     this.mats.drop(`${ownerOf(l)}+tire`);
   }
 
-  /** drop it from where it is: it falls onto the surface below */
+  /** drop it from where it is: it falls onto the surface below (what lay on it comes down too) */
   drop(l: Loose): void {
+    this.dropAbove(l);
     l.resting = false;
     l.vy = 0;
     l.riding = null;
     l.landing = undefined;
+    l.fly = null;
+    this.unseat(l);
     this.rev++;
     this.unmerge();
   }
 
-  /** where a thing starting to fall at (x, y, z) lands: the floor, or a vehicle under it if that is higher — its box's lowest point on it (most models' origin is not at their bottom: docs/V3/plan/hands.md §〇.3) */
-  private landingOf(l: Loose): { y: number; on: Carrier | null } {
-    const low = this.bottomOf(l);
-    let y = this.surfaceAt(l.x, l.z, l.y + low + 0.05);
-    let on: Carrier | null = null;
-    for (const c of this.carriers()) {
-      const s = c.surfaceAt(l.x, l.z, l.y + low + 0.05);
-      if (s !== null && s > y) {
-        y = s;
-        on = c;
-      }
-    }
-    return { y: y - low, on };
+  /**
+   * Throw it from where it is (Nomad Drive's throw, the only time a thing flies): it flies with this velocity (m/s, world)
+   * turning `spin` rad/s, bounces off walls and things, comes down, slides and stops — slower than 0.12 m/s for 0.35 s —
+   * and lies there as a thing let fall does; 8 s in the air, or 150 m below, it is put on the surface there.
+   */
+  fling(l: Loose, v: { x: number; y: number; z: number }, spin: number = THROW.spin): void {
+    this.drop(l);
+    l.fly = { vx: v.x, vy: v.y, vz: v.z, spin, t: 0, still: 0, fromY: l.y };
   }
 
   /** how far a thing's lowest point is above its origin (m; below it: less than 0), as its model stands */
@@ -684,15 +775,49 @@ export class LooseThings {
     return this.hitBoxes.get(l.obj)?.low ?? 0;
   }
 
+  /** a thing's own box as its model stands (its own frame, snug: its meshes' and nothing more); null while it has no model nor stand-in */
+  snugBoxOf(l: Loose): ThingBox | null {
+    this.hitBoxOf(l);
+    const r = this.hitBoxes.get(l.obj)?.raw;
+    return r && !r.isEmpty() ? { minX: r.min.x, maxX: r.max.x, minY: r.min.y, maxY: r.max.y, minZ: r.min.z, maxZ: r.max.z } : null;
+  }
+
+  /** a thing's base footprint (the lowest 10 cm of its meshes, its own frame): what actually meets a sloped ground so an overhanging tabletop or side handles do not lift it */
+  baseBoxOf(l: Loose): ThingBox | null {
+    this.hitBoxOf(l);
+    const b = this.hitBoxes.get(l.obj)?.base;
+    return b && !b.isEmpty() ? { minX: b.min.x, maxX: b.max.x, minY: b.min.y, maxY: b.max.y, minZ: b.min.z, maxZ: b.max.z } : null;
+  }
+
   /** it stays where it is now, at rest (put down just so: nothing to fall) */
   rest(l: Loose): void {
     l.resting = true;
     l.vy = 0;
     l.riding = null;
     l.landing = undefined;
+    l.fly = null;
+    this.unseat(l);
     this.rev++;
     this.unmerge();
     this.mergeDirty = true;
+  }
+
+  /**
+   * It lies with its lowest point on this surface (world height) — a place laying what lies about in plain sight on its
+   * ground (`ground`: the ground as drawn is found under it, as for a thing let fall — never moved aside) or on a counter,
+   * a shelf, a pump of its own (the height kept); set on it again as its model comes in.
+   */
+  seat(l: Loose, y: number, ground = false): void {
+    this.rest(l);
+    const box = this.snugBoxOf(l) ?? POINT;
+    if (ground) {
+      this.settleOn(l, box, this.supportFor(box, l.x, l.z, l.yaw, y + 0.3, l), 'laid');
+      return;
+    }
+    l.seat = y;
+    l.seatLow = box.minY;
+    l.seatHow = 'given';
+    l.y = y + REST_GAP - box.minY;
   }
 
   /** it lies on a carrier from now on, where it is (or at a place in the carrier's frame already known) */
@@ -709,8 +834,362 @@ export class LooseThings {
       l.riding = { on, pos, rot };
     }
     l.resting = true;
+    l.fly = null;
     this.mergeDirty = true;
     this.rev++;
+  }
+
+  // ------------------------------------------------------------------ coming to rest (docs/V3/plan/finish.md §十九 step 6)
+
+  /**
+   * What a thing with this box (its own frame), its base at (x, ·, z) turned `yaw`, comes down onto from `fromY` (world:
+   * its lowest point as it starts): the ground as drawn and the floors under its middle and its four corners — the highest
+   * of them, so that no corner sinks — a vehicle's surface under its middle, or the top of a thing lying about straight
+   * under its middle (a chest's lid, a table's top, a chair's seat: as Nomad Drive puts a thing on the surface its ray
+   * meets). `self`: the thing itself, not under itself.
+   */
+  supportFor(box: ThingBox, x: number, z: number, yaw: number, fromY: number, self: Loose | null = null): Support {
+    const foot = (self ? this.baseBoxOf(self) : null) ?? box;
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    const cx = (foot.minX + foot.maxX) / 2;
+    const cz = (foot.minZ + foot.maxZ) / 2;
+    const mx = x + cx * c - cz * s;
+    const mz = z + cx * s + cz * c;
+    // (its base plan, a point every 30 cm or so, its edges and corners among them: the drawn ground is straight between
+    // its points 2-8 m apart, with a crease along every triangle's edge — a table straddling one stood a leg 2 cm into it)
+    const pts = this.footPoints(foot, x, z, c, s);
+    let y = -Infinity;
+    for (let i = 0; i < pts.length; i += 2) {
+      const g = this.surfaceAt(pts[i], pts[i + 1], fromY);
+      if (g > y) y = g;
+    }
+    let on: Carrier | null = null;
+    for (const cr of this.carriers()) {
+      const v = cr.surfaceAt(mx, mz, fromY);
+      if (v !== null && v > y) {
+        y = v;
+        on = cr;
+      }
+    }
+    // a thing lying about straight under its middle: it lies on its top there, or on what of it (or of what else lies
+    // there) stands a little higher under the rest of it — a chest's iron bands — but not on what rises well over it
+    // there, a chair's back over its seat
+    // — and only if it is under most of it (a chest's clasp under the middle of a seed packet held to its side is no
+    // place to put it: it comes down beside the chest, in its way)
+    let under: Loose | null = null;
+    const t = this.topUnder(mx, mz, fromY, self);
+    if (t && t.y > y) {
+      const most = t.y + 0.08;
+      let top = t.y;
+      let hits = 0;
+      const n = pts.length / 2 - 1;
+      for (let i = 2; i < pts.length; i += 2) {
+        const u = this.topUnder(pts[i], pts[i + 1], Math.min(fromY, most), self);
+        if (!u || u.y < t.y - 0.15) continue;
+        hits++;
+        if (u.y > top) top = u.y;
+      }
+      if (hits * 2 >= n) {
+        y = top;
+        under = t.l;
+        on = t.l.riding?.on ?? null;
+      }
+    }
+    return { y, on, under };
+  }
+
+  private readonly feet: number[] = [];
+  /** points over a thing's plan at its base (x, z) turned (c, s): its middle first, then a grid over it out to its edges and corners, 30 cm apart or closer (at most 6 a side) */
+  private footPoints(box: ThingBox, x: number, z: number, c: number, s: number): number[] {
+    const out = this.feet;
+    out.length = 0;
+    const cx = (box.minX + box.maxX) / 2;
+    const cz = (box.minZ + box.maxZ) / 2;
+    out.push(x + cx * c - cz * s, z + cx * s + cz * c);
+    const w = box.maxX - box.minX;
+    const d = box.maxZ - box.minZ;
+    if (w <= 0 && d <= 0) return out;
+    const nu = Math.min(6, Math.max(2, Math.ceil(w / 0.3) + 1));
+    const nw = Math.min(6, Math.max(2, Math.ceil(d / 0.3) + 1));
+    for (let i = 0; i < nu; i++) {
+      const lx = box.minX + (w * i) / (nu - 1);
+      for (let j = 0; j < nw; j++) {
+        const lz = box.minZ + (d * j) / (nw - 1);
+        out.push(x + lx * c - lz * s, z + lx * s + lz * c);
+      }
+    }
+    return out;
+  }
+
+  /** the highest top of a thing lying about straight under (x, z) and not above fromY (world): a ray down onto its meshes */
+  topUnder(x: number, z: number, fromY: number, self: Loose | null = null): { y: number; l: Loose } | null {
+    const o = this.core.origin;
+    const best = { y: -Infinity, l: null as Loose | null };
+    const from = this.tuFrom.set(x - o.x, fromY + 1e-4 - o.y, z - o.z);
+    for (const m of this.list) {
+      if (m === self || m.shut || m.fly || !m.resting) continue;
+      if (Math.abs(m.x - x) > m.radius * 1.5 + 0.1 || Math.abs(m.z - z) > m.radius * 1.5 + 0.1) continue;
+      const b = this.snugBoxOf(m);
+      if (!b || m.y + b.minY > fromY || m.y + b.maxY <= best.y) continue;
+      // (not what lies on the thing itself: a stack is not turned upside down)
+      if (self && this.onTopOf(m, self)) continue;
+      m.obj.updateMatrixWorld(true);
+      const far = fromY - (m.y + b.minY) + 0.01;
+      m.obj.traverse((ob) => {
+        const mesh = ob as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const h = castMesh(mesh, from, DOWN, far);
+        if (!h) return;
+        const y = h.point.y + o.y;
+        if (y > best.y) {
+          best.y = y;
+          best.l = m;
+        }
+      });
+    }
+    return best.l ? { y: best.y, l: best.l } : null;
+  }
+  private readonly tuFrom = new THREE.Vector3();
+
+  /** does m lie on `l`, or on what lies on it, and so on */
+  private onTopOf(m: Loose, l: Loose): boolean {
+    let u = m.under;
+    for (let i = 0; u && i < 16; i++, u = u.under) if (u === l) return true;
+    return false;
+  }
+
+  /**
+   * What a thing with this box, its base at (x, y, z) turned `yaw`, would be in the way of: its box shrunk (to 85 %, as
+   * Nomad Drive tests a drop) against the boxes of the things lying about and the world's solids — walls, props, a
+   * vehicle's body — what it lies on (`under`) and the vehicle it rides (`on`) not counted. A word for what (for the
+   * harness), or null: nothing.
+   */
+  blockerAt(box: ThingBox, x: number, y: number, z: number, yaw: number, self: Loose | null, under: Loose | null, on: Carrier | null, shrink: number = DROP_SHRINK): string | null {
+    const kx = ((box.maxX - box.minX) * (1 - shrink)) / 2;
+    const ky = ((box.maxY - box.minY) * (1 - shrink)) / 2;
+    const kz = ((box.maxZ - box.minZ) * (1 - shrink)) / 2;
+    const foot = footprint({ minX: box.minX + kx, maxX: box.maxX - kx, minY: 0, maxY: 0, minZ: box.minZ + kz, maxZ: box.maxZ - kz }, x, z, yaw);
+    const y0 = y + box.minY + ky;
+    const y1 = y + box.maxY - ky;
+    const reach = Math.hypot(foot.hx, foot.hz);
+    for (const m of this.list) {
+      if (m === self || m === under || m.shut || m.fly) continue;
+      if (Math.abs(m.x - foot.x) > m.radius * 1.5 + reach + 0.1 || Math.abs(m.z - foot.z) > m.radius * 1.5 + reach + 0.1) continue;
+      const b = this.snugBoxOf(m);
+      if (!b || m.y + b.maxY <= y0 || m.y + b.minY >= y1) continue;
+      if (rectsOverlap(foot, footprint(b, m.x, m.z, m.yaw))) return `thing:${m.item?.item ?? m.part?.part ?? m.tool?.kind}`;
+    }
+    if (this.solidsNear) {
+      const near = this.near;
+      near.length = 0;
+      this.solidsNear(foot.x, foot.z, reach + 0.5, near);
+      const body = on?.solid?.solid;
+      const ownTag = on?.solidTag ?? '';
+      for (const b of near) {
+        if (b === body || (ownTag && b.tag.startsWith(ownTag)) || b.y1 <= y0 + 0.02 || b.y0 >= y1 - 0.01) continue;
+        if (rectsOverlap(foot, b)) return `solid:${b.tag}`;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Would a thing with this box, let go with its base at (x, y, z) turned `yaw`, come to rest in the way of something
+   * (Nomad Drive refuses the drop then: 位置被挡住，无法在此丢弃)? Where it would lie, if it may.
+   */
+  dropPose(box: ThingBox, x: number, y: number, z: number, yaw: number): { ok: boolean; why: string; y: number; support: Support } {
+    const sup = this.supportFor(box, x, z, yaw, y + box.minY + 0.05);
+    if (!Number.isFinite(sup.y)) return { ok: false, why: 'no ground', y, support: sup };
+    const at = sup.y + REST_GAP - box.minY;
+    const why = this.blockerAt(box, x, at, z, yaw, null, sup.under, sup.on);
+    return { ok: !why, why: why ?? '', y: at, support: sup };
+  }
+
+  /** the thing lies on this surface from now on (and rides with the vehicle it is on there); what it lies on is changed by it */
+  private settleOn(l: Loose, box: ThingBox, sup: Support, how: 'fell' | 'laid' | 'given'): void {
+    l.y = sup.y + REST_GAP - box.minY;
+    l.vy = 0;
+    l.resting = true;
+    l.seat = sup.y;
+    l.seatLow = box.minY;
+    l.seatHow = how;
+    l.under = sup.under;
+    l.fresh = 0;
+    l.fly = null;
+    l.landing = undefined;
+    this.mergeDirty = true;
+    this.rev++;
+    // (a place's table something was put on is one's own from then on, as a box something was put into is)
+    if (sup.under) this.touch(sup.under);
+    if (sup.on) this.ride(l, sup.on);
+    else if (l.riding) l.riding = null;
+  }
+
+  private unseat(l: Loose): void {
+    l.seat = undefined;
+    l.seatLow = undefined;
+    l.seatHow = undefined;
+    l.under = null;
+    l.fresh = undefined;
+  }
+
+  /** a thing let fall comes down where it is: on the surface under it; in the way of something there, moved to the nearest place within a metre clear of everything */
+  private land(l: Loose, box: ThingBox, sup: Support): void {
+    let s = sup;
+    if (this.blockerAt(box, l.x, s.y + REST_GAP - box.minY, l.z, l.yaw, l, s.under, s.on)) {
+      const free = this.freeSpot(l, box, l.x, l.z, l.y + box.minY + 0.05);
+      if (free) {
+        l.x = free.x;
+        l.z = free.z;
+        s = free.sup;
+      }
+    }
+    this.settleOn(l, box, s, 'fell');
+    this.reseatAbove(l);
+  }
+
+  /** the nearest place within a metre of (x, z) where the thing lies in nothing's way (Nomad Drive's placement correction), and what it lies on there */
+  private freeSpot(l: Loose, box: ThingBox, x: number, z: number, fromY: number): { x: number; z: number; sup: Support } | null {
+    for (let r = 0.1; r <= 1.0001; r += 0.1) {
+      const n = Math.max(8, Math.min(24, Math.round((2 * Math.PI * r) / 0.1)));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * 2 * Math.PI;
+        const px = x + Math.cos(a) * r;
+        const pz = z + Math.sin(a) * r;
+        const sup = this.supportFor(box, px, pz, l.yaw, fromY, l);
+        if (!Number.isFinite(sup.y) || this.blockerAt(box, px, sup.y + REST_GAP - box.minY, pz, l.yaw, l, sup.under, sup.on)) continue;
+        return { x: px, z: pz, sup };
+      }
+    }
+    return null;
+  }
+
+  /** its shape changed (its model come in; set straight by whoever drew it falling): lying on something, it lies on it as this shape, and so does what lies on it */
+  private reshaped(l: Loose): void {
+    if (!l.resting || l.fly || l.seat === undefined) return;
+    const box = this.snugBoxOf(l) ?? POINT;
+    if (l.seatLow !== undefined && Math.abs(box.minY - l.seatLow) < 5e-4 && l.seatHow !== 'fell') return;
+    this.reseat(l, box);
+    if (l.seatHow === 'fell' && this.blockerAt(box, l.x, l.y, l.z, l.yaw, l, l.under ?? null, l.riding?.on ?? null)) this.land(l, box, this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.05, l));
+    this.reseatAbove(l);
+  }
+
+  /** set on its surface again (found again under it — from `fromY` down, by default just over where it lay — unless it was given) */
+  private reseat(l: Loose, box: ThingBox, fromY = l.seat! + 0.05): void {
+    if (l.seatHow === 'given') {
+      l.seatLow = box.minY;
+      l.y = l.seat! + REST_GAP - box.minY;
+      if (l.riding) this.ride(l, l.riding.on);
+      return;
+    }
+    const sup = this.supportFor(box, l.x, l.z, l.yaw, fromY, l);
+    if (!Number.isFinite(sup.y)) return;
+    const fresh = l.fresh;
+    this.settleOn(l, box, sup, l.seatHow ?? 'fell');
+    l.fresh = fresh;
+  }
+
+  /** what lies on this thing is set on it again where it lies now */
+  private reseatAbove(l: Loose, depth = 0): void {
+    if (depth > 8) return;
+    const lb = this.snugBoxOf(l);
+    for (const m of this.list) {
+      if (m === l || m.under !== l || !m.resting || m.fly) continue;
+      this.reseat(m, this.snugBoxOf(m) ?? POINT, Math.max(m.seat ?? -Infinity, l.y + (lb ? lb.maxY : 0)) + 0.05);
+      this.reseatAbove(m, depth + 1);
+    }
+  }
+
+  /** what lies on this thing (it lies on it, or is found lying on its top) comes down */
+  private dropAbove(l: Loose): void {
+    const b = this.snugBoxOf(l);
+    for (const m of [...this.list]) {
+      if (m === l || !m.resting || m.fly) continue;
+      let on = m.under === l;
+      if (!on && b && m.under == null && !m.shut && Math.abs(m.x - l.x) < l.radius * 1.5 + 0.1 && Math.abs(m.z - l.z) < l.radius * 1.5 + 0.1) {
+        // (put there by whoever put it, just so: lying on its top if its lowest point is on it)
+        const mb = this.snugBoxOf(m);
+        const low = m.y + (mb ? mb.minY : 0);
+        if (low >= l.y + b.minY + 0.005 && low <= l.y + b.maxY + 0.03) {
+          const t = this.topUnder(m.x, m.z, low + 0.02, m);
+          on = !!t && t.l === l && low - t.y < 0.03;
+        }
+      }
+      if (on) {
+        m.under = null;
+        this.drop(m);
+      }
+    }
+  }
+
+  /** a thing let fall, a step: down onto the surface under it */
+  private fallStep(l: Loose, dt: number): void {
+    const box = this.snugBoxOf(l) ?? POINT;
+    const sup = this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.05, l);
+    l.vy -= 9.81 * dt;
+    l.y += l.vy * dt;
+    if (l.y + box.minY <= sup.y + REST_GAP) this.land(l, box, sup);
+  }
+
+  /** a thing thrown, a step: flying, off walls and things, down onto what is under it, sliding, still */
+  private flyStep(l: Loose, dt: number): void {
+    const f = l.fly!;
+    const box = this.snugBoxOf(l) ?? POINT;
+    f.t += dt;
+    // (Nomad Drive's nets: too long in the air, or fallen through the world — onto the surface below, above)
+    if (f.t > THROW.maxS || l.y < f.fromY - THROW.fallM) {
+      const through = l.y < f.fromY - THROW.fallM;
+      const sup = this.supportFor(box, l.x, l.z, l.yaw, through ? l.y + box.maxY + 60 : l.y + box.minY + 0.05, l);
+      if (Number.isFinite(sup.y)) {
+        this.land(l, box, sup);
+        l.y += THROW.gap - REST_GAP;
+        if (l.riding) this.ride(l, l.riding.on);
+      } else l.fly = null;
+      return;
+    }
+    const speed = Math.hypot(f.vx, f.vy, f.vz);
+    const n = Math.min(10, Math.max(1, Math.ceil((speed * dt) / 0.04)));
+    const h = dt / n;
+    let touching = false;
+    let sup: Support = { y: -Infinity, on: null, under: null };
+    for (let k = 0; k < n; k++) {
+      f.vy -= 9.81 * h;
+      // across: into a wall or a thing, it comes back off it, slower
+      const nx = l.x + f.vx * h;
+      const nz = l.z + f.vz * h;
+      sup = this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.02, l);
+      if (this.blockerAt(box, nx, l.y + 0.005, nz, l.yaw, l, sup.under, sup.on, 0.95)) {
+        f.vx *= -0.3;
+        f.vz *= -0.3;
+      } else {
+        l.x = nx;
+        l.z = nz;
+      }
+      // down: onto what is under it, a bounce if it came down hard; it slides, and its turn dies, on what it lies on
+      const ny = l.y + f.vy * h;
+      sup = this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.02, l);
+      if (ny + box.minY <= sup.y + REST_GAP) {
+        l.y = sup.y + REST_GAP - box.minY;
+        if (f.vy < -1.5) {
+          f.vy = -f.vy * 0.25;
+          f.vx *= 0.5;
+          f.vz *= 0.5;
+        } else f.vy = 0;
+        const vh = Math.hypot(f.vx, f.vz);
+        if (vh > 0) {
+          const dv = Math.min(vh, 0.5 * 9.81 * h);
+          f.vx -= (f.vx / vh) * dv;
+          f.vz -= (f.vz / vh) * dv;
+        }
+        f.spin *= Math.max(0, 1 - 6 * h);
+        touching = true;
+      } else l.y = ny;
+      l.yaw += f.spin * h;
+    }
+    if (touching && Math.hypot(f.vx, f.vy, f.vz) <= THROW.still && Math.abs(f.spin) <= THROW.stillSpin) f.still += dt;
+    else f.still = 0;
+    if (f.still >= THROW.stillS) this.land(l, box, sup);
   }
 
   /** what rides on a carrier */
@@ -750,19 +1229,17 @@ export class LooseThings {
     // the root sits at the world's origin, the things at their world positions under it
     this.core.place(this.root, 0, 0, 0);
     for (const l of this.list) {
-      if (!l.resting) {
-        l.landing ??= this.landingOf(l);
-        const floor = l.landing.y;
-        l.vy -= 9.81 * dt;
-        l.y += l.vy * dt;
-        if (l.y <= floor) {
-          l.y = floor;
-          l.vy = 0;
-          l.resting = true;
-          this.mergeDirty = true;
-          if (l.landing.on) this.ride(l, l.landing.on);
-          l.landing = undefined;
-        }
+      // thrown, flying; let fall, falling (onto the surface under it, as drawn: docs/V3/plan/finish.md §十九 step 6)
+      if (l.fly) this.flyStep(l, dt);
+      else if (!l.resting) this.fallStep(l, dt);
+      else if (l.fresh !== undefined) {
+        // (just come to rest: whoever drew it falling may set it straight now — its shape looked at again)
+        l.fresh += dt;
+        const was = this.snugBoxOf(l);
+        this.hitBoxes.delete(l.obj);
+        const box = this.snugBoxOf(l);
+        if (box && was && (Math.abs(box.minY - was.minY) > 1e-3 || Math.abs(box.maxX - was.maxX) > 1e-3 || Math.abs(box.minX - was.minX) > 1e-3 || Math.abs(box.maxZ - was.maxZ) > 1e-3 || Math.abs(box.minZ - was.minZ) > 1e-3)) this.reshaped(l);
+        if (l.fresh !== undefined && l.fresh > FRESH_S) l.fresh = undefined;
       }
       if (!l.riding) {
         l.obj.position.set(l.x, l.y, l.z);
@@ -904,12 +1381,15 @@ export class LooseThings {
   }
 
   /** each thing's box as its model stands, in its own frame, and how many children it had when measured (a model come in: again) */
-  private readonly hitBoxes = new WeakMap<THREE.Object3D, { box: THREE.Box3; n: number; low: number }>();
+  private readonly hitBoxes = new WeakMap<THREE.Object3D, { box: THREE.Box3; n: number; low: number; raw: THREE.Box3; base: THREE.Box3 }>();
   private readonly hbInv = new THREE.Matrix4();
   private readonly hbRel = new THREE.Matrix4();
   private readonly hbBox = new THREE.Box3();
   private readonly hbRay = new THREE.Ray();
   private readonly hbP = new THREE.Vector3();
+  private readonly hbA = new THREE.Vector3();
+  private readonly hbB = new THREE.Vector3();
+  private readonly hbC = new THREE.Vector3();
   private readonly hbSize = new THREE.Vector3();
   private readonly hbO = new THREE.Vector3();
 
@@ -923,11 +1403,55 @@ export class LooseThings {
     l.obj.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || o === l.obj) return;
-      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
       this.hbRel.multiplyMatrices(this.hbInv, mesh.matrixWorld);
+      // (its points, not its geometry's box turned: a chest's lid, modelled turned, made its box 15 cm taller than the chest)
+      const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+      if (pos && pos.count <= 40000) {
+        for (let i = 0; i < pos.count; i++) box.expandByPoint(this.hbP.fromBufferAttribute(pos, i).applyMatrix4(this.hbRel));
+        return;
+      }
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
       box.union(this.hbBox.copy(mesh.geometry.boundingBox!).applyMatrix4(this.hbRel));
     });
     const low = box.isEmpty() ? 0 : box.min.y;
+    const raw = box.clone();
+    // (its base footprint: the slab within 10 cm of its lowest point, clipping triangle edges crossing that plane —
+    // so an overhanging tabletop or side handles do not lift a table's legs or a chest's bottom off a sloped verge)
+    const base = new THREE.Box3();
+    if (!raw.isEmpty() && raw.max.y - raw.min.y > 0.1) {
+      const cut = low + 0.1;
+      const edge = (p: THREE.Vector3, q: THREE.Vector3): void => {
+        if ((p.y <= cut) === (q.y <= cut)) return;
+        const t = (cut - p.y) / (q.y - p.y);
+        this.hbP.set(p.x + (q.x - p.x) * t, cut, p.z + (q.z - p.z) * t);
+        base.expandByPoint(this.hbP);
+      };
+      l.obj.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || o === l.obj) return;
+        const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (!pos || pos.count > 40000) return;
+        this.hbRel.multiplyMatrices(this.hbInv, mesh.matrixWorld);
+        const idx = mesh.geometry.getIndex();
+        const n = idx ? idx.count : pos.count;
+        for (let t = 0; t + 2 < n; t += 3) {
+          const i0 = idx ? idx.getX(t) : t;
+          const i1 = idx ? idx.getX(t + 1) : t + 1;
+          const i2 = idx ? idx.getX(t + 2) : t + 2;
+          this.hbA.fromBufferAttribute(pos, i0).applyMatrix4(this.hbRel);
+          this.hbB.fromBufferAttribute(pos, i1).applyMatrix4(this.hbRel);
+          this.hbC.fromBufferAttribute(pos, i2).applyMatrix4(this.hbRel);
+          if (this.hbA.y > cut && this.hbB.y > cut && this.hbC.y > cut) continue;
+          if (this.hbA.y <= cut) base.expandByPoint(this.hbA);
+          if (this.hbB.y <= cut) base.expandByPoint(this.hbB);
+          if (this.hbC.y <= cut) base.expandByPoint(this.hbC);
+          edge(this.hbA, this.hbB);
+          edge(this.hbB, this.hbC);
+          edge(this.hbC, this.hbA);
+        }
+      });
+    }
+    if (base.isEmpty()) base.copy(raw);
     if (!box.isEmpty()) {
       box.expandByScalar(0.015);
       const c = box.getCenter(new THREE.Vector3());
@@ -935,7 +1459,7 @@ export class LooseThings {
       box.min.copy(c).sub(s);
       box.max.copy(c).add(s);
     }
-    this.hitBoxes.set(l.obj, { box, n: l.obj.children.length, low });
+    this.hitBoxes.set(l.obj, { box, n: l.obj.children.length, low, raw, base });
     return box.isEmpty() ? null : box;
   }
 

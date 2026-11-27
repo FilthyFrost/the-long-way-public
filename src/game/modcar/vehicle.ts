@@ -11,6 +11,7 @@ import { VehicleSim, type VehicleInput } from '../../core/vehicle/sim';
 import type { VehicleSpec } from '../../core/vehicle/spec';
 import type { Ground } from '../../core/world/ground';
 import { VehicleSolid } from '../../core/onfoot/vehicle';
+import { VehicleWalkSolids } from '../../core/modcar/vehicleSolids';
 import { CarView } from './carView';
 import type { Carrier } from './loose';
 
@@ -32,6 +33,8 @@ export class ModVehicle implements Carrier {
   readonly sim: VehicleSim;
   readonly view: CarView;
   readonly solid: VehicleSolid;
+  /** composite walkable solids for on-foot movement (hollow interiors, steps, pickup beds, always-solid roofs) */
+  readonly walkSolids: VehicleWalkSolids;
   /** seconds it keeps being simulated with nobody at the wheel */
   awake = 3;
   /** assist: with a driver in, the brakes hold the car once it has stopped */
@@ -39,6 +42,8 @@ export class ModVehicle implements Carrier {
   /** the radio part is switched on, and the station it is on (radio.ts SONGS) */
   radioOn = false;
   radioSong = 0;
+  /** the vehicle's own cabin dome light switched on (U) */
+  domeOn = false;
   /** how much further back (m) the chase view stands behind it: what it tows (the tow system's) */
   chaseBack = 0;
   /**
@@ -69,7 +74,12 @@ export class ModVehicle implements Carrier {
     this.view = new CarView(build, this.sys.derived);
     core.scene.add(this.view.root);
     this.solid = new VehicleSolid(this.sim);
+    this.walkSolids = new VehicleWalkSolids(this);
     this.origin = core.origin;
+  }
+
+  get solidTag(): string {
+    return this.walkSolids.prefix;
   }
 
   // ------------------------------------------------------------------ things put on it
@@ -119,8 +129,8 @@ export class ModVehicle implements Carrier {
       this.sys.update(dt, env);
       return;
     }
-    // (left with its lights or its radio on, it stays awake: they run the battery down)
-    if (!driven && this.awake <= 0 && !this.sys.running && !this.radioOn && !this.sys.lightsOn) return;
+    // (left with its lights, dome light or radio on, it stays awake: they run the battery down)
+    if (!driven && this.awake <= 0 && !this.sys.running && !this.radioOn && !this.sys.lightsOn && !this.domeOn) return;
     const n = this.sim.update(dt, input ?? IDLE, ground);
     this.sys.update(n * this.sim.h, env);
     if (driven || this.sys.running || this.sim.speed > 0.05) this.awake = Math.max(this.awake, 1.5);

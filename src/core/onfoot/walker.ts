@@ -22,6 +22,7 @@ export const FOOT = {
   walk: 1.9,
   run: 3.6,
   crouch: 1.0,
+  crouchRun: 1.0,
   /** a big thing carried alone (two people: 1.7) */
   carry: 1.2,
   carryTwo: 1.7,
@@ -36,6 +37,18 @@ export const FOOT = {
   radius: 0.3,
   /** jump height (m) */
   jump: 0.55,
+  /** jump initial vertical speed (0 = solve from jump height) */
+  jumpV: 0,
+  /** jump input buffer and ledge coyote time (s) */
+  jumpBuffer: 0,
+  coyote: 0,
+  /** forbid jumping while crouched */
+  noCrouchJump: false,
+  /** linear ground accel/brake (m/s^2; 0 = legacy exponential smoothing) */
+  groundAccel: 0,
+  /** air control share of groundAccel (0..1) and air horizontal drag (/s) */
+  airControl: 0.12,
+  airDrag: 0,
   step: 0.3,
   slopeDeg: 38,
   /** water deeper than this is swum */
@@ -54,9 +67,70 @@ export const FOOT = {
   cadencePerMs: 0.32,
 } as const;
 
-const TAN_SLOPE = Math.tan((FOOT.slopeDeg * Math.PI) / 180);
-// (the fixed step loses a little height to the integration: v0 is solved for the stepped peak)
-const JUMP_V = (FOOT.gravity * FOOT.h) / 2 + Math.sqrt(((FOOT.gravity * FOOT.h) / 2) ** 2 + 2 * FOOT.gravity * FOOT.jump);
+export interface FootProfile {
+  readonly walk: number;
+  readonly run: number;
+  readonly crouch: number;
+  readonly crouchRun: number;
+  readonly carry: number;
+  readonly swim: number;
+  readonly eye: number;
+  readonly eyeCrouch: number;
+  readonly eyeSwim: number;
+  readonly height: number;
+  readonly heightCrouch: number;
+  readonly radius: number;
+  readonly jump: number;
+  readonly jumpV: number;
+  readonly jumpBuffer: number;
+  readonly coyote: number;
+  readonly noCrouchJump: boolean;
+  readonly groundAccel: number;
+  readonly airControl: number;
+  readonly airDrag: number;
+  readonly step: number;
+  readonly slopeDeg: number;
+  readonly bob: number;
+  readonly bobMax: number;
+}
+
+/**
+ * Nomad Drive on-foot movement profile:
+ * walk 2.75 m/s, sprint 5.0, crouch 1.5 (crouch-sprint 2.0), crisp 20 m/s^2 ground accel/brake,
+ * air control 0.3 with 0.3/s falling drag, jump v0 = 4.0 m/s (0.82 m apex) with 0.1 s buffer & coyote,
+ * capsule radius 0.23 m, standing 1.60 m / crouched 0.70 m, base step 0.45 m, slope 45 deg, zero walking head bob.
+ */
+export const ND_FOOT: FootProfile = {
+  walk: 2.75,
+  run: 5.0,
+  crouch: 1.5,
+  crouchRun: 2.0,
+  carry: 1.6,
+  swim: 1.4,
+  eye: 1.5,
+  eyeCrouch: 0.65,
+  eyeSwim: 1.3,
+  height: 1.6,
+  heightCrouch: 0.7,
+  radius: 0.23,
+  jump: 0.82,
+  jumpV: 4.0,
+  jumpBuffer: 0.1,
+  coyote: 0.1,
+  noCrouchJump: true,
+  groundAccel: 20,
+  airControl: 0.3,
+  airDrag: 0.3,
+  step: 0.45,
+  slopeDeg: 45,
+  bob: 0,
+  bobMax: 0,
+};
+
+function solveJumpV(p: FootProfile): number {
+  if (p.jumpV > 0) return p.jumpV;
+  return (FOOT.gravity * FOOT.h) / 2 + Math.sqrt(((FOOT.gravity * FOOT.h) / 2) ** 2 + 2 * FOOT.gravity * p.jump);
+}
 /** a drop this big or less is followed down the next step without leaving the ground */
 const SNAP_DOWN = 0.4;
 /** how far a floor's edge can be stood on past the middle of the feet */
@@ -109,6 +183,12 @@ export class FootWalker {
   depth = 0;
   /** what the hands are full of: a big thing slows one to `carry` and forbids running and jumping */
   load: CarryLoad = 'none';
+  /** active movement profile (defaults to legacy FOOT; ModCar applies ND_FOOT) */
+  profile: FootProfile = FOOT;
+  private tanSlope = Math.tan((FOOT.slopeDeg * Math.PI) / 180);
+  private jumpSpeed = solveJumpV(FOOT);
+  /** optional dynamic step-up ceiling (m) from vehicle EntryAssistZone; 0 or null uses profile.step */
+  stepLimit: ((x: number, y: number, z: number) => number) | null = null;
   /** the walking bob (the comfort setting can switch it off) */
   bobOn = true;
   /** ground slope under the feet (rad) and whether it is too steep to stand */
@@ -122,6 +202,8 @@ export class FootWalker {
   private stepOff = 0;
   private bobPhase = 0;
   private bobAmp = 0;
+  private coyoteT = 0;
+  private jumpBufT = 0;
   private acc = 0;
   /** distance walked (m), for the measurements */
   walked = 0;
@@ -134,6 +216,23 @@ export class FootWalker {
     public land: Land,
     public solids: SolidSource = NO_SOLIDS,
   ) {}
+
+  /** switch movement physics profile (e.g. ND_FOOT for Nomad Drive movement) */
+  setProfile(p: FootProfile): this {
+    this.profile = p;
+    this.tanSlope = Math.tan((p.slopeDeg * Math.PI) / 180);
+    this.jumpSpeed = solveJumpV(p);
+    this.eyeH = this.targetEyeH();
+    if (p.bob <= 0) this.bobAmp = 0;
+    return this;
+  }
+
+  private stepMaxAt(x: number, y: number, z: number): number {
+    const base = this.profile.step;
+    if (!this.stepLimit || !Number.isFinite(y)) return base;
+    const dyn = this.stepLimit(x, y, z);
+    return dyn > base ? dyn : base;
+  }
 
   // ---------------------------------------------------------------- queries
 
@@ -157,8 +256,9 @@ export class FootWalker {
     let s = this.landAt(x, z, feet);
     this.onFloor = false;
     this.floorTag = '';
+    const maxTop = feet + this.stepMaxAt(x, feet, z) + 1e-6;
     for (const so of this.near) {
-      if (!so.floor || so.y1 > feet + FOOT.step + 1e-6 || so.y1 <= s) continue;
+      if (!so.floor || so.y1 > maxTop || so.y1 <= s) continue;
       if (pushOut(so, x, z, FOOT_HOLD, this.push)) {
         s = so.y1;
         this.onFloor = true;
@@ -171,7 +271,7 @@ export class FootWalker {
   floorTag = '';
 
   get height(): number {
-    return this.crouched ? FOOT.heightCrouch : FOOT.height;
+    return this.crouched ? this.profile.heightCrouch : this.profile.height;
   }
 
   /** this walker's own walking and running speeds (m/s), where they are not FOOT's (ModCar: Arctic Drive's) */
@@ -197,10 +297,12 @@ export class FootWalker {
 
   /** the speed asked for right now (m/s) */
   topSpeed(run: boolean): number {
-    if (this.swimming) return FOOT.swim * this.speedScale;
-    const walk = this.speeds?.walk ?? FOOT.walk;
-    const runV = this.speeds?.run ?? FOOT.run;
-    let v: number = (this.load === 'large' ? FOOT.carry : this.crouched ? FOOT.crouch : run ? runV : walk) * this.speedScale * this.loadShare;
+    const p = this.profile;
+    if (this.swimming) return p.swim * this.speedScale;
+    const walk = this.speeds?.walk ?? p.walk;
+    const runV = this.speeds?.run ?? p.run;
+    const crouchV = run ? p.crouchRun : p.crouch;
+    let v: number = (this.load === 'large' ? p.carry : this.crouched ? crouchV : run ? runV : walk) * this.speedScale * this.loadShare;
     if (this.depth > FOOT.wadeFrom) {
       const k = Math.min(1, (this.depth - FOOT.wadeFrom) / (FOOT.swimDepth - FOOT.wadeFrom));
       v *= 1 - (1 - FOOT.wadeKeep) * k;
@@ -209,17 +311,19 @@ export class FootWalker {
   }
 
   /** is a solid in the way of a body standing with its feet at `feet`? */
-  blocks(s: Solid, feet: number, height = this.height): boolean {
+  blocks(s: Solid, feet: number, height = this.height, stepMax = this.stepMaxAt(this.x, feet, this.z)): boolean {
     if (s.y1 <= feet + 0.02) return false; // under the feet
-    if (s.floor && s.y1 <= feet + FOOT.step + 1e-6) return false; // a step: walked up
+    if (s.floor && s.y1 <= feet + stepMax + 1e-6) return false; // a step: walked up
     return s.y0 < feet + height;
   }
 
   /** would a body stand free at (x, z) with its feet on the ground there? */
-  freeAt(x: number, z: number, margin = 0): boolean {
-    this.gather(x, z, FOOT.radius + margin + 0.5);
-    const feet = this.supportAt(x, z, Infinity);
-    for (const s of this.near) if (this.blocks(s, feet, FOOT.height) && pushOut(s, x, z, FOOT.radius + margin, this.push)) return false;
+  freeAt(x: number, z: number, margin = 0, maxY = Infinity): boolean {
+    const r = this.profile.radius;
+    this.gather(x, z, r + margin + 0.5);
+    const feet = this.supportAt(x, z, maxY);
+    const stepMax = this.stepMaxAt(x, feet, z);
+    for (const s of this.near) if (this.blocks(s, feet, this.profile.height, stepMax) && pushOut(s, x, z, r + margin, this.push)) return false;
     return true;
   }
 
@@ -234,17 +338,17 @@ export class FootWalker {
    * Stand at (x, z) facing `heading`, or at the free spot nearest to it (a spiral search out to
    * `search` m). Returns false when nothing free was found (the walker then stands at (x, z)).
    */
-  place(x: number, z: number, heading = this.heading, search = 6): boolean {
+  place(x: number, z: number, heading = this.heading, search = 6, maxY = Infinity): boolean {
     let px = x;
     let pz = z;
-    let ok = this.freeAt(x, z);
+    let ok = this.freeAt(x, z, 0, maxY);
     for (let r = 0.25; !ok && r <= search + 1e-9; r += 0.25) {
       const n = Math.max(8, Math.round((2 * Math.PI * r) / 0.25));
       for (let i = 0; i < n && !ok; i++) {
         const a = (i / n) * 2 * Math.PI;
         const cx = x + Math.cos(a) * r;
         const cz = z + Math.sin(a) * r;
-        if (this.freeAt(cx, cz)) {
+        if (this.freeAt(cx, cz, 0, maxY)) {
           px = cx;
           pz = cz;
           ok = true;
@@ -256,14 +360,40 @@ export class FootWalker {
     this.heading = heading;
     this.vx = this.vy = this.vz = 0;
     this.gather(px, pz, 1);
-    this.y = this.supportAt(px, pz, Infinity);
+    this.y = this.supportAt(px, pz, maxY);
     this.grounded = true;
+    this.coyoteT = this.profile.coyote;
+    this.jumpBufT = 0;
     this.updateWater();
     if (this.swimming) this.y = Math.max(this.y, this.wl - FOOT.swimDepth);
     this.eyeH = this.targetEyeH();
     this.stepOff = 0;
     this.acc = 0;
     return ok;
+  }
+
+  /**
+   * Place the walker directly at (x, y, z) facing `heading` (e.g. inside a vehicle's living space without snapping up
+   * onto its roof): settles onto the highest floor at or below `y + 0.35`, resolving horizontal overlaps.
+   */
+  placeAt(x: number, y: number, z: number, heading = this.heading, crouch?: boolean): void {
+    if (crouch !== undefined) this.crouched = crouch;
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    this.heading = heading;
+    this.vx = this.vy = this.vz = 0;
+    this.gather(x, z, this.profile.radius + 0.8);
+    const sup = this.supportAt(x, z, y + 0.35);
+    this.y = sup;
+    this.resolve();
+    this.grounded = true;
+    this.coyoteT = this.profile.coyote;
+    this.jumpBufT = 0;
+    this.updateWater(sup);
+    this.eyeH = this.targetEyeH();
+    this.stepOff = 0;
+    this.acc = 0;
   }
 
   // ---------------------------------------------------------------- stepping
@@ -280,9 +410,10 @@ export class FootWalker {
   /** one fixed step */
   step(input: FootInput): void {
     const h = FOOT.h;
+    const p = this.profile;
     // crouching: standing back up needs the room to
     if (input.crouch !== this.crouched) {
-      if (input.crouch || this.headroomFor(FOOT.height)) this.crouched = input.crouch && !this.swimming;
+      if (input.crouch || this.headroomFor(p.height)) this.crouched = input.crouch && !this.swimming;
     }
     // ---- what the legs ask for
     let f = input.forward;
@@ -297,9 +428,45 @@ export class FootWalker {
     const top = this.topSpeed(input.run && this.load !== 'large' && this.loadRun);
     const tx = (f * c - r * s) * top;
     const tz = (f * s + r * c) * top;
-    const k = this.grounded || this.swimming ? 1 - Math.exp(-h / 0.075) : 1 - Math.exp(-h / 0.6);
-    this.vx += (tx - this.vx) * k;
-    this.vz += (tz - this.vz) * k;
+    if (p.groundAccel > 0) {
+      if (this.grounded || this.swimming) {
+        const dvx = tx - this.vx;
+        const dvz = tz - this.vz;
+        const dv = Math.hypot(dvx, dvz);
+        const maxDv = p.groundAccel * h;
+        if (dv <= maxDv) {
+          this.vx = tx;
+          this.vz = tz;
+        } else {
+          this.vx += (dvx / dv) * maxDv;
+          this.vz += (dvz / dv) * maxDv;
+        }
+      } else {
+        // airborne: reduced control toward wish velocity plus gentle lateral drag
+        if (len > 1e-4) {
+          const dvx = tx - this.vx;
+          const dvz = tz - this.vz;
+          const dv = Math.hypot(dvx, dvz);
+          const maxDv = p.groundAccel * p.airControl * h;
+          if (dv <= maxDv) {
+            this.vx = tx;
+            this.vz = tz;
+          } else {
+            this.vx += (dvx / dv) * maxDv;
+            this.vz += (dvz / dv) * maxDv;
+          }
+        }
+        if (p.airDrag > 0) {
+          const drag = Math.max(0, 1 - p.airDrag * h);
+          this.vx *= drag;
+          this.vz *= drag;
+        }
+      }
+    } else {
+      const k = this.grounded || this.swimming ? 1 - Math.exp(-h / 0.075) : 1 - Math.exp(-h / 0.6);
+      this.vx += (tx - this.vx) * k;
+      this.vz += (tz - this.vz) * k;
+    }
 
     // ---- slope: too steep to climb, and one slides down it
     this.sliding = false;
@@ -310,7 +477,7 @@ export class FootWalker {
       const gz = (this.landAt(this.x, this.z + e, this.y) - this.landAt(this.x, this.z - e, this.y)) / (2 * e);
       const g = Math.hypot(gx, gz);
       this.slope = Math.atan(g);
-      if (g > TAN_SLOPE) {
+      if (g > this.tanSlope) {
         this.sliding = true;
         const nx = gx / g;
         const nz = gz / g;
@@ -337,8 +504,8 @@ export class FootWalker {
     const dx = this.vx * h;
     const dz = this.vz * h;
     const dist = Math.hypot(dx, dz);
-    this.gather(this.x, this.z, FOOT.radius + dist + 0.6);
-    const n = Math.max(1, Math.ceil(dist / (FOOT.radius / 3)));
+    this.gather(this.x, this.z, p.radius + dist + 0.6);
+    const n = Math.max(1, Math.ceil(dist / (p.radius / 3)));
     const x0 = this.x;
     const z0 = this.z;
     for (let i = 0; i < n; i++) {
@@ -348,7 +515,8 @@ export class FootWalker {
       // the feet follow the ground between the pieces so a step met half way is walked up
       if (this.grounded && !this.swimming) {
         const sup = this.supportAt(this.x, this.z, this.y);
-        if (sup <= this.y + FOOT.step + 1e-6 && sup >= this.y - SNAP_DOWN) this.setFeet(sup);
+        const sm = this.stepMaxAt(this.x, this.y, this.z);
+        if (sup <= this.y + sm + 1e-6 && sup >= this.y - SNAP_DOWN) this.setFeet(sup);
       }
     }
     this.walked += Math.hypot(this.x - x0, this.z - z0);
@@ -374,8 +542,21 @@ export class FootWalker {
         this.vy = 0;
       }
     } else {
+      const prevHead = this.y + this.height;
       this.vy -= FOOT.gravity * h;
       this.y += this.vy * h;
+      // ceiling clamp while rising: prevent head from clipping through an interior roof
+      if (this.vy > 0) {
+        const curHead = this.y + this.height;
+        for (const so of this.near) {
+          if (so.y0 < prevHead - 0.06 || so.y0 >= curHead) continue;
+          if (pushOut(so, this.x, this.z, Math.max(0.05, p.radius - 0.02), this.push)) {
+            this.y = Math.max(sup, so.y0 - this.height);
+            this.vy = 0;
+            break;
+          }
+        }
+      }
       if (this.y <= sup) {
         // (come down from a jump or off an edge: a landing, if it was more than a step's drop)
         if (this.vy < -1.2) {
@@ -390,21 +571,40 @@ export class FootWalker {
     if (this.y < sup) this.y = sup;
     // coming down past the edge of a floor (or onto lower ground) can bring a solid into the way: out of it again
     this.resolve();
+
+    // coyote time & jump buffer
+    if (this.grounded && !this.swimming && !this.sliding) this.coyoteT = p.coyote;
+    else this.coyoteT = Math.max(0, this.coyoteT - h);
+
     if (input.jump) {
       input.jump = false;
-      if (this.grounded && !this.swimming && this.load !== 'large' && this.loadJump && !this.sliding) {
-        this.vy = JUMP_V;
-        this.grounded = false;
-        this.jumps++;
-      }
+      this.jumpBufT = Math.max(h * 1.5, p.jumpBuffer);
+    } else if (this.jumpBufT > 0) {
+      this.jumpBufT = Math.max(0, this.jumpBufT - h);
     }
 
-    // ---- the eye: eased height, eased steps, a slow bob
+    if (
+      this.jumpBufT > 0 &&
+      (this.grounded || this.coyoteT > 0) &&
+      !this.swimming &&
+      !(p.noCrouchJump && this.crouched) &&
+      this.load !== 'large' &&
+      this.loadJump &&
+      !this.sliding
+    ) {
+      this.vy = this.jumpSpeed;
+      this.grounded = false;
+      this.coyoteT = 0;
+      this.jumpBufT = 0;
+      this.jumps++;
+    }
+
+    // ---- the eye: eased height, eased steps, a slow bob (0 when profile.bob === 0)
     const tk = 1 - Math.exp(-h / 0.16);
     this.eyeH += (this.targetEyeH() - this.eyeH) * tk;
     this.stepOff *= Math.exp(-h / 0.11);
     const v = Math.hypot(this.vx, this.vz);
-    const want = this.bobOn && this.grounded && !this.swimming && v > 0.2 ? Math.min(FOOT.bobMax, FOOT.bob * (v / FOOT.walk)) : 0;
+    const want = this.bobOn && p.bob > 0 && this.grounded && !this.swimming && v > 0.2 ? Math.min(p.bobMax, p.bob * (v / p.walk)) : 0;
     this.bobAmp += (want - this.bobAmp) * (1 - Math.exp(-h / 0.3));
     // one bob per step; the phase runs over two steps so the sway of the hands (left, right) has its own half rate
     const cadence = (FOOT.cadence + FOOT.cadencePerMs * v) * (v / (v + 0.3));
@@ -432,11 +632,13 @@ export class FootWalker {
   /** push the body out of every solid in its way (a few passes for corners) */
   private resolve(): void {
     const p = this.push;
+    const rad = this.profile.radius;
+    const stepMax = this.stepMaxAt(this.x, this.y, this.z);
     for (let it = 0; it < 4; it++) {
       let moved = false;
       for (const s of this.near) {
-        if (!this.blocks(s, this.y)) continue;
-        if (!pushOut(s, this.x, this.z, FOOT.radius, p)) continue;
+        if (!this.blocks(s, this.y, this.height, stepMax)) continue;
+        if (!pushOut(s, this.x, this.z, rad, p)) continue;
         this.x = p.x;
         this.z = p.z;
         // what was going into it stops
@@ -452,19 +654,24 @@ export class FootWalker {
   }
 
   private headroomFor(height: number): boolean {
-    this.gather(this.x, this.z, FOOT.radius + 0.5);
-    for (const s of this.near) if (this.blocks(s, this.y, height) && pushOut(s, this.x, this.z, FOOT.radius, this.push)) return false;
+    const rad = this.profile.radius;
+    this.gather(this.x, this.z, rad + 0.5);
+    const stepMax = this.stepMaxAt(this.x, this.y, this.z);
+    for (const s of this.near) if (this.blocks(s, this.y, height, stepMax) && pushOut(s, this.x, this.z, rad, this.push)) return false;
     return true;
   }
 
   private targetEyeH(): number {
-    return this.swimming ? FOOT.eyeSwim : this.crouched ? FOOT.eyeCrouch : FOOT.eye;
+    const p = this.profile;
+    return this.swimming ? p.eyeSwim : this.crouched ? p.eyeCrouch : p.eye;
   }
 
   /** inside a solid that is in the way (for the tests) */
   insideSolid(margin = 0.01): boolean {
-    this.gather(this.x, this.z, FOOT.radius + 0.5);
-    for (const s of this.near) if (this.blocks(s, this.y) && pushOut(s, this.x, this.z, FOOT.radius - margin, this.push)) return true;
+    const rad = this.profile.radius;
+    this.gather(this.x, this.z, rad + 0.5);
+    const stepMax = this.stepMaxAt(this.x, this.y, this.z);
+    for (const s of this.near) if (this.blocks(s, this.y, this.height, stepMax) && pushOut(s, this.x, this.z, rad - margin, this.push)) return true;
     return false;
   }
 

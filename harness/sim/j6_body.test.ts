@@ -41,29 +41,13 @@ describe('J6: the body', () => {
     expect(100 / VITALS.waterDrain / 60).toBeCloseTo(58, 6);
   });
 
-  it('energy: an hour awake to sleepy, back slowly sitting in a seat; coffee wakes one up', () => {
+  it('sleep disabled: energy stays full and player never becomes sleepy', () => {
     const v = newVitals();
     expect(v.energy).toBe(100);
-    run(v, 59 * 60, {}, true);
+    run(v, 70 * 60, {}, true);
+    expect(v.energy).toBe(100);
     expect(sleepy(v)).toBe(false);
-    run(v, 2 * 60, {}, true);
-    expect(sleepy(v)).toBe(true);
-    expect(speedFactor(v)).toBeCloseTo(0.9, 6);
-    // sitting still: back, slowly (a little faster than it goes)
-    const e0 = v.energy!;
-    run(v, 600, { resting: true }, true);
-    expect(v.energy!).toBeGreaterThan(e0 + 4);
-    expect(v.energy!).toBeLessThan(e0 + 6);
-    // a mug of coffee (a quarter litre): 40 at once, then the loss halved
-    const c = newVitals();
-    c.energy = 30;
-    drink(c, 'coffee', 0.25);
-    expect(c.energy).toBeCloseTo(30 + 0.25 * COFFEE_ENERGY, 6);
-    expect(COFFEE_ENERGY * 0.25).toBe(40);
-    expect(has(c, 'awake')).toBe(true);
-    const a = c.energy!;
-    run(c, 600, {}, true);
-    expect(a - c.energy!).toBeCloseTo(VITALS.energyDrain * 0.5 * 600, 4);
+    expect(speedFactor(v)).toBeCloseTo(1, 6);
   });
 
   it('sleep: rested, health back two an hour in a seat and life with it, hunger and thirst at half their pace while it lasts', () => {

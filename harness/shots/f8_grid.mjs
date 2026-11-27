@@ -37,7 +37,8 @@ const SPACES = [
   ['snail', 'cabin', 'z0', true, 'road', 0.02, null],
   ['rhino', 'bed', 'z0', false, 'road', 0.02, [185, 12, 8]],
   ['turtle', 'cabin', 'x0', false, 'road', 0.02, null],
-  ['rv', 'cabin', 'z1', true, 'road', 0.02, null],
+  // (the Whale's rear vertical corner rounds from x −5.095 to −4.87: start 22 cm ahead of x0 along the flat right wall)
+  ['rv', 'cabin', 'z1', true, 'road', 0.22, null],
   ['elephant', 'cabin', 'z1', false, 'road', 0.02, null],
   ['camel', 'cabin', 'z0', false, 'road', 2.72, null],
   ['trailer', 'cabin', 'z0', true, 'road', 0.02, null],

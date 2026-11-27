@@ -77,6 +77,8 @@ interface Climb {
   s: number;
   from: THREE.Vector3;
   to: THREE.Vector3;
+  /** previous frame ladder foot world position (for moving-vehicle grab/off tracking) */
+  prevF0: THREE.Vector3;
   /** the turn at taking hold, and the turn it ends at */
   yaw0: number;
   /** taken hold of from above: the forward key does nothing until it has been let up */
@@ -205,7 +207,7 @@ export class NdClimb implements System<GameContext>, BuildingWatch {
     // (from below: the nearest point of its line; from above: its head)
     const s = from === 'head' ? l.len : Math.max(0, Math.min(l.len, this.v.set(w.x, w.y, w.z).sub(l.f0).dot(l.dir)));
     const to = l.f0.clone().addScaledVector(l.dir, s);
-    this.climb = { l, phase: 'grab', t: 0, s, from: new THREE.Vector3(w.x, w.y, w.z), to, yaw0: ctx.input.lookYaw, latched: from === 'head', acc: 0 };
+    this.climb = { l, phase: 'grab', t: 0, s, from: new THREE.Vector3(w.x, w.y, w.z), to, prevF0: l.f0.clone(), yaw0: ctx.input.lookYaw, latched: from === 'head', acc: 0 };
     this.pin.x = w.x;
     this.pin.y = w.y;
     this.pin.z = w.z;
@@ -220,7 +222,17 @@ export class NdClimb implements System<GameContext>, BuildingWatch {
     const l = this.climb?.l;
     this.climb = null;
     this.cool = CLIMB.cooldownS;
-    if (ctx && ctx.player.pin === this.pin) ctx.player.pin = null;
+    if (ctx && ctx.player.pin === this.pin) {
+      ctx.player.pin = null;
+      if (how === 'head') {
+        const w = ctx.player.walker;
+        w.x = this.pin.x;
+        w.y = this.pin.y;
+        w.z = this.pin.z;
+        w.vx = w.vy = w.vz = 0;
+        w.grounded = false;
+      }
+    }
     if (l?.src && l.key) l.src.left?.(l.key, how);
   }
 
@@ -284,14 +296,23 @@ export class NdClimb implements System<GameContext>, BuildingWatch {
       return;
     }
     const l = c.l;
-    // (a source's ladder followed as it stands now; gone from its source — the vehicle moved off — one lets go)
+    // (a source's ladder followed as it stands now; gone from its source, one lets go)
     if (!this.refresh(l)) {
       this.letGo('gone');
       return;
     }
+    // Carry grab/off endpoints along with moving vehicle ladders
+    const dfx = l.f0.x - c.prevF0.x;
+    const dfy = l.f0.y - c.prevF0.y;
+    const dfz = l.f0.z - c.prevF0.z;
+    c.prevF0.copy(l.f0);
     const inp = ctx.input;
     c.t += dt;
     if (c.phase === 'grab') {
+      c.from.x += dfx;
+      c.from.y += dfy;
+      c.from.z += dfz;
+      c.to.copy(l.f0).addScaledVector(l.dir, c.s);
       const k = Math.min(1, c.t / CLIMB.grabS);
       this.pin.x = c.from.x + (c.to.x - c.from.x) * k;
       this.pin.y = c.from.y + (c.to.y - c.from.y) * k;
@@ -304,6 +325,10 @@ export class NdClimb implements System<GameContext>, BuildingWatch {
       return;
     }
     if (c.phase === 'off') {
+      c.from.x += dfx;
+      c.from.y += dfy;
+      c.from.z += dfz;
+      c.to.set(l.exit.x, l.exit.y + 0.14, l.exit.z);
       const k = Math.min(1, c.t / CLIMB.releaseS);
       this.pin.x = c.from.x + (c.to.x - c.from.x) * k;
       this.pin.y = c.from.y + (c.to.y - c.from.y) * k;

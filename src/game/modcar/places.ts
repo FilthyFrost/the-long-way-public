@@ -546,8 +546,9 @@ export class Places {
       if (h.kind === 'item') this.fillInside(h.item, t.id, site);
       const L = this.host.loose;
       const l = h.kind === 'part' ? L.addPart(h.inst, t.x, t.y, t.z, t.yaw) : h.kind === 'tool' ? L.addTool(h.tool, t.x, t.y, t.z, t.yaw) : L.addItem(h.item, t.x, t.y, t.z, t.yaw);
-      // (it lies where it lies: on the ground, on a counter, on a pump)
-      l.resting = true;
+      // (it lies where it lies: on the ground — as it is drawn — on a counter, on a pump; its lowest point on it, whatever its model's origin)
+      const ground = typeof this.host.world?.heightAt === 'function' ? this.host.world.heightAt(t.x, t.z) : t.y;
+      L.seat(l, t.y, Math.abs(t.y - ground) < 0.06);
       lp.loose.set(t.id, { l, x: t.x, y: t.y, z: t.z });
       this.owned.set(l, { site: site.id, id: t.id });
     }
@@ -575,12 +576,12 @@ export class Places {
   /** the parts lying beside the vehicles to find here (the place's own: gone for good once picked up, as what lies about) */
   private layBeside(site: Site, lp: LivePlace): void {
     const world = this.host.world;
-    if (!world) return;
+    if (!world || typeof world.heightAt !== 'function') return;
     for (const p of this.host.besideOf?.(site) ?? []) {
       if (this.taken.has(p.id)) continue;
       const y = world.heightAt(p.x, p.z);
       const l = this.host.loose.addPart(p.inst, p.x, y, p.z, p.yaw);
-      l.resting = true;
+      this.host.loose.seat(l, y, true);
       lp.loose.set(p.id, { l, x: p.x, y, z: p.z });
       this.owned.set(l, { site: site.id, id: p.id });
     }
@@ -665,7 +666,7 @@ export class Places {
     if (planBoxes(site).length) return;
     const car = site.objects.find((o) => o.kind === 'wreck');
     const finds = car ? this.findsOf(site) : [];
-    if (!car || !finds.length || !this.host.world) return;
+    if (!car || !finds.length || typeof this.host.world?.heightAt !== 'function') return;
     const c = Math.cos(car.yaw);
     const s = Math.sin(car.yaw);
     let n = 0;
@@ -681,7 +682,7 @@ export class Places {
         const h = heldOfFound(foundScheduled(this.sheetOf(t, id, site.s), site.seed + k * 31 + j, site.s, this.rules()));
         const L = this.host.loose;
         const l = h.kind === 'part' ? L.addPart(h.inst, x, y, z, car.yaw) : h.kind === 'tool' ? L.addTool(h.tool, x, y, z, car.yaw) : L.addItem(h.item, x, y, z, car.yaw);
-        l.resting = true;
+        L.seat(l, y, true);
         lp.loose.set(id, { l, x, y, z });
         this.owned.set(l, { site: site.id, id });
       }),

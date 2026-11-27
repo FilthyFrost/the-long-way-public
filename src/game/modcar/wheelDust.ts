@@ -249,6 +249,15 @@ export class WheelDust {
     for (let p = 0; p < n; p++) this.puff(x + (Math.random() - 0.5) * 0.15, y, z + (Math.random() - 0.5) * 0.15, vx * 0.4, 0.8 + 0.6 * Math.random(), vz * 0.4, SMOKE, 1, 1, SMOKE_RISE);
   }
 
+  /** subtle dust puff when a part snaps onto a vehicle mount (world coords) */
+  attachPuff(x: number, y: number, z: number): void {
+    for (let p = 0; p < 5; p++) {
+      const a = (p / 5) * Math.PI * 2 + Math.random() * 0.6;
+      const spd = 0.35 + Math.random() * 0.45;
+      this.puff(x + Math.cos(a) * 0.08, y + (Math.random() - 0.5) * 0.08, z + Math.sin(a) * 0.08, Math.cos(a) * spd, 0.25 + Math.random() * 0.3, Math.sin(a) * spd, SMOKE, 0.42, 0.45, DUST_RISE);
+    }
+  }
+
   /** every frame: the puffs drifting on the wind (world m/s), slowing, rising a little; the dead ones gone */
   update(dt: number, wind: { x: number; z: number }): void {
     const o = this.origin;

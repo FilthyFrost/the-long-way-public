@@ -560,24 +560,6 @@
     1.0
    ]
   },
-  "seat_dinette": {
-   "cat": "seat",
-   "driver": false,
-   "floor_z": 0.86,
-   "note": "dinette, left wall, facing forward",
-   "pos": [
-    -0.9,
-    0.86,
-    -0.47
-   ],
-   "quat": [
-    0.0,
-    0.0,
-    0.0,
-    1.0
-   ],
-   "side": -1
-  },
   "seat_driver": {
    "cat": "seat",
    "driver": true,
@@ -864,10 +846,10 @@
   "widen": null
  },
  "triangles": {
-  "BODY": 61167,
+  "BODY": 61287,
   "FUEL_CAP": 406,
   "GLASS": 1778,
-  "INTERIOR": 22271,
+  "INTERIOR": 20187,
   "KNUCKLE_hub_FL": 456,
   "KNUCKLE_hub_FR": 456,
   "KNUCKLE_hub_RL": 412,
@@ -887,7 +869,7 @@
   "UNDER": 3824,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 111813
+  "total": 109849
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

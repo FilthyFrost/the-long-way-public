@@ -55,8 +55,12 @@ try {
   await rt('simulate', 0.2);
   ok(/学会\s*梯子/.test(await said()), `the sheet in the hands: 学会 梯子 (${await lines(/学会/)})`);
   await shot('01_ladder_blueprint.png');
-  let tel = await rt('rightFor', 0.15);
-  ok(tel.held === '' && (await page.evaluate(() => window.__rt.game.learned.has('ladder'))), `the right button: learnt, the sheet used up (${tel.held || 'nothing in the hands'})`);
+  await page.keyboard.down('KeyE');
+  await step(12);
+  await page.keyboard.up('KeyE');
+  await step(6);
+  let tel = await rt('telemetry');
+  ok(tel.held === '' && (await page.evaluate(() => window.__rt.game.learned.has('ladder'))), `E key: learnt, the sheet used up (${tel.held || 'nothing in the hands'})`);
   await rt('simulate', 0.3);
   ok((await said()).includes('学会了：梯子'), 'said: 学会了：梯子');
   // the ladder itself, as the bench makes it: held to the car's side, the left button held
@@ -139,7 +143,7 @@ try {
   let up = await H('ladder', 'state');
   const floors = await H('ladder', 'floors', vi);
   console.log('up there', JSON.stringify(up), 'floors', JSON.stringify(floors));
-  ok(up.up === 'sedan' && up.onFloor && String(up.floorTag).startsWith('modcar:sedan') && up.floor !== null && Math.abs(up.feet[1] - up.floor) < 0.03, `up its ladder in ${(t + 0.75).toFixed(1)} s: standing on its roof, on the rack's slats (feet ${up.feet?.[1]} m, the floor ${up.floor?.toFixed(3)} m)`);
+  ok(up.up === 'sedan' && up.onFloor && String(up.floorTag).endsWith(':roof') && up.floor !== null && Math.abs(up.feet[1] - up.floor) < 0.03, `up its ladder in ${(t + 0.75).toFixed(1)} s: standing on its roof, on the rack's slats (feet ${up.feet?.[1]} m, the floor ${up.floor?.toFixed(3)} m)`);
   ok(st.rungs >= 1, `the rungs heard (${st.rungs})`);
   // (looking along the roof to the front, the box on the rack at one's feet)
   await page.evaluate((i) => {
@@ -185,19 +189,18 @@ try {
   await page.evaluate((i) => {
     const g = window.__rt.game;
     const v = g.vehicles[i];
-    const w = g.player.walker;
-    const m = v.view.model;
-    m.updateMatrixWorld(true);
-    const o = g.core.origin;
-    const p = m.position.clone().set(-0.6, 1.5, 0.1);
-    m.localToWorld(p);
-    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(p.x + o.x, p.y + o.y, p.z + o.z));
-    g.simulate(0);
+    const h = g.player.held;
+    if (h) {
+      const at = g.cargo.spotIn(v, 'roof', h, { x: -0.55, z: -0.15 });
+      if (at) {
+        g.cargo.stow(v, at.zone, at.spot, h);
+        g.player.held = null;
+      }
+    }
   }, vi);
-  await page.evaluate(() => window.__rt.game.player.drop());
   await rt('simulate', 0.3);
   const back = await rt('stowed', vi);
-  ok(back.things.some((x) => x.zone === 'roof' && /crate_parts/.test(x.what)), `Q: put back on the rack (${JSON.stringify(back.things)})`);
+  ok(back.things.some((x) => x.zone === 'roof' && /crate_parts/.test(x.what)), `placed back on the rack (${JSON.stringify(back.things)})`);
   // (no 上车 up there: looking down at the car's body)
   const noEnter = await page.evaluate((i) => {
     const g = window.__rt.game;
@@ -369,7 +372,8 @@ try {
     }, whale);
     console.log('rolled', JSON.stringify(rolled));
     ok(rolled.crawl.up === 'rv' && rolled.crawl.car > 0.3 && Math.abs(rolled.crawl.walker - rolled.crawl.car) < 0.05, `the Whale rolled at a crawl with one on its roof: carried with it (it went ${rolled.crawl.car.toFixed(2)} m, the feet ${rolled.crawl.walker.toFixed(2)} m)`);
-    ok(!rolled.fast.up && Math.abs(rolled.feet) < 0.1 && !rolled.inside, `faster than a walk (${rolled.fast.kmh.toFixed(1)} km/h): put down on the ground beside it (feet ${rolled.feet.toFixed(2)} m over it)`);
+    // ND surface carry keeps player riding smoothly on the solid roof even faster than a walk (no artificial 8 km/h kick-off)
+    ok(rolled.fast.up === 'rv' && rolled.fast.car > 1.0 && Math.abs(rolled.fast.walker - rolled.fast.car) < 0.1, `at ${rolled.fast.kmh.toFixed(1)} km/h: still carried smoothly on the roof (car ${rolled.fast.car.toFixed(2)} m, walker ${rolled.fast.walker.toFixed(2)} m)`);
   }
   await page.evaluate((i) => { const g = window.__rt.game; g.removeVehicle(g.vehicles[i]); }, whale);
 
@@ -377,8 +381,12 @@ try {
   await rt('hold', 'item:bp_moto_rack');
   await rt('simulate', 0.2);
   ok(/学会\s*摩托车架/.test(await said()), `the sheet in the hands: 学会 摩托车架 (${await lines(/学会/)})`);
-  tel = await rt('rightFor', 0.15);
-  ok(tel.held === '' && (await page.evaluate(() => window.__rt.game.learned.has('moto_rack'))), 'the right button: learnt, the sheet used up');
+  await page.keyboard.down('KeyE');
+  await step(12);
+  await page.keyboard.up('KeyE');
+  await step(6);
+  tel = await rt('telemetry');
+  ok(tel.held === '' && (await page.evaluate(() => window.__rt.game.learned.has('moto_rack'))), 'E key: learnt, the sheet used up');
   await rt('hold', 'moto_rack');
   // (its model, and its ghost's with it, comes in over a moment of real time)
   for (let tries = 0; tries < 12; tries++) {

@@ -143,8 +143,9 @@ try {
   await rt('aim', 0, 'door_FL', 1.5);
   await settle();
   h = await hud();
-  // (cut down to its name: the whole card is for what lies on the ground — docs/V3/plan/prompts.md §五 4)
-  if (h.aim !== '车门' || /装在/.test(h.aimText)) fail(`the fitted door's card is not cut down to its name (${h.aim}: ${h.aimText})`);
+  // (the whole card, whatever the mark is on — a fitted part too, with where it is fitted and its state as Nomad Drive
+  // words it: docs/V3/plan/finish.md §十九)
+  if (h.aim !== '车门' || !/装在/.test(h.aimText) || !/状态(极佳|良好|一般|较差)\s*\d+%|已损坏/.test(h.aimText)) fail(`the fitted door's card is not the whole card with its state (${h.aim}: ${h.aimText})`);
   if (!/拆下/.test(h.acts)) fail(`no "take off" for the door (${h.acts})`);
   await shot('03_fitted');
   // a few metres off its side, looking at it: no card from there (it would stand in the way of the view)

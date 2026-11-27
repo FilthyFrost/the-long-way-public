@@ -72,7 +72,7 @@ export const LOOT_TABLES: Record<ContainerKind, Table> = {
   // a crate by the verge or at a lay-by: whatever was packed and never fetched
   crate: { picks: [1, 3], empty: 0.15, entries: [E({ junk: true }, 3), E({ cat: 'crate' }, 2.5), E({ cat: 'food' }, 1.5), E({ cat: 'drink' }, 1.2), E({ cat: 'wear' }, 0.8), E({ tool: 'spray' }, 0.5), E({ cat: 'gear' }, 0.25), E({ tool: 'bottle' }, 0.3)] },
   // a workshop's drawers
-  toolbox: { picks: [1, 3], empty: 0.05, entries: [E({ cat: 'crate' }, 2.5), E({ tool: 'spray' }, 1.2), E({ tool: 'scraper' }, 0.6), E({ one: ['repair_1', 'repair_2', 'repair_3'] }, 1), E({ part: SMALL_PARTS }, 1.4), E({ tool: 'oilcan' }, 0.8), E({ cat: 'lamp' }, 0.3)] },
+  toolbox: { picks: [1, 3], empty: 0.05, entries: [E({ cat: 'crate' }, 2.5), E({ tool: 'spray' }, 1.2), E({ tool: 'scraper' }, 0.6), E({ part: SMALL_PARTS }, 1.4), E({ tool: 'oilcan' }, 0.8), E({ cat: 'lamp' }, 0.3)] },
   // a shop's shelves
   shelf: { picks: [2, 5], empty: 0.05, entries: [E({ cat: 'food' }, 4), E({ cat: 'drink' }, 3), E({ cat: 'med' }, 0.6), E({ one: ['crate_supps', 'crate_chem'] }, 0.5), E({ cat: 'wear' }, 0.4), E({ junk: true }, 0.5), E({ tool: 'spray' }, 0.3)] },
   // a filling station's till

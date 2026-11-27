@@ -1,7 +1,7 @@
 /**
  * Milestone M2, the motorhome lived in (docs/V3/nodes/M2-rv.md), in its plain data and maths: the living space one
- * walks about in (core/modcar/aboard.ts), the 10 cm grid things aimed into a vehicle keep to and the motorhome's
- * new places to put things (core/modcar/cargo.ts), the appliances' rules (core/v3/appliances: stations and records),
+ * walks about in (core/modcar/aboard.ts — an empty shell since docs/V3/plan/finish.md §十九 step 7), the 10 cm grid
+ * things aimed into a vehicle keep to and the motorhome's places to put things (core/modcar/cargo.ts), the appliances' rules (core/v3/appliances: stations and records),
  * coffee as a drink (vitals.ts), the coffee kinds in the catalogue (the drip coffee maker retired into the coffee
  * machine's: docs/V3/plan/growth.md §一 4), and the appliances module in the tests' stand-in game.
  */
@@ -22,7 +22,7 @@ import { FakeGame } from './v3/fakeGame';
 describe('the motorhome one walks about in', () => {
   const rv = ABOARD.rv;
 
-  it('is one connected floor, from behind the cab seats to the rear bench, with its side door', () => {
+  it('is one connected floor, from behind the cab seats to the back wall, with its side door', () => {
     expect(aboardOf('rv')).toBe(rv);
     expect(aboardOf('sedan')).toBeNull();
     expect(connected(rv)).toBe(true);
@@ -35,17 +35,17 @@ describe('the motorhome one walks about in', () => {
     expect(w.inside(door.outside[0], door.outside[1])).toBe(false);
   });
 
-  it('takes one aft along the aisle to the rear, and never through the galley', () => {
+  it('is an empty shell: its floor walked on wall to wall from behind the seats to the back wall, but for the side door’s stairwell', () => {
+    // (docs/V3/plan/finish.md §十九 step 7: the shelves, the galley, the dinette and the bed across the back are gone)
     const w = new Walker(rv);
+    for (const [x, z] of [[-4.95, -0.95], [-4.95, 0.95], [0.8, -0.95], [0.8, 0.95], [-2.3, -0.95], [0.3, -0.95]]) expect(w.inside(x, z), `${x}, ${z}`).toBe(true);
+    // (the stairwell inside the side door: its inner edge at 0.725)
+    expect(w.inside(-0.92, 0.9)).toBe(false);
+    // straight aft from behind the seats to the back wall, nothing in the way
     w.place(rv.aft![0], rv.aft![1], Math.PI);
-    let minZ = Infinity;
-    for (let t = 0; t < 3; t += 1 / 30) {
-      w.step(1 / 30, 1, 0);
-      if (w.x < -0.8 && w.x > -1.95) minZ = Math.min(minZ, w.z);
-    }
-    expect(w.x).toBeLessThan(-2.45);
-    // the aisle is between the galley (z < −0.48) and the wardrobe
-    expect(minZ).toBeGreaterThanOrEqual(-0.48 - 1e-6);
+    for (let t = 0; t < 3.4; t += 1 / 30) w.step(1 / 30, 1, 0);
+    expect(w.x).toBeLessThan(-4.95);
+    expect(w.z).toBeCloseTo(rv.aft![1], 5);
     expect(w.eye().y).toBeCloseTo(0.86 + EYE_HEIGHT, 5);
   });
 });
@@ -60,26 +60,41 @@ describe('things put where one aims in the motorhome', () => {
   };
   const box = { minX: -0.05, maxX: 0.05, minY: 0, maxY: 0.1, minZ: -0.05, maxZ: 0.05 };
 
-  it('has the table, the galley, the floor by the door, the bed across the back, the open shelves, the cubby under the sink and the walls', () => {
-    const ids = zonesOf('rv').map((z) => z.id);
-    // (the rear bench is a bed, the lockers open shelves, since docs/V3/plan/finish.md §十一 1)
-    for (const id of ['lounge', 'table', 'galley', 'bed', 'shelfL', 'shelfR', 'cubby', 'wall']) expect(ids).toContain(id);
-    expect(ids).not.toContain('bench');
-    expect(zonesOf('rv').find((z) => z.id === 'wall')?.wall).toBe(true);
+  it('has its floor in three — the back wall to wall, by the side door, the front — and the walls: no table, galley, bed, shelves or cubby any more', () => {
+    // (an empty shell since docs/V3/plan/finish.md §十九 step 7, its floor in three as Nomad Drive's class C's is)
+    const zones = zonesOf('rv');
+    const ids = zones.map((z) => z.id);
+    for (const id of ['cabin', 'lounge', 'fore', 'pass', 'wall', 'dash']) expect(ids).toContain(id);
+    for (const id of ['table', 'galley', 'bed', 'shelfL', 'shelfR', 'cubby', 'bench', 'nook']) expect(ids).not.toContain(id);
+    expect(zones.find((z) => z.id === 'wall')?.wall).toBe(true);
+    // (the three floors: rooms of their own walls, side by side along it, wall to wall but by the door's stairwell)
+    const by = (id: string) => zones.find((z) => z.id === id)!;
+    const [back, door, front] = [by('cabin'), by('lounge'), by('fore')];
+    for (const z of [back, door, front]) {
+      expect(z.walls, z.id).toBe(true);
+      expect(z.floor, z.id).toBeCloseTo(0.86, 5);
+      expect(z.z[0], z.id).toBeCloseTo(-1.1, 5);
+    }
+    expect(back.x[1]).toBeCloseTo(door.x[0], 6);
+    expect(door.x[1]).toBeCloseTo(front.x[0], 6);
+    expect(back.z[1]).toBeCloseTo(1.1, 5);
+    expect(front.z[1]).toBeCloseTo(1.1, 5);
+    expect(door.z[1]).toBeLessThan(0.725);
+    expect(back.x[1] - back.x[0]).toBeGreaterThan(3.5);
   });
 
   it('keeps a thing aimed into a zone to the 10 cm grid', () => {
-    const table = zonesOf('rv').find((z) => z.id === 'table')!;
-    const g = flat(table, table.floor);
-    const s = findSpot(table, g, box, 0, { x: -0.42, z: -0.62 }, [], 0.1)!;
+    const fore = zonesOf('rv').find((z) => z.id === 'fore')!;
+    const g = flat(fore, fore.floor);
+    const s = findSpot(fore, g, box, 0, { x: 0.23, z: -0.57 }, [], 0.1)!;
     expect(s).not.toBeNull();
     expect(Math.abs(s.x * 10 - Math.round(s.x * 10))).toBeLessThan(1e-6);
     expect(Math.abs(s.z * 10 - Math.round(s.z * 10))).toBeLessThan(1e-6);
-    expect(s.y).toBeCloseTo(table.floor, 5);
+    expect(s.y).toBeCloseTo(fore.floor, 5);
     // (without a grid it goes just where it is aimed)
-    const free = findSpot(table, g, box, 0, { x: -0.42, z: -0.62 }, [], 0)!;
-    expect(free.x).toBeCloseTo(-0.42, 5);
-    expect(free.z).toBeCloseTo(-0.62, 5);
+    const free = findSpot(fore, g, box, 0, { x: 0.23, z: -0.57 }, [], 0)!;
+    expect(free.x).toBeCloseTo(0.23, 5);
+    expect(free.z).toBeCloseTo(-0.57, 5);
   });
 });
 

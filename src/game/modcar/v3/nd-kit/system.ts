@@ -5,8 +5,9 @@
  *  - The compass in the hands: its lid flips open (0.5 s, bouncing) and its needle swings round to the north, a tenth
  *    of a second behind, never faster than two turns a second. Put away, its lid shuts.
  *  - An engine repair kit, a tyre repair kit, a battery charger: in the hands and looked at what each is for (an
- *    engine, a tyre, a vehicle's battery — fitted or lying about), E held half a second mends it by half (+50) or
- *    charges it by 65 %, up to full, and the kit is used up. On anything else E does what it always does.
+ *    engine, a tyre, a vehicle's battery — fitted or lying about), that thing offers nothing but the mending: the left
+ *    button held half a second mends it by half (+50) or charges it by 65 %, up to full, and the kit is used up (it is
+ *    neither picked up nor taken off). On anything else the left button does what it always does.
  */
 import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
@@ -28,8 +29,9 @@ export const KITS: Readonly<Record<string, { cat: 'engine' | 'tire' | 'battery';
   nd_tire_kit: { cat: 'tire', amount: 0.5, name: '轮胎修理包', what: '轮胎' },
   nd_charger: { cat: 'battery', amount: 0.65, name: '电瓶充电器', what: '电瓶' },
 };
-/** E held this long (s) */
+/** the left button held this long (s); the mark may stray off what it mends this long meanwhile (s) */
 const KIT_S = 0.5;
+const KIT_GRACE_S = 0.2;
 /** the compass's lid opens to this (rad) in this long (s); its needle's smoothing (s) and top speed (rad/s) */
 const LID_OPEN = (110 * Math.PI) / 180;
 const LID_S = 0.5;
@@ -65,9 +67,11 @@ export class NdKits implements System<GameContext> {
   readonly budget = { cpuMs: 0.1 };
   private ctx: GameContext | null = null;
   private time = 0;
-  /** the kit's hold: how long so far (s), on what */
+  /** the kit's hold: how long so far (s), on what; how long the mark has been off it (s); the button still down */
   private holdT = -1;
   private holdOn: PartInstance | null = null;
+  private offT = 0;
+  private down = false;
   /** the compass in the hands: its lid (0 … 1 open), its needle's angle and speed */
   private lidT = 0;
   private needle = 0;
@@ -83,26 +87,32 @@ export class NdKits implements System<GameContext> {
   readonly kits: HandsUse = {
     id: 'nd-kit',
     claims: (h) => h.kind === 'item' && !!KITS[h.item.item],
-    press: (h, from) => {
-      if (from !== 'key' || h.kind !== 'item') return false;
+    // (the left button, or a pad's use button: on what it mends the press is the kit's, and the button held mends it —
+    // nothing else is done with that press, as in Nomad Drive: what a kit is looked at with is not picked up nor taken off)
+    press: (h) => {
+      if (h.kind !== 'item') return false;
       const a = this.aim(h.item.item);
       if (!a) return false;
       this.holdT = 0;
+      this.offT = 0;
       this.holdOn = a.inst;
+      this.down = true;
       return true;
     },
-    release: (_h, from) => {
-      if (from !== 'key' || this.holdT < 0) return false;
-      this.holdT = -1;
-      this.holdOn = null;
-      if (this.ctx) this.ctx.player.progress = 0;
+    release: () => {
+      this.down = false;
+      if (this.holdT < 0) return false;
+      this.stopHold();
       return true;
     },
     step: (h, dt) => this.kitStep(h, dt),
     words: (h) => this.kitWords(h),
+    aims: (h) => this.kitAims(h),
+    ring: () => (this.holdT >= 0 ? Math.min(1, this.holdT / KIT_S) : -1),
     // (what it mends may be fitted to a vehicle: the mark reaches it)
     aimsParts: () => true,
     gone: () => {
+      this.down = false;
       this.holdT = -1;
       this.holdOn = null;
     },
@@ -152,32 +162,36 @@ export class NdKits implements System<GameContext> {
     return null;
   }
 
-  /** how far along it is: a part's condition, a battery's charge (0 … 1) */
+  /** how far along it is: a part's condition (the card's state line), a battery's charge (0 … 1) */
   private levelOf(cat: string, inst: PartInstance): number {
-    // (a tyre: its tread, what wears and what one sees on its card)
-    return cat === 'battery' ? (inst.fluids?.charge ?? 0) : cat === 'tire' ? (inst.tread ?? inst.cond) : inst.cond;
+    return cat === 'battery' ? (inst.fluids?.charge ?? 0) : inst.cond;
+  }
+
+  private stopHold(): void {
+    this.holdT = -1;
+    this.holdOn = null;
   }
 
   private kitStep(h: NonNullable<Held>, dt: number): void {
     const ctx = this.ctx!;
     if (this.holdT < 0 || h.kind !== 'item') return;
+    // (its ring round the mark is its own: HandsUse.ring)
     const k = KITS[h.item.item];
     const a = this.aim(h.item.item);
-    // (looked away, or let go: the hold is off)
-    if (!a || a.inst !== this.holdOn || !ctx.player.primary) {
-      this.holdT = -1;
-      this.holdOn = null;
-      ctx.player.progress = 0;
+    // (let go: the hold is off; looked away from it longer than the mark's jitter, as Nomad Drive's grace of 0.2 s)
+    if (!this.down) return this.stopHold();
+    if (!a || a.inst !== this.holdOn) {
+      this.offT += dt;
+      if (this.offT > KIT_GRACE_S) this.stopHold();
       return;
     }
+    this.offT = 0;
     this.holdT += dt;
-    ctx.player.progress = Math.min(1, this.holdT / KIT_S);
     if (this.holdT < KIT_S) return;
     // done: mended (charged) by its amount, up to full; the kit used up
-    this.holdT = -1;
-    this.holdOn = null;
-    ctx.player.progress = 0;
+    this.stopHold();
     const was = this.levelOf(k.cat, a.inst);
+    const treadWas = a.inst.tread ?? 1;
     a.inst.fluids ??= {};
     mendPart(a.inst, k.cat, k.amount);
     const now = this.levelOf(k.cat, a.inst);
@@ -188,17 +202,28 @@ export class NdKits implements System<GameContext> {
     if (a.loose) ctx.loose.touch(a.loose);
     blip('click', 1);
     ctx.sound(k.cat === 'battery' ? 'switch' : 'part_install', 0.6);
-    ctx.ui.say(`${k.what} ${Math.round(was * 100)}% → ${Math.round(now * 100)}%`, 2.2);
+    const pct = (x: number): string => `${Math.round(x * 100)}%`;
+    // (a tyre's tread comes back too — ours wear it: the line says both, as its card shows both)
+    const tread = k.cat === 'tire' ? `，胎纹 ${pct(treadWas)} → ${pct(a.inst.tread ?? 1)}` : '';
+    ctx.ui.say(`${k.what}${k.cat === 'battery' ? '电量' : ''} ${pct(was)} → ${pct(now)}${tread}`, 2.2);
+  }
+
+  /** the one line, down the right and under the mark alike, for the kit on what it mends */
+  private kitLine(kit: string, a: KitAim | null): Action {
+    const k = KITS[kit];
+    const verb = k.cat === 'battery' ? '充电' : '修理';
+    return a ? { keys: ['LMB'], hold: true, text: `${verb} <b>${k.what}</b>` } : { keys: ['LMB'], hold: true, text: verb, off: true, why: `对着${k.what}` };
   }
 
   private kitWords(h: NonNullable<Held>): Action[] {
     if (h.kind !== 'item') return [];
-    const k = KITS[h.item.item];
+    return [this.kitLine(h.item.item, this.aim(h.item.item))];
+  }
+
+  private kitAims(h: NonNullable<Held>): Action[] | null {
+    if (h.kind !== 'item') return null;
     const a = this.aim(h.item.item);
-    if (!a) return [{ keys: ['LMB'], hold: true, text: k.cat === 'battery' ? '充电' : '修理', off: true, why: `对着${k.what}` }];
-    const lv = Math.round(this.levelOf(k.cat, a.inst) * 100);
-    void lv;
-    return [{ keys: ['LMB'], hold: true, text: `${k.cat === 'battery' ? '充电' : '修理'} <b>${k.what}</b>` }];
+    return a ? [this.kitLine(h.item.item, a)] : null;
   }
 
   // ------------------------------------------------------------------ the compass

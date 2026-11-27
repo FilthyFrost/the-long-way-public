@@ -170,21 +170,28 @@ export class NdLight implements System<GameContext>, InteractSource {
   readonly hands: HandsUse = {
     id: 'nd-light',
     claims: (h) => h.kind === 'item' && h.item.item === ND_FLASHLIGHT,
-    // (the right button is the flashlight's: let go at once it switches it, held it focuses — docs/V3/plan/growth.md J1)
+    // E toggles the flashlight on/off; LMB held (when not aimed at a world target) focuses the beam; RMB stays free for eye zoom
     takesF: () => true,
-    step: (h, dt, f) => {
-      if (f) this.rightT = this.rightT < 0 ? 0 : this.rightT + dt;
-      else if (this.rightT >= 0) {
-        if (this.rightT <= LIGHT_TAP_S && h.kind === 'item') this.toggle(h.item);
-        this.rightT = -1;
-      }
-      this.wantFocus = f && this.rightT > LIGHT_TAP_S;
-      // (held with its lens ahead, a little in towards the middle of the view, as one points a flashlight: the
-      // game turns a small thing in the hand inward, which had its lens looking back at one)
+    press: (_h, from) => {
+      if (from !== 'mouse' || this.ctx?.player.target) return false;
+      this.focusBtn = true;
+      return true;
+    },
+    release: (_h, from) => {
+      if (from !== 'mouse' || !this.focusBtn) return false;
+      this.focusBtn = false;
+      return true;
+    },
+    step: (h, _dt, e) => {
+      if (e && !this.eWas && h.kind === 'item') this.toggle(h.item);
+      this.eWas = e;
+      this.wantFocus = this.focusBtn;
       if (this.ctx) this.ctx.heldThing.handTurn = HAND_TURN;
     },
     words: (h) => this.words(h),
     gone: () => {
+      this.focusBtn = false;
+      this.eWas = false;
       if (this.ctx) this.ctx.heldThing.handTurn = null;
     },
   };
@@ -194,8 +201,9 @@ export class NdLight implements System<GameContext>, InteractSource {
     ctx.player.hands?.push(this.hands);
   }
 
-  /** how long the right button has been down with the flashlight in the hands (s; −1: it is up) */
-  private rightT = -1;
+  /** E edge tracking and LMB focus hold */
+  private eWas = false;
+  private focusBtn = false;
 
   private onLoose(): boolean {
     const t = this.ctx?.player.target;
@@ -205,13 +213,13 @@ export class NdLight implements System<GameContext>, InteractSource {
   private words(h: NonNullable<Held>): Action[] {
     if (h.kind !== 'item') return [];
     const c = lightCharge(h.item);
-    if (c <= 0) return [{ keys: ['RMB'], text: '打开', off: true, why: '没电了' }];
+    if (c <= 0) return [{ keys: ['E'], text: '打开', off: true, why: '没电了' }];
     const pct = Math.round((c / FLASHLIGHT.max) * 100);
     const s = Math.round(lightLeftS(h.item));
     void pct;
     void s;
-    const out: Action[] = [{ keys: ['RMB'], text: isOn(h.item) ? '关掉' : '打开' }];
-    out.push({ keys: ['RMB'], hold: true, text: '聚光' });
+    const out: Action[] = [{ keys: ['E'], text: isOn(h.item) ? '关掉' : '打开' }];
+    out.push({ keys: ['LMB'], hold: true, text: '聚光' });
     return out;
   }
 

@@ -136,7 +136,6 @@ const SEAT_LABEL: Record<string, Text> = {
   seat_driver: { zh: '驾驶座', en: "driver's seat" },
   seat_pass: { zh: '副驾座', en: 'passenger seat' },
   seat_rear: { zh: '后排座', en: 'rear seat' },
-  seat_dinette: { zh: '餐桌卡座', en: 'dinette seat' },
 };
 
 /** "左前车轮" / "front left wheel" from the mount id and its category (a mount to one side: its R is the right, not the rear) */
@@ -354,9 +353,10 @@ export const VAN: FrameDef = {
 /**
  * The Turtle (海龟): a camper van (docs/V3/plan/rv.md, R1) on the Loaf's way of building, longer and wider, its nose
  * round, its roof an elevating shell (POPUP_roof: up only standing, the engine off; one stands up in the room under it,
- * and it must be down to drive), a galley along the left wall, the bed across the back over the engine. The Loaf's
- * engine at the back, its running gear; a little heavier for the furniture. 5.7 m by 2.2 since docs/V3/plan/finish.md
- * §18 (0.9 m longer between the axles, 0.3 m wider: its track too).
+ * and it must be down to drive); its room an empty shell since docs/V3/plan/finish.md §十九 step 7, as Nomad Drive's
+ * camper van's — the floor, a deck over the rear axle and the engine's behind it; what one lives with the player puts in.
+ * The Loaf's engine at the back, its running gear; a little heavier for the furniture it was built with. 5.7 m by 2.2
+ * since docs/V3/plan/finish.md §18 (0.9 m longer between the axles, 0.3 m wider: its track too).
  */
 export const TURTLE: FrameDef = {
   id: 'turtle',
@@ -386,9 +386,10 @@ export const TURTLE: FrameDef = {
 /**
  * The Old Elephant (老象): a flat-fronted 1986 motorhome (docs/V3/plan/rv.md, R2) on the Loaf's and the Turtle's way of
  * building, 9.8 m by 2.4 (8.3 m until docs/V3/plan/finish.md §18 added 1.5 m between the dinette and the cab): the driver's seat at the front of the room (turn round from it and one is in the living
- * room), a dinette and a galley along the left wall, the fridge's niche, the entry door and a sofa on the right, the
- * bedroom across the back over its petrol V8 (a pusher, under the bed), duals at the back. Heavy, slow and thirsty; its
- * long wheelbase turns wide. Its house battery (生活电瓶) on the floor in the dinette's footwell.
+ * room), the entry door on the right, its petrol V8 at the back under a deck (a pusher), duals at the back. Its room an
+ * empty shell since docs/V3/plan/finish.md §十九 step 7, as Nomad Drive's campers are — found with nothing in it: what one
+ * lives with the player puts in. Heavy, slow and thirsty; its long wheelbase turns wide. Its house battery (生活电瓶) on
+ * the floor by the left wall.
  */
 export const ELEPHANT: FrameDef = {
   id: 'elephant',
@@ -412,12 +413,6 @@ export const ELEPHANT: FrameDef = {
   cabView: { back: 0.22, up: 0.15 },
   mounts: withAxles(readMounts(elephantMounts as MountTable), (elephantMounts as MountTable).axles),
   rig: readRig(elephantMounts as MountTable),
-  // (its range: four electric hobs on the galley's worktop, drawing on the house battery; and a sofa against the right
-  // wall — one that can be moved, where one was built in: docs/V3/plan/finish.md §十一 1)
-  fittings: [
-    { item: 'kit_hob', zone: 'galley', n: 4, yaw: -Math.PI / 2 },
-    { item: 'nd_sofa_2', zone: 'cabin', n: 1, yaw: Math.PI / 2, at: [-2.22, 0.7] },
-  ],
 };
 
 /**

@@ -679,12 +679,14 @@ const AXLES: PartDef[] = [
 
 // ------------------------------------------------------------------ the cab
 
+// (a steering wheel's ratio is how far it turns for the road wheels' angle, as Nomad Drive's: 1.5 for the standard
+// wheel; the others keep the proportions their old 18, 12 and 28 to 1 had to its 16)
 const CAB: PartDef[] = [
-  P({ id: 'steer_std', cat: 'steering', name: { zh: '方向盘', en: 'Steering wheel' }, mass: 3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], steering: { ratio: 16, playDeg: 1.5, rate: 1 } }),
-  P({ id: 'steer_bad', cat: 'steering', name: { zh: '破方向盘', en: 'Worn steering wheel' }, mass: 3, carry: 'small', steering: { ratio: 18, playDeg: 8, rate: 0.85 } }),
-  P({ id: 'steer_sport', cat: 'steering', name: { zh: '运动方向盘', en: 'Sport steering wheel' }, mass: 2, carry: 'small', tags: ['stock:fox'], steering: { ratio: 12, playDeg: 0.3, rate: 1.25 } }),
+  P({ id: 'steer_std', cat: 'steering', name: { zh: '方向盘', en: 'Steering wheel' }, mass: 3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], steering: { ratio: 1.5, playDeg: 1.5, rate: 1 } }),
+  P({ id: 'steer_bad', cat: 'steering', name: { zh: '破方向盘', en: 'Worn steering wheel' }, mass: 3, carry: 'small', steering: { ratio: (1.5 * 18) / 16, playDeg: 8, rate: 0.85 } }),
+  P({ id: 'steer_sport', cat: 'steering', name: { zh: '运动方向盘', en: 'Sport steering wheel' }, mass: 2, carry: 'small', tags: ['stock:fox'], steering: { ratio: (1.5 * 12) / 16, playDeg: 0.3, rate: 1.25 } }),
   P({ id: 'steer_bar', cat: 'steering', name: { zh: '车把', en: 'Handlebar' }, mass: 3, carry: 'small', tags: ['stock:moto'], steering: { ratio: 1, playDeg: 0.5, rate: 1.35, bar: true } }),
-  P({ id: 'steer_ship', cat: 'steering', name: { zh: '船舵', en: "Ship's wheel" }, mass: 9, carry: 'medium', tags: ['meme'], steering: { ratio: 28, playDeg: 3, rate: 0.55 } }),
+  P({ id: 'steer_ship', cat: 'steering', name: { zh: '船舵', en: "Ship's wheel" }, mass: 9, carry: 'medium', tags: ['meme'], steering: { ratio: (1.5 * 28) / 16, playDeg: 3, rate: 0.55 } }),
   P({ id: 'seat_bucket', cat: 'seat', name: { zh: '座椅', en: 'Bucket seat' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], seat: { eyeUp: 0.9, eyeBack: 0.16, comfort: 0.6 } }),
   P({ id: 'seat_bench', cat: 'seat', name: { zh: '长条座椅', en: 'Bench seat' }, mass: 24, carry: 'large', tags: ['stock:sedan', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:buffalo'], seat: { eyeUp: 0.88, eyeBack: 0.16, comfort: 0.7 } }),
   P({ id: 'seat_race', cat: 'seat', name: { zh: '赛车座椅', en: 'Racing seat' }, mass: 9, carry: 'medium', seat: { eyeUp: 0.8, eyeBack: 0.2, comfort: 0.5 } }),

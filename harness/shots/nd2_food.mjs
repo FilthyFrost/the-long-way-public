@@ -92,10 +92,10 @@ try {
   const m = await H('nd-water', 'mouth', mug.uid);
   const from = W(-0.2, 1.3);
   console.log('aim mug', await page.evaluate(({ m, f }) => window.__rt.aimPoint(m.x, m.y - 0.05, m.z, f, 1.0), { m, f: Math.atan2(from.z - m.z, from.x - m.x) }));
-  await page.evaluate(() => window.__rt.game.player.press());
-  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 14; i++) { g.player.primary = true; g.step(1 / 60, 1); } });
+  await page.evaluate(() => window.__rt.game.mouseDown(0));
+  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 14; i++) { g.step(1 / 60, 1); } });
   await shot('34_milk_into_mug.png');
-  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 60; i++) { g.player.primary = true; g.step(1 / 60, 1); } g.player.release(); g.simulate(0); });
+  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 60; i++) { g.step(1 / 60, 1); } g.mouseUp(0); g.simulate(0); });
   console.log('mug', JSON.stringify((await H('nd-water', 'vessels')).find((v) => v.uid === mug.uid)));
   if (errors.length) console.log('errors:', errors.slice(0, 8).join('\n'));
 } finally {

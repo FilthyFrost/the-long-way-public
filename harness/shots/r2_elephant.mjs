@@ -52,19 +52,40 @@ try {
   ok(vi >= 0, `an Old Elephant on the road (vehicle ${vi})`);
   await rt('setOrbit', 32, 9, 15.5, 1.5, vi);
   await shot('01_elephant.png');
-  // what it is found with: its four hobs on the galley's worktop (the wrecks' found vehicle does the same)
+  // empty shell (§十九 step 7): stowFittings leaves nothing in it; fit out two kitchen stands with four electric hobs
   const fit = await page.evaluate(async () => {
     const g = window.__rt.game;
     const v = window.__v;
+    const It = await import('/src/core/modcar/items.ts');
     await g.stowFittings(v);
     g.simulate(0.2);
-    const hobs = g.loose.ridersOf(v).filter((l) => l.item?.item === 'kit_hob');
+    const stockRiders = g.loose.ridersOf(v).length;
+    const put = async (id, zone, near, yaw) => {
+      const held = { kind: 'item', item: It.newItem(id) };
+      await g.cargo.measured(held);
+      const at = g.cargo.spotIn(v, zone, held, near, yaw, 0);
+      if (!at) return null;
+      return g.cargo.stow(v, at.zone, at.spot, held);
+    };
+    const stands = [];
+    const hobs = [];
+    for (const sx0 of [-1.7, -3.15]) {
+      const st = await put('nd_kitchen_stand', 'cabin', { x: sx0, z: -0.82 }, Math.PI / 2);
+      if (!st) continue;
+      stands.push(st);
+      const sx = st.riding.pos.x + v.sys.derived.cg.x;
+      const sz = st.riding.pos.z + v.sys.derived.cg.z;
+      for (const dx of [-0.35, 0.35]) {
+        const h = await put('kit_hob', 'cabin', { x: sx + dx, z: sz }, -Math.PI / 2);
+        if (h) hobs.push(h);
+      }
+    }
+    g.simulate(0.2);
     window.__hobs = hobs;
-    // (each turned so its knob faces the aisle: its yaw in the vehicle's frame)
     const yawOf = (l) => +new (window.__rt.game.core.scene.rotation.constructor)().setFromQuaternion(l.riding.rot, 'YXZ').y.toFixed(3);
-    return { n: hobs.length, zones: [...new Set(hobs.map((l) => l.stow))], y: hobs.map((l) => +l.riding.pos.y.toFixed(2)), x: hobs.map((l) => +l.riding.pos.x.toFixed(2)), yaw: hobs.map(yawOf) };
+    return { stockRiders, stands: stands.length, n: hobs.length, zones: [...new Set(hobs.map((l) => l.stow))], y: hobs.map((l) => +(l.riding.pos.y + v.sys.derived.cg.y).toFixed(2)), x: hobs.map((l) => +(l.riding.pos.x + v.sys.derived.cg.x).toFixed(2)), yaw: hobs.map(yawOf) };
   });
-  ok(fit.n === 4 && fit.zones.length === 1 && fit.zones[0] === 'galley' && fit.yaw.every((y) => Math.abs(Math.abs(y) - Math.PI / 2) < 0.02), `found with its range: four hobs on the galley's worktop (${JSON.stringify(fit)})`);
+  ok(fit.stockRiders === 0 && fit.stands === 2 && fit.n === 4 && fit.zones.length === 1 && fit.zones[0] === 'cabin' && fit.y.every((y) => y > 1.5) && fit.yaw.every((y) => Math.abs(Math.abs(y) - Math.PI / 2) < 0.02), `found empty; two kitchen stands with four hobs fitted along the left wall (${JSON.stringify(fit)})`);
   // in by the entry door
   const board = await page.evaluate(async () => {
     const g = window.__rt.game;
@@ -77,30 +98,37 @@ try {
     return { aboard: g.player.aboard?.v === v, eyeY: +g.player.walker.eye().y.toFixed(2) };
   });
   ok(board.aboard, `in by the entry door, standing in the room (${JSON.stringify(board)})`);
-  // a fridge in the niche behind the passenger's seat, milk in it; a desk lamp on the dinette's table
+  // a fridge on the front floor with milk in it; a dinner table with a desk lamp on it; a camp cot in the back
   const things = await page.evaluate(async () => {
     const g = window.__rt.game;
     const v = window.__v;
     const It = await import('/src/core/modcar/items.ts');
     const T = await import('/src/game/modcar/itemTime.ts');
-    const put = async (id, zone) => {
+    const put = async (id, zone, near, yaw = 0) => {
       const held = { kind: 'item', item: It.newItem(id) };
-      await g.loose.objectFor(held);
-      for (let i = 0; i < 60 && !g.cargo.boxOf(held); i++) await new Promise((r) => setTimeout(r, 50));
-      const at = g.cargo.spotIn(v, zone, held);
+      await g.cargo.measured(held);
+      const at = g.cargo.spotIn(v, zone, held, near, yaw, 0);
       if (!at) return null;
       return g.cargo.stow(v, at.zone, at.spot, held);
     };
-    const fridge = await put('nd_fridge', 'fridge');
-    const lamp = await put('junk_lamp', 'table');
-    if (!fridge || !lamp) return { fridge: !!fridge, lamp: !!lamp };
+    const fridge = await put('nd_fridge', 'fore', { x: 1.6, z: 0.78 }, Math.PI / 2);
+    const table = await put('nd_dinner_table', 'fore', { x: 0.6, z: -0.7 }, 0);
+    let lamp = null;
+    if (table) {
+      const tx = table.riding.pos.x + v.sys.derived.cg.x;
+      const tz = table.riding.pos.z + v.sys.derived.cg.z;
+      lamp = await put('junk_lamp', 'fore', { x: tx, z: tz }, 0);
+    }
+    const cot = await put('nd_cot', 'cabin', { x: -2.4, z: 0.65 }, Math.PI / 2);
+    if (!fridge || !table || !lamp || !cot) return { fridge: !!fridge, table: !!table, lamp: !!lamp, cot: !!cot };
     It.putInside(fridge.item, It.newItem('ing_milk'), T.itemNow());
     window.__fridge = fridge;
     window.__lamp = lamp;
+    window.__cot = cot;
     g.simulate(0.3);
-    return { fridge: fridge.stow, lamp: lamp.stow, milkRate: fridge.item.inside[0].fk, y: +fridge.riding.pos.y.toFixed(2) };
+    return { fridge: fridge.stow, lamp: lamp.stow, lampY: +(lamp.riding.pos.y + v.sys.derived.cg.y).toFixed(2), tableY: +(table.riding.pos.y + v.sys.derived.cg.y).toFixed(2), milkRate: fridge.item.inside[0].fk, cot: cot.stow };
   });
-  ok(things.fridge === 'fridge' && things.lamp === 'table' && things.milkRate === 0.25, `a fridge in its niche, milk in it going off at a quarter the rate; a lamp on the table (${JSON.stringify(things)})`);
+  ok(things.fridge === 'fore' && things.lamp === 'fore' && things.lampY > things.tableY + 0.6 && things.milkRate === 0.25 && things.cot === 'cabin', `a fridge on the floor, milk at a quarter the rate; a table with a lamp on it; a cot in the back (${JSON.stringify(things)})`);
   // (where one stands in the room and which way one looks: model space x, z; yaw 0 forward, + to the right; pitch)
   const standIn = (x, z, yaw, pitch) =>
     page.evaluate(({ x, z, yaw, pitch }) => {
@@ -265,15 +293,19 @@ try {
     return { aboard: g.player.aboard?.v === v, kmh: +v.sim.kmh.toFixed(2) };
   });
   ok(back.aboard, `stopped, back from the seat into the room (${JSON.stringify(back)})`);
-  // (down the aisle at the bed's foot, looking at it)
-  await standIn(-3.05, 0.0, Math.PI, -0.5);
+  // Sleep removed (2026-11-27): verify placed camp cot is aimed cleanly with no sleep prompt
+  await page.evaluate(() => {
+    const g = window.__rt.game;
+    const ab = g.player.aboard;
+    const cot = window.__cot;
+    ab.w.place(-2.2, -0.1, 0);
+    g.simulate(0);
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(cot.x, cot.y + 0.38, cot.z));
+    g.simulate(0.2);
+  });
   w = await words();
-  ok(/睡觉/.test(w), `tired, at the bed across the back: 长按 睡觉 (${w.split('\n').filter((l) => l.includes('睡')).join(' · ') || '—'})`);
+  ok(!/睡觉/.test(w), `placed camp cot inside Old Elephant has no sleep prompt`);
   await shot('07_bed.png');
-  await rt('useFor', 1.2);
-  await rt('simulate', 4.0);
-  const slept = await page.evaluate(() => ({ energy: window.__rt.game.body.energy, said: document.body.innerText.match(/睡了 (\d+) 小时/)?.[1] ?? null }));
-  ok(slept.energy >= 99 && Number(slept.said) === 5, `held: slept ${slept.said} hours in the bed (energy 10 → ${slept.energy.toFixed(0)})`);
   // its ladder up its left side, behind the galley's window
   await page.evaluate(async () => {
     const g = window.__rt.game;

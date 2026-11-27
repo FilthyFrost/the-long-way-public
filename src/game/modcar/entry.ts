@@ -178,6 +178,20 @@ const vehicle = (i: number) => {
   return v;
 };
 
+/**
+ * The left button held down for a while and let go, through the view's own handling of the mouse (ModGame.mouseDown /
+ * mouseUp) and nothing else: whatever takes the press — the mark's thing, or what is in the hands — has it as it has the
+ * player's (the button is not held down by force in between: what a hand would not do, a walkthrough does not either)
+ */
+function holdLeft(seconds: number) {
+  game.mouseDown(0);
+  const dt = 1 / 60;
+  for (let t = 0; t < seconds; t += dt) game.step(dt, 1);
+  game.mouseUp(0);
+  game.simulate(0);
+  return game.player.telemetry();
+}
+
 const rt = {
   ready: false,
   /** the last error a frame threw (the loop goes on past it) */
@@ -375,9 +389,9 @@ const rt = {
     game.viewMode = 'cockpit';
     game.simulate(0);
     const target = String(game.player.telemetry().target);
-    game.player.press();
+    game.mouseDown(0);
     game.step(1 / 60, 1);
-    game.player.release();
+    game.mouseUp(0);
     game.simulate(0);
     return target;
   },
@@ -445,18 +459,8 @@ const rt = {
     game.learn(recipe);
     return [...game.learned];
   },
-  /** E held for a while on what the mark is on (the generator's rope: 0.6 s a pull) */
-  holdFor: (seconds: number) => {
-    game.player.press();
-    const dt = 1 / 60;
-    for (let t = 0; t < seconds; t += dt) {
-      game.player.primary = true;
-      game.step(dt, 1);
-    }
-    game.player.release();
-    game.simulate(0);
-    return game.player.telemetry();
-  },
+  /** the left button held for a while on what the mark is on (the generator's rope: 0.6 s a pull) — the player's way, as all these presses */
+  holdFor: (seconds: number) => holdLeft(seconds),
   /** at the bench (open): make a recipe and strike every blow; the thing is there after its second */
   craftAll: (id: string) => {
     const ws = game.workshop as unknown as { open: boolean; crafting: boolean; strike(i?: number): void; craftNow?: (id: string) => void } | null;
@@ -506,10 +510,10 @@ const rt = {
    * stepping down it, for `seconds`. What is being cleaned afterwards, unit by unit.
    */
   scrub: (seconds = 2, passes = 6, w = 0.3, h = 0.25, cx = 0, cy = 0) => {
-    game.player.press('mouse');
+    game.mouseDown(0);
     // (nothing to scrub there: the button let go again, as a hand would — not left down)
     if (!game.player.scrub) {
-      game.player.release('mouse');
+      game.mouseUp(0);
       return { started: false, target: game.player.telemetry().target, grime: game.grimeTelemetry() };
     }
     const dt = 1 / 60;
@@ -524,23 +528,13 @@ const rt = {
       sc.cursor.set(cx + x * w * 2, cy + (0.5 - t) * h * 2);
       game.step(dt, 1);
     }
-    game.player.release('mouse');
+    game.mouseUp(0);
     for (let k = 0; k < 12; k++) game.step(dt, 1);
     return { started: true, grime: game.grimeTelemetry() };
   },
   grime: () => game.grimeTelemetry(),
-  /** hold the use button for a while (fit, pour, spray) */
-  useFor: (seconds: number) => {
-    game.player.press();
-    const dt = 1 / 60;
-    for (let t = 0; t < seconds; t += dt) {
-      game.player.primary = true;
-      game.step(dt, 1);
-    }
-    game.player.release();
-    game.simulate(0);
-    return game.player.telemetry();
-  },
+  /** hold the left button for a while (fit, pour, spray, mend) */
+  useFor: (seconds: number) => holdLeft(seconds),
   /** hold the right button for a while — what is in the hands is used: a drink drunk, a pump's nozzle run (docs/V3/plan/finish.md §十三) */
   rightFor: (seconds: number) => {
     const dt = 1 / 60;
@@ -551,21 +545,12 @@ const rt = {
     return game.player.telemetry();
   },
   /** hold the take-off button for a while (the left button now: docs/V3/plan/growth.md J1) */
-  takeFor: (seconds: number) => {
-    game.player.press();
-    const dt = 1 / 60;
-    for (let t = 0; t < seconds; t += dt) {
-      game.player.primary = true;
-      game.step(dt, 1);
-    }
-    game.player.release();
-    game.simulate(0);
-    return game.player.telemetry();
-  },
+  takeFor: (seconds: number) => holdLeft(seconds),
+  /** a click of the left button: down, a frame, up — through the view's own handling of the mouse (ModGame.mouseDown) */
   press: () => {
-    game.player.press();
+    game.mouseDown(0);
     game.step(1 / 60, 1);
-    game.player.release();
+    game.mouseUp(0);
     game.simulate(0);
     return game.player.telemetry();
   },

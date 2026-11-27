@@ -88,7 +88,7 @@ function aWorld(save?: PlacesSave) {
   const vehicles: ReturnType<typeof aVehicle>[] = [];
   const said: string[] = [];
   const placesHost = {
-    world: { spine: { sAtX: (x: number) => x }, sites: { between: (_a: number, _b: number, out: unknown[]) => void out.push(SITE) } },
+    world: { spine: { sAtX: (x: number) => x }, sites: { between: (_a: number, _b: number, out: unknown[]) => void out.push(SITE) }, heightAt: () => 0 },
     origin: core.origin,
     loose: L,
     vehicles,

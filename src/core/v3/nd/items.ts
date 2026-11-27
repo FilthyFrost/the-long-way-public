@@ -225,6 +225,8 @@ export function registerNdItems(): void {
   retireItem('med_warm_3', 'med_warm_2');
   retireItem('med_stomach', 'nd_pills');
   for (const id of ['med_kit_1', 'med_kit_2', 'med_kit_3']) retireItem(id, 'nd_first_aid');
+  // (the old repair kits that never mended anything: a save's are engine repair kits now — docs/V3/plan/finish.md §十九)
+  for (const id of ['repair_1', 'repair_2', 'repair_3']) retireItem(id, 'nd_engine_kit');
   for (const c of ND_CATS) if (!hasItemCat(c.id)) registerItemCat(c);
   registerItems(ndItemRows(hasItemCat('kitchen') ? 'kitchen' : 'furniture'));
 }

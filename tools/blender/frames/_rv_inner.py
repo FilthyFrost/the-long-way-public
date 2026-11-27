@@ -1,7 +1,7 @@
 """RV: everything behind the outer skin. Engine bay (aprons, wheel tubs, radiator support, the doghouse that
 takes the big diesel back into the cab), the cab interior (dash with four dials, column, pedals, floor, door
-cards, the bunk floor overhead), the living module inside (floor, walls, over-cab bunk, dinette table, galley,
-wardrobe, overhead lockers, wheel tubs), the ladder frame underbody with twin I-beam front suspension, leaf
+cards, the bunk floor overhead), the living module inside (an empty shell as Nomad Drive's campers are: its floor,
+walls, ceiling lamps and the over-cab bunk), the ladder frame underbody with twin I-beam front suspension, leaf
 sprung rear axle on dual wheels, tanks and the wheelhouse liners (UNDER)."""
 import math
 import sys
@@ -454,8 +454,12 @@ def interior(ex):
     from frames import _rv_ext as EX
     C.extend(box_floor())
     C.extend(box_floor(hole=(EX.WELL_X[0], EX.WELL_X[1], D['bw'] - len(EX.WELL['tops']) * EX.WELL['depth'], 1.2)).mirrored())
-    L.extend(box_furniture_L())
-    C.extend(box_furniture_asym())
+    # (nothing built in: the room is an empty shell, as Nomad Drive's class C's is - its floor, walls and ceiling, the
+    # bunk over the cab its one bed; what one lives with is what the player puts in, docs/V3/plan/finish.md section 19
+    # step 7. The shelves, the galley, the dinette's table and the bed across the back are gone)
+    C.extend(box_lamps())
+    C.extend(tail_lamp_covers(ex))
+    C.extend(fuel_duct(ex))
     out['L'] = L
     out['C'] = C
     out['gauges'] = gauges
@@ -478,81 +482,26 @@ def box_floor(hole=None):
     return b
 
 
-# the overhead shelves along both walls (docs/V3/plan/finish.md section 11.2: no doors to them - what stands on one is
-# seen and taken): their runs along the box, the board they stand things on (its top), their top board's underside
-LOCKER_X = ((-2.80, -1.20),)
-# (their second run: over the galley's front end and the dinette on the left; on the right only as far as the side
-# door's frame - no shelf across the doorway's head)
-LOCKER_X_LEFT = (-1.08, 0.70)
-LOCKER_X_RIGHT = (-1.08, -0.68)
-LOCKER_Y = (0.74, 1.085)
-LOCKER_Z = (2.385, 2.80)
-# the bed across the back, where the rear bench stood: its platform's front and the mattress's top
-BED_X = -2.90
-BED_TOP = 1.40
-# the cubby under the sink, open to the aisle: its floor and its clear top
-CUBBY = dict(x0=-1.34, x1=-0.86, y0=0.52, y1=1.04, z0=0.92, z1=1.62)
-
-
-def shelf_run(x0, x1, side):
-    """One run of overhead shelf along a wall (side +1: the left, y > 0; -1: the right): its board with a lip along the
-    front edge, its top board, a panel at each end; open to the room."""
+def box_lamps():
+    """The lamps in the living module's ceiling (the room's own light: all that is fitted to it)."""
     b = K.Buf()
-    y0, y1 = LOCKER_Y
-    zf, zt = LOCKER_Z
-    ya, yb = (y0, y1) if side > 0 else (-y1, -y0)
-    lip = (y0 - 0.004, y0 + 0.012) if side > 0 else (-y0 - 0.012, -y0 + 0.004)
-    b.extend(K.box_buf((x0, ya, zf - 0.025), (x1, yb, zf), 'wood', 0.004, 1))
-    b.extend(K.box_buf((x0, ya, zt), (x1, yb, zt + 0.02), 'wood', 0.004, 1))
-    b.extend(K.box_buf((x0, lip[0], zf - 0.025), (x1, lip[1], zf + 0.05), 'wood', 0.005, 2))
-    for xe in (x0, x1 - 0.02):
-        b.extend(K.box_buf((xe, ya, zf), (xe + 0.02, yb, zt), 'wood', 0.004, 1))
-    return b
-
-
-def box_furniture_L():
-    """Mirrored furniture: the overhead shelves along both walls - a board with a lip along its front edge, a top
-    board, a panel at each end; open to the room - and the bed's platform across the back with its mattress."""
-    b = K.Buf()
-    for (x0, x1) in LOCKER_X:
-        b.extend(shelf_run(x0, x1, 1))
-    # the bed: a platform floor to wall with a face board to the room, the mattress and a pillow at the left wall
-    xr = D['bx_r'] + 0.05
-    b.extend(K.box_buf((xr, 0.0, BOX_FLOOR), (BED_X, 1.08, BED_TOP - 0.14), 'wood', 0.008, 2))
-    b.extend(K.box_buf((xr + 0.02, 0.0, BED_TOP - 0.14), (BED_X - 0.02, 1.05, BED_TOP), 'fabric', 0.03, 2))
-    return b
-
-
-def box_furniture_asym():
-    """Dinette table (left, ahead of the dinette bench), galley block (left) with an open cubby under its sink, the
-    bed's pillow, the ceiling lamps. (The wardrobe and the bath's cubicle that stood on the right are gone - docs/V3/
-    plan/finish.md section 11.1: open floor from the door to the bed.)"""
-    b = K.Buf()
-    # dinette table on a post
-    b.extend(K.box_buf((0.16, 0.36, BOX_FLOOR + 0.70), (0.60, 1.05, BOX_FLOOR + 0.73), 'wood', 0.01, 2))
-    b.extend(K.cyl_buf((0.38, 0.70, BOX_FLOOR), (0.38, 0.70, BOX_FLOOR + 0.70), 0.03, 'alu', 12))
-    # galley: cabinet (in two, either side of the cubby under the sink, with the cubby's floor, back and top between
-    # them), worktop, sink and hob
-    c = CUBBY
-    b.extend(K.box_buf((-1.95, 0.52, BOX_FLOOR), (c['x0'], 1.085, BOX_FLOOR + 0.86), 'wood', 0.012, 2))
-    b.extend(K.box_buf((c['x1'], 0.52, BOX_FLOOR), (-0.80, 1.085, BOX_FLOOR + 0.86), 'wood', 0.012, 2))
-    b.extend(K.box_buf((c['x0'], 0.52, BOX_FLOOR), (c['x1'], 1.085, c['z0']), 'wood', 0.004, 1))
-    b.extend(K.box_buf((c['x0'], c['y1'], c['z0']), (c['x1'], 1.085, BOX_FLOOR + 0.86), 'wood', 0.004, 1))
-    b.extend(K.box_buf((c['x0'], 0.52, c['z1']), (c['x1'], c['y1'], BOX_FLOOR + 0.86), 'wood', 0.004, 1))
-    b.extend(K.box_buf((-1.97, 0.50, BOX_FLOOR + 0.86), (-0.78, 1.085, BOX_FLOOR + 0.89), 'plastic_int', 0.006, 2))
-    b.extend(K.box_buf((-1.10, 0.64, BOX_FLOOR + 0.80), (-0.86, 0.96, BOX_FLOOR + 0.892), 'alu', 0.012, 2))
-    b.extend(K.box_buf((-1.80, 0.62, BOX_FLOOR + 0.89), (-1.40, 0.98, BOX_FLOOR + 0.90), 'trim', 0.004, 1))
-    for cx in (-1.70, -1.50):
-        for cy in (0.70, 0.90):
-            b.extend(K.cyl_buf((cx, cy, BOX_FLOOR + 0.90), (cx, cy, BOX_FLOOR + 0.912), 0.055, 'steel', 14))
-    # the shelves' second runs (not alike on the two sides: the side door is on the right)
-    b.extend(shelf_run(LOCKER_X_LEFT[0], LOCKER_X_LEFT[1], 1))
-    b.extend(shelf_run(LOCKER_X_RIGHT[0], LOCKER_X_RIGHT[1], -1))
-    # the bed's pillow, at the left wall
-    b.extend(K.box_buf((D['bx_r'] + 0.16, 0.56, BED_TOP), (BED_X - 0.14, 1.0, BED_TOP + 0.09), 'fabric', 0.04, 2))
-    # ceiling lamps
     for x in (-3.2, -1.7, -0.2):
         b.extend(K.box_buf((x - 0.12, -0.10, 2.985), (x + 0.12, 0.10, 3.005), 'emit', 0.008, 2))
+    return b
+
+
+def tail_lamp_covers(ex):
+    """A cover over each tail lamp's recess inside the back wall (the recess, 4.5 cm deep, reaches 2 cm through the
+    lining, its back facing out: from the room it showed as a slot to the lamp and the road; the bed across the back
+    hid it), 2 cm round the recess, standing 7 mm proud of its back."""
+    from frames import _rv_ext as EX
+    b = K.Buf()
+    tp, _ = ex.tail_mount
+    y0, y1, z0, z1, _r = EX.TAIL
+    xb = float(tp[0]) + 0.045
+    for side in (1, -1):
+        ya, yb = sorted((side * (y0 - 0.02), side * (y1 + 0.02)))
+        b.extend(K.box_buf((xb - 0.025, ya, z0 - 0.02), (xb + 0.007, yb, z1 + 0.02), 'lining', 0.005, 2))
     return b
 
 
@@ -667,8 +616,16 @@ def centre_under():
 
 
 # ============================================================================================ fuel filler
+def fuel_pocket_back(ex):
+    """The back of the pocket behind the fuel flap (its rolled edge 4 cm in from the skin): its middle."""
+    so = ex.cut['fuel'].side('out')
+    V, _, _ = K.roll_edge(so['P'], so['N'], so['E'], 0.002, 0.04, 0.0, 2, closed=True)
+    return V.reshape(-1, len(so['P']), 3)[-1].mean(0)
+
+
 def fuel_details(ex):
-    """Pocket behind the flap with the cap; filler neck down to the tank (left side)."""
+    """Pocket behind the flap with the cap; filler neck down to the tank (left side): straight down the wall from the
+    pocket's back into the floor (the box over it in the room: fuel_duct), then under the floor in to the tank."""
     b = K.Buf()
     so = ex.cut['fuel'].side('out')
     V, N, T = K.roll_edge(so['P'], so['N'], so['E'], 0.002, 0.04, 0.0, 2, closed=True)
@@ -681,9 +638,19 @@ def fuel_details(ex):
     cap = np.array([[0.0, 0.0], [0.030, 0.0], [0.031, 0.004], [0.031, 0.014], [0.028, 0.018], [0.0, 0.018]])
     V, N, T = K.lathe(cap, c, (0, 1, 0), 20)
     b.add(V, N, T, 'trim')
-    path = np.array([c - (0, 0.01, 0), (c[0], c[1] - 0.20, c[2] - 0.10), (-2.85, 0.42, 0.72), (-2.95, 0.35, 0.69)])
-    b.extend(K.tube_buf(path, 0.026, 'rubber', 10))
+    yh = c[1] - 0.03
+    path = np.array([c - (0, 0.01, 0), (c[0], yh, c[2] - 0.05), (c[0], yh, BOX_FLOOR - 0.08), (-2.85, 0.42, 0.72), (-2.95, 0.35, 0.69)])
+    b.extend(K.tube_buf(smooth_path(path, 1), 0.022, 'rubber', 10))
     return b
+
+
+def fuel_duct(ex):
+    """The box over the filler neck in the room (left wall, at the floor): from the floor up over the pocket behind the
+    fuel flap, 8 cm out from the wall. The pocket's back and the neck stood out of the wall there, in the room's corner
+    beside the bed across the back, and in the open since it was emptied (docs/V3/plan/finish.md section 19 step 7)."""
+    c = fuel_pocket_back(ex)
+    y_in = float(c[1]) - 0.06
+    return K.box_buf((c[0] - 0.075, y_in, BOX_FLOOR - 0.005), (c[0] + 0.075, D['bw'] + WALL + 0.005, c[2] + 0.085), 'lining', 0.006, 2)
 
 
 def fuel_flap(ex):

@@ -77,25 +77,26 @@ export class GhostLayer {
   private readonly rc = new THREE.Raycaster();
 
   /**
-   * The ghost that is drawn (`only`), met by its box grown by `pad` (m) rather than by its meshes: the hologram one
-   * sees is what one aims at, and the mark anywhere over it is on it — between a seat's cushion and its back too, where
-   * the ray meets nothing of the seat and went on to the next seat's ghost. Null: none drawn, or the ray misses it.
+   * The nearest visible ghost met by its box grown by `pad` (m): every compatible empty slot within 15 m is shown at
+   * once (as in Nomad Drive), so any shown hologram can be aimed at directly without waiting for a single-ghost lock.
    */
   castShown(origin: THREE.Vector3, dir: THREE.Vector3, far: number, pad: number): { key: string; dist: number; mid: number } | null {
-    const g = this.only ? this.ghosts.get(this.only) : undefined;
-    if (!g?.model) return null;
-    g.obj.updateWorldMatrix(true, true);
-    const box = this.box.setFromObject(g.model, true);
-    if (box.isEmpty()) return null;
-    box.expandByScalar(pad);
+    let best: { key: string; dist: number; mid: number } | null = null;
     const ray = this.ray.set(origin, dir);
-    const at = ray.intersectBox(box, this.hit);
-    if (!at) return null;
-    const dist = at.distanceTo(origin);
-    // (how far along the ray its middle is: what of the vehicle stands before that is in front of it — a shut door, a
-    // shut bonnet — though the box's edge may reach out to it)
-    const mid = box.getCenter(this.hit).sub(origin).dot(ray.direction);
-    return dist <= far ? { key: g.key, dist, mid } : null;
+    for (const g of this.ghosts.values()) {
+      if (!g.obj.visible || !g.model) continue;
+      g.obj.updateWorldMatrix(true, true);
+      const box = this.box.setFromObject(g.model, true);
+      if (box.isEmpty()) continue;
+      box.expandByScalar(pad);
+      const at = ray.intersectBox(box, this.hit);
+      if (!at) continue;
+      const dist = at.distanceTo(origin);
+      if (dist > far || (best && dist >= best.dist)) continue;
+      const mid = box.getCenter(this.hit).sub(origin).dot(ray.direction);
+      best = { key: g.key, dist, mid };
+    }
+    return best;
   }
 
   private readonly box = new THREE.Box3();
@@ -122,7 +123,7 @@ export class GhostLayer {
       }
       const obj = new THREE.Group();
       obj.name = `ghost:${s.key}`;
-      obj.visible = s.key === this.only;
+      obj.visible = s.kind === 'empty' || s.key === this.selected || (this.only !== '' && s.key === this.only);
       s.node.add(obj);
       const g: Ghost = { key: s.key, obj, kind: s.kind, model: null, focused: false };
       this.ghosts.set(s.key, g);
@@ -169,9 +170,26 @@ export class GhostLayer {
     return null;
   }
 
+  /** world pose of a ghost node by key (for R-placement magnetic slot snapping) */
+  poseOf(key: string, pos: THREE.Vector3, quat: THREE.Quaternion): boolean {
+    const g = this.ghosts.get(key);
+    if (!g) return false;
+    g.obj.updateWorldMatrix(true, false);
+    g.obj.getWorldPosition(pos);
+    g.obj.getWorldQuaternion(quat);
+    return true;
+  }
+
+  /** count of currently visible ghosts (telemetry/tests) */
+  get visibleCount(): number {
+    let n = 0;
+    for (const g of this.ghosts.values()) if (g.obj.visible) n++;
+    return n;
+  }
+
   update(_dt: number): void {
     for (const [k, g] of this.ghosts) {
-      g.obj.visible = k === this.only;
+      g.obj.visible = g.kind === 'empty' || k === this.selected || (this.only !== '' && k === this.only);
       const focused = k === this.selected;
       if (focused === g.focused || !g.model) continue;
       g.focused = focused;

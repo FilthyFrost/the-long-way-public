@@ -136,23 +136,21 @@ const CSS = `
 // (laid out as on 11-24 — the mouse, the keyboard, the car — with the keys there are now: docs/V3/plan/finish.md §十八, 界面恢复)
 export const HELP = `<h3>按键</h3>
 <h5>鼠标</h5><table>
-<tr><td class="k">左键</td><td class="v">拿 · 开 · 用</td></tr>
-<tr><td class="k">按住左键</td><td class="v">装 · 拆 · 倒 · 喷 · 刮</td></tr>
-<tr><td class="k">右键</td><td class="v">吃 · 喝 · 手电 · 相机 · 学图纸</td></tr>
-<tr><td class="k">滚轮</td><td class="v">调 · 换格</td></tr>
+<tr><td class="k">左键</td><td class="v">拿 · 开 · 用 · 坐</td></tr>
+<tr><td class="k">长按左键</td><td class="v">装 · 拆（无主功能件）· 修 · 喷 · 刮</td></tr>
+<tr><td class="k">按住右键</td><td class="v">放大视野（摆放时自由转）</td></tr>
+<tr><td class="k">滚轮</td><td class="v">换格 · 切倒/抽方向 · 调距离 / 喷嘴</td></tr>
 </table>
 <h5>键盘</h5><table>
-<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>Shift</b> · <b>空格</b> · <b>C</b></td><td class="v">走 · 跑 · 跳 · 蹲</td></tr>
-<tr><td class="k"><b>Q</b> · <b>R</b></td><td class="v">放下 · 摆放</td></tr>
-<tr><td class="k">摆放时 <b>Q</b> <b>E</b></td><td class="v">转 90°</td></tr>
-<tr><td class="k"><b>1</b> <b>2</b> · <b>Tab</b> · <b>J</b></td><td class="v">快捷栏 · 背包 · 食谱</td></tr>
-<tr><td class="k"><b>V</b></td><td class="v">换视角</td></tr>
+<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>Shift</b> · <b>空格</b> · <b>C</b></td><td class="v">走 · 切冲刺 · 跳 · 蹲</td></tr>
+<tr><td class="k"><b>E</b> / 长按 <b>E</b></td><td class="v">吃 · 喝 · 手电 · 拍照 · 穿脱 · 倒/抽液 · 拆门 / 收电器</td></tr>
+<tr><td class="k"><b>Q</b> · <b>R</b></td><td class="v">轻抛 / 长按蓄力投掷 · 摆放（<b>Q</b> <b>E</b> 转 90°）</td></tr>
+<tr><td class="k"><b>1</b>–<b>8</b> · <b>V</b> · <b>Tab</b></td><td class="v">快捷栏 · 换视角 · 车辆 / 穿戴</td></tr>
 </table>
 <h5>开车</h5><table>
-<tr><td class="k"><b>W</b> <b>S</b> · <b>A</b> <b>D</b> · <b>空格</b></td><td class="v">油门 / 刹车 · 转向 · 手刹</td></tr>
-<tr><td class="k">按住左键（钥匙）</td><td class="v">打火</td></tr>
-<tr><td class="k"><b>L</b> · <b>H</b> · <b>V</b> · 按住 <b>Q</b></td><td class="v">车灯 · 喇叭 · 视角 · 下车</td></tr>
-<tr><td class="k">熄火停稳，按住右键</td><td class="v">睡觉</td></tr>
+<tr><td class="k"><b>W</b> <b>S</b> · <b>A</b> <b>D</b> · <b>空格</b></td><td class="v">油门 / 刹车倒车 · 转向 · 切换手刹</td></tr>
+<tr><td class="k"><b>I</b> · <b>T</b> · <b>K</b> · <b>U</b></td><td class="v">点火开关 · 车灯（近/远/关）· 雨刷 · 车内灯</td></tr>
+<tr><td class="k"><b>H</b> · <b>V</b> · 长按 <b>Q</b></td><td class="v">喇叭 · 换视角 · 下车</td></tr>
 </table>
 <div class="foot">点击开始 · <b>F1</b> 按键 · <b>F2</b> 辅助 · <b>Esc</b> 菜单</div>`;
 

@@ -116,39 +116,35 @@ try {
   s = await state();
   ok(!s.seated && s.aboard && Math.abs(s.aboard.x - 0.72) < 0.05, `the left button: standing behind the seats (${JSON.stringify(s)})`);
   await shot('2_behind_the_seats.png');
-  await page.evaluate(() => {
-    const g = window.__rt.game;
-    const ab = g.player.aboard;
-    for (let t = 0; t < 3.4; t += 1 / 30) {
-      ab.step(1 / 30, 1, 0, g.input.lookYaw);
-      g.simulate(1 / 30);
-    }
-  });
+  // Walk freely aft down the aisle using real KeyW on the 3D FootWalker (no legacy 2D ab.step!)
+  await page.keyboard.down('KeyW');
+  await step(140);
+  await page.keyboard.up('KeyW');
+  await step(8);
   s = await state();
   ok(s.aboard && s.aboard.x < -3.15, `walked aft along the aisle to the rear (${JSON.stringify(s)})`);
   await shot('3_at_the_rear.png');
 
-  // ---- 2. out by the side door and in again
+  // ---- 2. out by the side door and in again using free 3D walking (no doorway prompts / transit)
   await page.evaluate(() => window.__rt.openPanel(0, 'door_side', true));
-  await step(20);
-  let a = await standLook(-0.83, 0.6, -0.83, 1.7, 1.3);
-  ok(a.target === 'alight', `the open side door from inside: 下车 (${JSON.stringify(a)})`);
-  await shot('4_side_door_from_inside.png', true);
-  await page.evaluate(() => window.__rt.press());
-  // (out and down its steps at a walk: under a second and a half — core/modcar/aboard.ts stepHeight)
-  await step(100);
+  await step(25);
+  await standLook(-0.92, 0.45, -0.92, 2.5, 1.3);
+  await page.keyboard.down('KeyW');
+  await step(75);
+  await page.keyboard.up('KeyW');
+  await step(10);
   s = await state();
-  ok(!s.aboard && !s.seated, `the left button: out by the side door (${JSON.stringify(s)})`);
+  ok(!s.aboard && !s.seated, `walked freely out by the side door (${JSON.stringify(s)})`);
+  await shot('4_side_door_from_inside.png', true);
   await page.evaluate(() => { const g = window.__rt.game; g.input.lookYaw += Math.PI; g.input.lookPitch = -0.1; });
   await step(6);
-  s = await state();
-  ok(s.target === 'board', `the doorway from outside: in again (${JSON.stringify(s)})`);
   await shot('5_side_door_from_outside.png', true);
-  await page.evaluate(() => window.__rt.press());
-  // (up its steps and in at a walk)
-  await step(100);
+  await page.keyboard.down('KeyW');
+  await step(75);
+  await page.keyboard.up('KeyW');
+  await step(10);
   s = await state();
-  ok(!!s.aboard, `the left button: in the living space again (${JSON.stringify(s)})`);
+  ok(!!s.aboard, `walked freely back into the living space (${JSON.stringify(s)})`);
 
   // ---- 3. things put where one aims: held out with R, put down with the left button (the television's and the lamp's
   // models in first: a thing's box is measured from its model, a rough one standing in until it has come)
@@ -178,14 +174,12 @@ try {
   await page.evaluate(() => window.__rt.hold('item:junk_lamp'));
   await step(3);
   await key('KeyR');
-  // (a lamp half a metre long with its arm out, on a table 42 cm across and 67 long: where on it one looks, and which way
-  // it is turned, decide whether it goes — on the grid its edges go to the nearest 10 cm line, a few centimetres either way)
+  // (the living space is an empty shell since §十九 step 7: the lamp aimed onto the front cabin floor, then E puts it on
+  // the motorhome's 10 cm grid, turned on a square)
   let first = null;
-  found: for (const tz of [-0.7, -0.78, -0.62, -0.86]) {
-    await standLook(-0.65, 0.0, -0.37, 1.59, tz);
+  found: for (const tz of [-0.5, -0.65, -0.35, -0.8]) {
+    await standLook(-0.2, 0.2, 0.25, 0.86, tz);
     first ??= await placed();
-    // E: a quarter round onto the grid, its footprint's edges on the motorhome's 10 cm lines (it was the aimed spot's
-    // own 10 cm grid); turned across the table it does not fit, so on round to the next quarter that does
     for (let k = 0; k < 4; k++) {
       await key('KeyE');
       await step(12);
@@ -193,13 +187,13 @@ try {
       if (p.ok) break found;
     }
   }
-  ok(first.into === 'table', `R: a lamp held out at the dinette's table (${JSON.stringify(first)})`);
-  ok(p.into === 'table' && p.ok && p.grid && p.off < 0.002 && p.quarter < 1e-3, `E: onto the motorhome's grid, the lamp's edges ${p.off === null ? '—' : (p.off * 1000).toFixed(1)} mm off its 10 cm lines, turned on a square`);
+  ok(first.into === 'fore', `R: a lamp held out at the front cabin floor (${JSON.stringify(first)})`);
+  ok(p.into === 'fore' && p.ok && p.grid && p.off < 0.002 && p.quarter < 1e-3, `E: onto the motorhome's grid, the lamp's edges ${p.off === null ? '—' : (p.off * 1000).toFixed(1)} mm off its 10 cm lines, turned on a square`);
   await page.evaluate(() => window.__rt.press());
   await step(6);
-  ok((await stowed('item:junk_lamp')).includes('table'), 'the left button: the lamp stands on the table');
+  ok((await stowed('item:junk_lamp')).includes('fore'), 'the left button: the lamp stands on the floor');
   if (await H('placing')) await key('KeyR');
-  await shot('7_lamp_on_table.png');
+  await shot('7_lamp_on_floor.png');
 
   // ---- 4. the appliances (what was put in by hand taken out again first: the motorhome furnished as the tab furnishes it)
   await page.evaluate(() => {
@@ -271,15 +265,15 @@ try {
   }
   // (the coffee: the coffee machine since J4, walked through in harness/shots/j4_kitchen.mjs)
   let hand;
-  // the left button held on the clock radio: picked up (docs/V3/plan/growth.md J1)
+  // Hold E 0.5 s on a functional appliance (clock radio): picked up (ND secondary action)
   const cr = pos.junk_clockradio;
   await standLook(-1.2, -0.15, cr.x, cr.y + 0.05, cr.z);
-  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
-  await step(60);
-  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
+  await page.keyboard.down('KeyE');
+  await step(45);
+  await page.keyboard.up('KeyE');
   await step(4);
   hand = await page.evaluate(() => { const h = window.__rt.game.player.held; return h?.kind === 'item' ? h.item.item : null; });
-  ok(hand === 'junk_clockradio', `the left button held: the clock radio picked up (${hand})`);
+  ok(hand === 'junk_clockradio', `Hold E: the clock radio picked up (${hand})`);
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
 } finally {
   await browser.close();

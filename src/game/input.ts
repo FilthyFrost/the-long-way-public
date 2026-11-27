@@ -4,7 +4,8 @@
  * One set of keys (docs/V3/plan/growth.md, J1: the user's "就用鼠标左键…先做一套键位"): the left button is the
  * hand's work on what one looks at, the right button the use of what one holds, the wheel adjusts, Q puts down
  * (held in a seat: stands up). E, F, G and the cab's own letters (K, Q/Z, M, B, R) are gone: the cab's controls are
- * clicked, the gear lever too (and the wheel in a manual box), a car on its side rights itself.
+ * clicked (not the gear lever: the box is an automatic, S at a standstill reverses; the wheel shifts a manual box, the
+ * pad's d-pad steps the selector), a car on its side rights itself.
  */
 import type { VehicleInput } from '../core/vehicle/sim';
 
@@ -12,6 +13,7 @@ export type Action =
   | 'reset'
   | 'camera'
   | 'lights'
+  | 'cabinLight'
   | 'hud'
   | 'wipers'
   | 'horn'
@@ -64,19 +66,25 @@ export const CLASSIC_KEYS: Record<string, Action> = {
 };
 
 /**
- * ModCar's one set of keys (docs/V3/plan/growth.md, J1; docs/V3/plan/finish.md §十三: a key means one thing): beside
- * the mouse only these letters — V the view (in a seat the cab or behind the car, on foot her eyes or behind her), C
- * crouch (on foot), L the lights, H the horn, Q put down (in a seat, held: stand up), Tab the lists; F3 the debug HUD.
+ * ModCar's Nomad Drive key layout (docs/V3/plan/finish.md §十九):
+ *  - On foot: WASD move, Shift sprint toggle, Space jump, C crouch, V view toggle, LMB primary/promoted secondary,
+ *    E secondary/held use, RMB eye zoom (free rotate in placement), Q tap toss / hold charge throw, R placement mode
+ *    (Q/E 90-deg rotate), 1-8 hotbar, Tab vehicle/worn screen, F3 debug HUD.
+ *  - In seat: W throttle, S brake/reverse, A/D steer, Space handbrake toggle, I ignition toggle, T headlights
+ *    (off -> low -> high -> off), K wipers (off -> slow -> fast -> off), U cabin light, H horn, V view toggle,
+ *    hold Q 0.35 s exit.
  */
 export const MODCAR_KEYS: Record<string, Action> = {
   KeyV: 'camera',
   KeyC: 'crouch',
-  KeyL: 'lights',
+  KeyT: 'lights',
+  KeyK: 'wipers',
+  KeyU: 'cabinLight',
+  KeyI: 'key',
   F3: 'hud',
   KeyH: 'horn',
   KeyQ: 'drop',
   Tab: 'pack',
-  // (placing as Nomad Drive does: R in and out; Q and E a quarter round onto the grid — only while placing, docs/V3/plan/prompts.md §四)
   KeyR: 'place',
   KeyE: 'turnRight',
   ...SEAT_KEYS,

@@ -261,9 +261,8 @@ I('lamp_std', 'lamp', '头灯', 'Head lamp', 3, 0.4, { scrap: 10 }, '戴在头�
 I('hammer_1', 'gear', '旧大锤', 'Old sledgehammer', 1, 14, { scrap: 6 }, '砸开钉死的木板和锁着的门。木柄有裂，砸三下就散。', { model: 'hammer', paint: 0xb9915f, paint2: 0x6f7a82, carry: 'medium', gear: { kind: 'hammer', uses: 3 } });
 I('hammer_2', 'gear', '大锤', 'Sledgehammer', 3, 15, { scrap: 14 }, '砸开钉死的木板和锁着的门，能砸十下。', { model: 'hammer', paint: 0x9e3b2f, paint2: 0x6f7a82, carry: 'medium', gear: { kind: 'hammer', uses: 10 } });
 I('hammer_3', 'gear', '好大锤', 'Fine sledgehammer', 5, 16, { scrap: 15 }, '玻璃钢柄的大锤，能砸二十五下。', { model: 'hammer', paint: 0xf0c23c, paint2: 0x2f3236, carry: 'medium', gear: { kind: 'hammer', uses: 25 } });
-I('repair_1', 'gear', '旧修理包', 'Old repair kit', 1, 3.2, { scrap: 10 }, '慢慢修好坏了的零件。东西不多，修不了几件。', { model: 'repair', paint: 0x6f7a82, paint2: 0xd4a53b, gear: { kind: 'repair', points: 300, rate: 50 } });
-I('repair_2', 'gear', '修理包', 'Repair kit', 3, 3, { scrap: 20 }, '一箱像样的工具和配件，修得快，修得多。', { model: 'repair', paint: 0xc8323a, paint2: 0x2f3236, gear: { kind: 'repair', points: 1000, rate: 60 } });
-I('repair_3', 'gear', '好修理包', 'Fine repair kit', 5, 2.6, { scrap: 30 }, '赛车队的修理包，什么都修得好。', { model: 'repair', paint: 0x2e4a6b, paint2: 0xf0c23c, gear: { kind: 'repair', points: 2500, rate: 100 } });
+// (the old repair kits, repair_1..3, never mended anything: Nomad Drive's three one-use kits took their place —
+// core/v3/nd/items.ts, where a save's old ones are read back as engine repair kits)
 I('flare_gun', 'gear', '信号枪', 'Flare gun', 5, 1, { scrap: 35 }, '只有一发。打上天，会有人看见的。', { paint: 0xe07b39, paint2: 0x2f3236, gear: { kind: 'flare', uses: 1 } });
 
 // ------------------------------------------------------------------ junk (for the recycler)

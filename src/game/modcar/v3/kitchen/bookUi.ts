@@ -109,11 +109,8 @@ export class BookUi {
     this.card = document.createElement('div');
     this.card.className = 'mc-frame kt-reveal';
     ctx.ui.root.appendChild(this.card);
-    window.addEventListener('keydown', this.key, true);
-    // (its paper is made ready now, so that the first opening is heard)
-    for (const s of ['book_open', 'book_close', 'book_page']) ctx.warmSound(s);
-    // a page of the Tab screen: the game hands it the wheel and the left button while it is open
-    this.offTab = ctx.addTabPage?.({ id: 'recipes', title: '菜谱', show: (open) => this.toggle(open), wheel: (dir) => this.wheel(dir), press: () => this.pin() }) ?? null;
+    // (recipe book UI & J hotkey removed per player decision 2026-11-27; dish-served reveal card stays)
+    this.offTab = null;
   }
 
   private offTab: (() => void) | null = null;

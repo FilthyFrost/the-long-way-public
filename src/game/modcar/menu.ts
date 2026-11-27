@@ -329,15 +329,11 @@ export class MainMenu {
     );
   }
 
-  /** paused in a game: the two ways out when one cannot go on — the car put back on the road, back to where one last slept */
+  /** paused in a game: the way out when one cannot go on — the car put back on the road (sleep removed 2026-11-27) */
   private wayOut(): string {
     const u = this.mode === 'pause' ? this.host.unstick?.() : undefined;
-    if (!u || (!u.car && !u.bed)) return '';
-    return (
-      '<div class="out">走不了了？</div>' +
-      (u.car ? '<div class="btn mc-frame small" data-act="unstick">把车放回路上</div>' : '') +
-      (u.bed ? '<div class="btn mc-frame small" data-act="bed">回到上次睡觉的地方</div>' : '')
-    );
+    if (!u || !u.car) return '';
+    return '<div class="out">走不了了？</div><div class="btn mc-frame small" data-act="unstick">把车放回路上</div>';
   }
 
   private pageHtml(): string {

@@ -26,14 +26,13 @@ try {
       const g = window.__rt.game;
       g.systems.resetTimings?.();
       const t = [];
-      if (holdE) g.player.press();
+      if (holdE) g.mouseDown(0);
       for (let i = 0; i < 120; i++) {
-        if (holdE) g.player.primary = true;
         const a = performance.now();
         g.frame(1 / 60);
         t.push(performance.now() - a);
       }
-      if (holdE) g.player.release();
+      if (holdE) g.mouseUp(0);
       t.sort((x, y) => x - y);
       const st = g.core.stats;
       const sys = g.systems.telemetry();

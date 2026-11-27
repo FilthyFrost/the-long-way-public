@@ -835,10 +835,10 @@
   "widen": null
  },
  "triangles": {
-  "BODY": 62045,
+  "BODY": 63051,
   "FUEL_CAP": 574,
   "GLASS": 3799,
-  "INTERIOR": 13117,
+  "INTERIOR": 13119,
   "KNUCKLE_hub_FL": 508,
   "KNUCKLE_hub_FR": 508,
   "KNUCKLE_hub_RL": 508,
@@ -849,13 +849,13 @@
   "N_temp": 50,
   "PG_door_side": 208,
   "PG_trunk": 220,
-  "P_door_side": 2544,
+  "P_door_side": 2602,
   "P_hood": 884,
   "P_trunk": 4288,
   "UNDER": 3080,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 93379
+  "total": 94445
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

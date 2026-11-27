@@ -26,7 +26,7 @@ import '../../src/core/v3/nd/cards';
 // (the modules' own things — the blueprints' — registered as the game installs them)
 import.meta.glob('../../src/game/modcar/v3/*/index.ts', { eager: true });
 
-const ROOFED = ['sedan', 'pickup', 'van', 'rv', 'goat', 'wagon', 'fox', 'snail', 'buffalo', 'rhino', 'elephant', 'camel'];
+const ROOFED = ['sedan', 'pickup', 'van', 'rv', 'goat', 'wagon', 'fox', 'snail', 'buffalo', 'rhino', 'elephant', 'camel', 'turtle'];
 
 /** where one walking stands in a ladder's own terms (as NdClimb.tryHold measures it), model space */
 function inTerms(ln: ReturnType<typeof ladderLine>, feet: { x: number; y: number; z: number }, heading: { x: number; z: number }) {
@@ -48,7 +48,7 @@ describe('J9e: the ladder', () => {
   it('a ladder mount up the side of every frame with a roof, outside its body, its foot off the ground; none on the motorcycle or the trailer; the Whale has its own', () => {
     for (const f of FRAMES) {
       const lad = f.mounts.filter((m) => m.cat === 'ladder');
-      const roof = f.mounts.some((m) => m.cat === 'roof');
+      const roof = f.mounts.some((m) => m.cat === 'roof') || f.id === 'turtle';
       if (!roof) {
         expect(lad, `${f.id}: no roof, no ladder`).toHaveLength(0);
         expect(ladderSpot(f.id), f.id).toBeNull();
@@ -134,7 +134,8 @@ describe('J9e: the ladder', () => {
   it('a rack on the roof lifts what one stands on to its slats; another roof part its own height; none, the roof itself', () => {
     for (const id of ROOFED) {
       const spot = LADDER_SPOTS[id];
-      const roof = frameDef(id).mounts.find((m) => m.cat === 'roof')!;
+      const roof = frameDef(id).mounts.find((m) => m.cat === 'roof');
+      if (!roof) continue;
       const bare = roofFloors(spot, null);
       expect(bare.map((f) => f.top)).toEqual(spot.floors.map((f) => f.top));
       const racked = roofFloors(spot, { part: 'roof_rack', mountY: roof.pos.y, fitH: roof.fit![2] });

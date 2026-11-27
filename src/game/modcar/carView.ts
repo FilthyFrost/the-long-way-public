@@ -24,6 +24,7 @@ import { measureCarShape, meshCarMaterialName, type CarLook, type CarMaterialNam
 import { MergedCar, type PartLook } from '../render/carMerge';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import { castMesh } from '../render/triGrid';
+import { meshBoxHit } from './aim';
 import { glassName } from './grime';
 import { partGeo, partTop } from '../../core/modcar/geo';
 import { addonModel, cageFor, frameVariant, cloneModel, frameModel, panelAddOn, panelPaint, partModel, placeAddOn, seatTyres, standInFrame, stretchFit, type Model } from './assets';
@@ -51,6 +52,12 @@ const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE
 const UNDER_OR_SMALL = /^(KNUCKLE_|WIPER_|LEVER|KEY|KNOB_|BUTTON|N_)/;
 /** how far the filler flap swings open (deg) */
 const CAP_OPEN_DEG = 105;
+/**
+ * the steering wheel as Nomad Drive turns it: at most its 45° of road wheel times 1.5 either way, and no faster than its
+ * 60° a second times 1.5 (rad, rad/s)
+ */
+const WHEEL_TURN_MAX = 67.5 * DEG;
+const WHEEL_TURN_RATE = 90 * DEG;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
 const WEAR_STEP = 0.02;
 
@@ -147,6 +154,8 @@ export class CarView {
   /** the frame model is a stand-in (its GLB is not there yet) */
   standIn = true;
   private needle = 0;
+  /** the steering wheel's turn as shown (rad): after the road wheels' angle times its ratio, within its limits */
+  private wheelTurn = 0;
   private readonly local = { x: 0, y: 0, z: 0 };
   /** model loads in flight (parts appear when theirs arrive) */
   private readonly loads = new Set<Promise<unknown>>();
@@ -1290,6 +1299,69 @@ export class CarView {
     return true;
   }
 
+  /** what of a mount's node a ray may meet: its meshes as they stand (no ghost, no merge of its own), each once */
+  private aimMeshes(mount: string, out: THREE.Mesh[]): THREE.Object3D | null {
+    out.length = 0;
+    const n = this.nodeOf(mount);
+    if (!n) return null;
+    const walk = (o: THREE.Object3D): void => {
+      if (o.name.startsWith('merged') || o.name.startsWith('ghost:')) return;
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh && !mesh.userData.ghostDepth && !mesh.userData.ghostXray && this.shownHere(mesh)) out.push(mesh);
+      for (const c of o.children) walk(c);
+    };
+    walk(n);
+    return n;
+  }
+
+  private readonly amList: THREE.Mesh[] = [];
+
+  /**
+   * Where a ray (render space) first meets what stands on a mount, by its own meshes as they are drawn (a part's, a
+   * panel's skin and glass, a wheel's; a part hidden is passed over, one hidden because the merge draws it is not),
+   * within far; null: it misses. The cab's seats, doors and wheel are aimed at so, as Nomad Drive's are by colliders
+   * of their own shapes.
+   */
+  castOn(mount: string, origin: THREE.Vector3, dir: THREE.Vector3, far: number): number | null {
+    if (!this.aimMeshes(mount, this.amList)) return null;
+    let best = far;
+    let hit = false;
+    this.tcRay.origin.copy(origin);
+    this.tcRay.direction.copy(dir);
+    for (const mesh of this.amList) {
+      const g = mesh.geometry;
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      mesh.updateWorldMatrix(true, false);
+      this.tcSphere.copy(g.boundingSphere!).applyMatrix4(mesh.matrixWorld);
+      if (this.tcRay.distanceSqToPoint(this.tcSphere.center) > this.tcSphere.radius * this.tcSphere.radius) continue;
+      const h = castMesh(mesh, origin, dir, best);
+      if (h && h.dist <= best) {
+        best = h.dist;
+        hit = true;
+      }
+    }
+    this.amList.length = 0;
+    return hit ? best : null;
+  }
+
+  /**
+   * Where a ray (render space) first meets the boxes of what stands on a mount as it is drawn now (a lever pulled, a
+   * key turned): each of its meshes' own box, in that mesh's own frame — turned with it, so a lever's is the lever's
+   * and not the world's box round its sweep — `pad` larger all round; null: it misses within far. The cab's small
+   * controls are aimed at so: a box of their own a little larger than they are, as Nomad Drive gives each of its own
+   * (its key's 5 cm, a stalk's 3 by 14, a handbrake's socket and lever one each).
+   */
+  boxCast(mount: string, origin: THREE.Vector3, dir: THREE.Vector3, pad: number, far: number): number | null {
+    if (!this.aimMeshes(mount, this.amList)) return null;
+    let best = Infinity;
+    for (const mesh of this.amList) {
+      const d = meshBoxHit(mesh, origin, dir, pad);
+      if (d !== null && d < best) best = d;
+    }
+    this.amList.length = 0;
+    return best <= far ? best : null;
+  }
+
   private readonly tcSphere = new THREE.Sphere();
   private readonly tcRay = new THREE.Ray();
 
@@ -1858,6 +1930,41 @@ export class CarView {
     }
   }
 
+  private readonly outlineBuf: { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null } = { root: this.root, partId: -1, extra: null };
+
+  /** silhouette outline target for a mounted part (render/frame.ts; zero per-frame alloc) */
+  outlineTarget(mount: string | null): { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null } | null {
+    if (!mount) return null;
+    const id = this.mergeIds.get(mount) ?? -1;
+    if (id > 0 && this.merged) {
+      this.outlineBuf.root = this.merged.group;
+      this.outlineBuf.partId = id;
+      this.outlineBuf.extra = this.shown.get(mount)?.holder ?? null;
+      return this.outlineBuf;
+    }
+    const panel = this.panels.get(mount);
+    if (panel) {
+      this.outlineBuf.root = panel.pivot;
+      this.outlineBuf.partId = -1;
+      this.outlineBuf.extra = null;
+      return this.outlineBuf;
+    }
+    const h = hubsOf(this.frame);
+    const i = [h.fl, h.fr, h.rl, h.rr].findIndex((m) => m.id === mount);
+    if (i >= 0) {
+      this.outlineBuf.root = this.wheels[i].spin;
+      this.outlineBuf.partId = -1;
+      this.outlineBuf.extra = null;
+      return this.outlineBuf;
+    }
+    const node = this.shown.get(mount)?.holder ?? this.mountNodes.get(mount) ?? null;
+    if (!node) return null;
+    this.outlineBuf.root = node;
+    this.outlineBuf.partId = -1;
+    this.outlineBuf.extra = null;
+    return this.outlineBuf;
+  }
+
   /** light up what is on a mount (the part the mark is on, about to come off); null = nothing */
   highlight(mount: string | null): void {
     const id = mount ? (this.mergeIds.get(mount) ?? -1) : -1;
@@ -1906,10 +2013,17 @@ export class CarView {
     if (steer) {
       const ratio = sim.spec.steering.ratio;
       const bar = partDef(this.build.parts.steering?.part ?? 'steer_std').steering?.bar;
-      // a handlebar turns with the fork (on a modelled fork it rides on it); a wheel turns `ratio` times as far as the road wheels
+      // a handlebar turns with the fork (on a modelled fork it rides on it); a wheel turns `ratio` times as far as the road
+      // wheels, as Nomad Drive's does, never past WHEEL_TURN_MAX nor faster than WHEEL_TURN_RATE: a held key turns it
+      // smoothly to a modest angle and it comes back the same way, the hands staying where they hold it
       const onFork = !!this.fork && this.frame.mounts.find((m) => m.id === 'steering')?.on === 'FORK';
       if (bar) steer.rotation.y = onFork ? 0 : -sim.steerAngle;
-      else steer.rotation.x = sim.steerAngle * ratio;
+      else {
+        const want = Math.max(-WHEEL_TURN_MAX, Math.min(WHEEL_TURN_MAX, sim.steerAngle * ratio));
+        const step = WHEEL_TURN_RATE * Math.max(0, dt);
+        this.wheelTurn += Math.max(-step, Math.min(step, want - this.wheelTurn));
+        steer.rotation.x = this.wheelTurn;
+      }
     }
     // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C): the frame's
     // own needles, where it has no cluster of its own

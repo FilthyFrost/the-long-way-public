@@ -80,8 +80,8 @@ export class JournalUi {
     this.el = document.createElement('div');
     this.el.className = 'mc-frame fj-book';
     ctx.ui.root.appendChild(this.el);
-    window.addEventListener('keydown', this.key, true);
-    this.off = ctx.addTabPage?.({ id: 'journal', title: '图鉴', show: (open) => this.toggle(open), wheel: (dir) => this.wheel(dir) }) ?? null;
+    // (codex / journal UI tab removed per player decision 2026-11-27)
+    this.off = null;
   }
 
   private readonly key = (e: KeyboardEvent): void => {

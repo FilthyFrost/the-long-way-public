@@ -110,19 +110,11 @@ try {
   ok(fit.cot && fit.stand && fit.sofa && fit.stove && fit.ys.stove > fit.ys.stand + 0.8, `fitted out with what one finds: a cot at the back, a kitchen stand with a stove on it, a sofa (${JSON.stringify(fit)})`);
   await standIn(1.55, -0.1, Math.PI, -0.18);
   await shot('04_fitted.png');
-  // tired, at the cot: 长按 睡觉
-  await page.evaluate(() => {
-    window.__rt.game.body.energy = 10;
-    window.__rt.game.simulate(0.1);
-  });
+  // Sleep removed (2026-11-27): verify placed camp cot stays in Camel and shows no sleep prompt
   await standIn(-3.3, 0.0, Math.PI, -0.95);
   const w = await words();
-  ok(/睡觉/.test(w), `tired, at the cot: 长按 睡觉 (${w.split('\n').filter((l) => l.includes('睡')).join(' · ') || '—'})`);
+  ok(!/睡觉/.test(w), `placed camp cot in Camel has no sleep prompt`);
   await shot('05_cot.png');
-  await rt('useFor', 1.2);
-  await rt('simulate', 4.0);
-  const slept = await page.evaluate(() => ({ energy: window.__rt.game.body.energy, said: document.body.innerText.match(/睡了 (\d+) 小时/)?.[1] ?? null }));
-  ok(slept.energy >= 99 && Number(slept.said) === 5, `held: slept ${slept.said} hours on the cot, as in a bed (energy 10 → ${slept.energy.toFixed(0)})`);
   // out, the door shut, started, driven round a bend: everything where it was put
   await page.evaluate(async () => {
     const g = window.__rt.game;

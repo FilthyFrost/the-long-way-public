@@ -7,6 +7,7 @@
  * without cooking.
  */
 import { aboardOf } from '../../../../core/modcar/aboard';
+import { zonesFor } from '../../../../core/modcar/cargo';
 import { itemDef, newItem, putInside, type ItemInstance } from '../../../../core/modcar/items';
 import { fillBook, newBook, tally } from '../../../../core/v3/kitchen/book';
 import { cook } from '../../../../core/v3/kitchen/cook';
@@ -112,41 +113,58 @@ export function homeOf(ctx: GameContext): ModVehicle | null {
 }
 
 /**
- * A kitchen set out in a motorhome (its zones: core/modcar/cargo.ts): the board, the stove (a full canister in it, the
- * pan on it) and the seasonings along the galley's worktop, facing the aisle; plates, bowls and a few ingredients on
- * the dinette's table; a pot, the bowl and a spare canister on the floor by the door. Each once its model is in, so
- * that the next is packed round it: how many went in.
+ * A kitchen set out in a motorhome — its living space an empty shell (docs/V3/plan/finish.md §十九 step 7), the
+ * furniture first: a kitchen stand along the left wall where the Whale's galley stood, a kitchen table ahead of it where
+ * its dinette was (frame model space: the Whale's; in another, each where its floor has room near there). Then the
+ * board, the stove (a full canister in it, the pan on it) and the seasonings along the stand's top, facing the room;
+ * plates, bowls and a few ingredients on the table; a pot, the bowl, a spare canister and the cooler on the floor by
+ * the door. Each once its model is in, so that the next is packed round it: how many went in.
  */
 export async function layKitchenInHome(ctx: GameContext, v: ModVehicle): Promise<number> {
   const stove = newItem(STOVE);
   loadCanister(stove, newItem(GAS));
   putVessel(stove, newItem(VESSEL.fry));
-  const aisle = -Math.PI / 2;
-  const things: readonly [ItemInstance, string, number, number, number][] = [
-    [newItem(BOARD), 'galley', -1.72, -0.74, aisle],
-    [stove, 'galley', -1.32, -0.74, aisle],
-    [newItem(SPICE), 'galley', -0.95, -0.82, aisle],
-    [newItem(PLATE, { n: 4 }), 'table', 0.3, -0.52, 0],
-    [newItem(BOWL, { n: 4 }), 'table', 0.48, -0.52, 0],
-    [newItem(ingItem('tomato'), { n: 3 }), 'table', 0.26, -0.74, 0],
-    [newItem(ingItem('egg'), { n: 3 }), 'table', 0.38, -0.74, 0],
-    [newItem(ingItem('potato'), { n: 3 }), 'table', 0.5, -0.74, 0],
-    [newItem(ingItem('beef'), { n: 3 }), 'table', 0.28, -0.92, 0],
-    [newItem(ingItem('lettuce'), { n: 3 }), 'table', 0.46, -0.92, 0],
-    [newItem(VESSEL.boil), 'lounge', -1.0, 0.55, aisle],
-    [newItem(VESSEL.mix), 'lounge', -0.62, 0.55, aisle],
-    [newItem(GAS), 'lounge', -0.3, 0.6, 0],
-    [stockedCooler(), 'lounge', 0.45, 0.62, aisle],
+  // (facing the room from the left wall: to the right)
+  const room = -Math.PI / 2;
+  // (on a piece of furniture: how far along it from its middle, the vehicle's x, and across)
+  const onStand: readonly [ItemInstance, number, number, number][] = [
+    [newItem(BOARD), -0.4, 0.05, room],
+    [stove, 0.0, 0.05, room],
+    [newItem(SPICE), 0.4, 0.05, room],
   ];
-  let n = 0;
-  for (const [item, zone, x, z, yaw] of things) {
+  const onTable: readonly [ItemInstance, number, number, number][] = [
+    [newItem(PLATE, { n: 4 }), -0.2, 0.17, 0],
+    [newItem(BOWL, { n: 4 }), 0.02, 0.17, 0],
+    [newItem(ingItem('tomato'), { n: 3 }), -0.28, -0.05, 0],
+    [newItem(ingItem('egg'), { n: 3 }), -0.14, -0.05, 0],
+    [newItem(ingItem('potato'), { n: 3 }), 0.0, -0.05, 0],
+    [newItem(ingItem('beef'), { n: 3 }), 0.14, -0.05, 0],
+    [newItem(ingItem('lettuce'), { n: 3 }), 0.28, -0.05, 0],
+  ];
+  const onFloor: readonly [ItemInstance, number, number, number][] = [
+    [newItem(VESSEL.boil), -1.0, 0.55, room],
+    [newItem(VESSEL.mix), -0.62, 0.55, room],
+    [newItem(GAS), -0.3, 0.6, 0],
+    [stockedCooler(), 0.45, 0.62, room],
+  ];
+  // (a thing put near a point of the floor, or on what stands there: where it went, or null)
+  const put = async (item: ItemInstance, x: number, z: number, yaw: number, zone?: string): Promise<{ x: number; z: number; zone: string } | null> => {
     const held = { kind: 'item' as const, item };
     await ctx.cargo.measured(held);
-    const at = ctx.cargo.spotIn(v, zone, held, { x, z }, yaw, 0) ?? ctx.cargo.packSpot(v, held);
-    if (!at) continue;
+    const floor = zone ?? zonesFor(v.view.frame.id, v.build).find((q) => !q.wall && q.id !== 'pass' && q.id !== 'dash' && x >= q.x[0] && x <= q.x[1] && z >= q.z[0] && z <= q.z[1])?.id;
+    const at = (floor ? ctx.cargo.spotIn(v, floor, held, { x, z }, yaw, 0) : null) ?? ctx.cargo.packSpot(v, held);
+    if (!at) return null;
     ctx.cargo.stow(v, at.zone, at.spot, held);
+    return { x: at.spot.x, z: at.spot.z, zone: at.zone.id };
+  };
+  let n = 0;
+  for (const [id, x, z, yaw, on] of [['nd_kitchen_stand', -1.8, -0.75, Math.PI / 2, onStand], ['nd_dinner_table', 0.3, -0.62, 0, onTable]] as const) {
+    const base = await put(newItem(id), x, z, yaw);
+    if (!base) continue;
     n++;
+    for (const [item, dx, dz, w] of on) if (await put(item, base.x + dx, base.z + dz, w, base.zone)) n++;
   }
+  for (const [item, x, z, yaw] of onFloor) if (await put(item, x, z, yaw)) n++;
   return n;
 }
 
@@ -188,7 +206,7 @@ export function kitchenTab(sys: Kitchen, game: () => GameContext | null): DevTab
           },
           {
             label: '摆进房车',
-            tip: '站在房车里或旁边：案板、卡式炉、调料盒摆上厨房台面，盘子、碗和几样食材放到餐桌上，汤锅、搅拌碗和备用燃气放在车门边的地上',
+            tip: '站在房车里或旁边：车厢是空的，先放一个橱柜和一张方餐桌；案板、卡式炉、调料盒摆上橱柜，盘子、碗和几样食材放到餐桌上，汤锅、搅拌碗、备用燃气和保温箱放在车门边的地上',
             click: () => {
               const ctx = ctx0();
               const v = ctx ? homeOf(ctx) : null;

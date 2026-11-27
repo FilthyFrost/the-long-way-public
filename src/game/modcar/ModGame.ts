@@ -48,6 +48,7 @@ import { FishView } from '../scene/fishView';
 import { HeroPeakView } from '../scene/heroPeaks';
 import { GlacierView } from '../scene/glaciers';
 import { WorldView } from '../scene/worldView';
+import { drawnHeight } from '../scene/worldBuild';
 import { BeaconView } from '../scene/beacons';
 import { cloneModel, frameModel, itemGlb, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
 import { TONE_COLOUR } from './cards';
@@ -139,6 +140,7 @@ import { zoneOf, type ZoneId } from '../../core/modcar/cargo';
 import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
 import { ModPlayer, type Held, type PlayerHost } from './player';
+import { ND_HOLD_S } from './arbiter';
 import { glintsOf, WithoutWrecks, WreckGlints, Wrecks, type WreckHost } from './wrecks';
 import { isContainer, Places, planPlaces, worldPlan, type PlaceContainer, type PlacesHost } from './places';
 import { SiteArt } from './siteArt';
@@ -146,7 +148,6 @@ import { Doors } from './doors';
 import { solidWithin, type SolidSource } from '../../core/world/solids';
 import type { Site, SiteObject } from '../../core/world/sites';
 import { Cockpit, passengerSeat, seatMount, type CockpitHost, type FrontSeat } from './cockpit';
-import { Aboard } from './aboard';
 import { aboardOf, roomRev, type BoardDoor } from '../../core/modcar/aboard';
 import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
@@ -551,6 +552,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private restoreT = 0;
   /** sprinting now (blended for the view's widening) */
   private sprintB = 0;
+  /** ND toggle sprint on foot (Left Shift toggles; clears when movement stops or stamina runs out) */
+  private sprintToggle = false;
+  private shiftWasDown = false;
+  /** ND eye zoom on foot (Hold RMB: 75 deg -> 50 deg in 0.49 s) */
+  private eyeZoomT = 0;
+  /** Q hold on foot: tap = soft toss 4 m/s, hold = charge throw 4 -> 14 m/s (-1: not pressed) */
+  private qHoldT = -1;
+  /** manual wiper mode while seated ('auto' lets rain drive wipers; K cycles off -> slow -> fast -> off) */
+  private manualWiper: 'auto' | 'off' | 'slow' | 'fast' = 'auto';
+  /** ignition auto-crank latch started by tapping I */
+  private autoCrank = false;
+  /** whether the driving key hints column is shown while seated (F1 toggles) */
+  private driveHintsOn = true;
   /** the view narrowed by the thing in the hands (kernel/heldUse.ts look().fov): how far in (eased 0 … 1), and to what */
   private heldZoomB = 0;
   private heldFov = 0;
@@ -812,10 +826,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.makeWorld();
       this.ground = this.floored(new SeamlessGround(this.garage.ground, this.proving!));
     }
-    // (out in the world a thing let fall lands on the ground, or on a floor above it — a porch, a jetty's deck: floorGround.ts floorTop)
-    this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage && (!this.seamless || onPlot(x, z)) ? this.garage.surfaceAt(x, z, fromY) : Math.max(this.groundAt(x, z), this.looseFloors().floorTop(x, z, fromY))));
+    // (out in the world a thing let fall lands on the ground as it is drawn, or on a floor above it — a porch, a jetty's deck: floorGround.ts floorTop)
+    this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage && (!this.seamless || onPlot(x, z)) ? this.garage.surfaceAt(x, z, fromY) : Math.max(this.drawnGroundAt(x, z), this.looseFloors().floorTop(x, z, fromY))));
     // (things put on a vehicle ride with it)
     this.loose.carriers = () => this.vehicles;
+    // (what a thing let go may not come down in: the walls, the props, the vehicles' bodies — Nomad Drive's drop)
+    this.loose.solidsNear = (x, z, r, out) => this.player?.walker.solids.solidsNear(x, z, r, out);
     this.cargo = new CargoBay(this.core, this.loose);
     this.heldThing = new HeldThing(this.core);
     this.her = new HerInGame(this.core);
@@ -835,8 +851,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.mist = new SprayMist(this.core.scene);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.seamless && this.garage ? new SeamlessLand(this.garage.land, this.proving!) : (this.proving ?? land), this);
-    // (Arctic Drive's walking and sprinting, 2.5 and 5 m/s; the vitals take a share off)
-    this.player.walker.speeds = { walk: 2.5, run: 5.0 };
+    // Nomad Drive on-foot physics (ND_FOOT) are configured by ModPlayer's constructor (walk 2.75, sprint 5.0, crouch 1.5/2.0).
     try {
       this.player.cardsOn = localStorage.getItem('modcar.ui.cards') !== '0';
     } catch {
@@ -1402,8 +1417,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** a vehicle on the road keeps out of what stands by it, and of the other vehicles (not of itself) */
   private roadSolids(v: ModVehicle): void {
     if (!this.world) return;
-    // (in the world with the workshop: not the garage's walls and benches, which keepIn deals with)
-    v.sim.solids = this.seamless ? this.vehicleSolids : this.player.solids;
+    // Vehicles always collide against vehicleSolids (never player.solids, which holds composite walkable vehicle interiors).
+    v.sim.solids = this.vehicleSolids;
     v.sim.onKnock = (sd, vx, vz, speed) => {
       // a crate, a barrel, a bench shoved: the place moves it and is drawn again …
       const site = this.world?.sites.knock(sd, vx, vz, speed);
@@ -1420,6 +1435,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private groundAt(x: number, z: number): number {
     this.ground.sample(x, z, this.gs);
     return this.gs.h;
+  }
+
+  /**
+   * The ground as it is drawn at (x, z), what a thing lying about rests on (scene/worldBuild.ts drawnHeight: the road
+   * strip and the terrain leaf at their finest, straight between their points — the wheels' ground is the land itself,
+   * a few centimetres off it on a meadow: docs/V3/plan/finish.md §十九 step 6). The proving ground's own surfaces as the
+   * wheels have them.
+   */
+  private drawnGroundAt(x: number, z: number): number {
+    const w = this.world;
+    if (!w || this.proving?.near(x, z)) return this.groundAt(x, z);
+    return drawnHeight(w, x, z);
   }
 
   /** the places' floors for things let fall (made the first time asked: the solids are the vehicles' own set) */
@@ -1867,11 +1894,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
           this.vitHud.sap();
           this.sound('hurt', 0.3);
         }
-        // (sleepy from now on: said once, with what to do about it — the wheel comes round late from here, and nothing
-        // else says why. Found by the hundred-kilometre walk: a traveller who never sleeps runs off the road.)
-        const drowsy = sleepyNow(b);
-        if (drowsy && !this.wasSleepy && !b.dead) this.ui.say('困了，方向盘跟得慢了：停车熄火，空着手长按右键睡一觉', 6);
-        this.wasSleepy = drowsy;
+        // (sleep removed: energy stays full, no drowsy steering or sleep prompts)
+        this.wasSleepy = false;
         // a fall (from how fast one came down), a crash (the vehicle one sits in, how fast it hit)
         this.knocksOnBody();
         if (b.dead && !ev.died) this.onDeath(this.lastBlow);
@@ -1883,8 +1907,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         Object.assign(b, keep);
       }
     } else this.stepDeath(dt);
-    this.stepSleep(dt);
-    // on foot: slower frozen, heat-struck, hurt or sleepy, quicker on an energy drink
+    // on foot: slower frozen, heat-struck or hurt, quicker on an energy drink
     w.speedScale = speedFactor(b);
     this.sprintB += ((sprinting ? 1 : 0) - this.sprintB) * (1 - Math.exp(-dt * 6));
     this.vitHud.update(b, this.bodyAirC(), dt, this.buffNames());
@@ -2120,11 +2143,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       return;
     }
     if (this.seated) return;
-    const box = boxOnMark(this) ?? boxInHand(this);
-    if (box) {
-      if (this.openList(boxSource(this, box))) this.sound('cloth');
-      return;
-    }
     const w = this.player.walker;
     let v = this.player.lookVehicle;
     if (!v) {
@@ -2360,12 +2378,24 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.seatSlide = this.seatAt === 'pass' ? 1 : 0;
       if (s.place === 'road') sv.sys.startNow();
     }
-    // (inside a vehicle's living space: back where one stood in it)
+    // (inside a vehicle's living space: back where one stood in it using the free 3D walker)
     const av = s.aboard ? this.vehicles[s.aboard.v] : undefined;
-    if (av && s.aboard && this.seamless && !this.seated && aboardOf(av.view.frame.id)) {
-      const ab = new Aboard(av, [s.aboard.x, s.aboard.z], s.aboard.yaw);
-      this.player.goAboard(ab);
-      this.input.lookYaw = ab.heading() + s.aboard.yaw;
+    if (av && s.aboard && this.seamless && !this.seated) {
+      const def = aboardOf(av.view.frame.id);
+      if (def) {
+        const area = def.areas.find((a) => s.aboard!.x >= a.x0 && s.aboard!.x <= a.x1 && s.aboard!.z >= a.z0 && s.aboard!.z <= a.z1) ?? def.areas[0];
+        const fy = area?.floor ?? 0.6;
+        av.view.model.updateMatrixWorld(true);
+        const p = new THREE.Vector3(s.aboard.x, fy, s.aboard.z).applyMatrix4(av.view.model.matrixWorld);
+        av.sim.basis(this.basis);
+        const h = Math.atan2(this.basis[2], this.basis[0]) + s.aboard.yaw;
+        const lowRoof = !!def.roof && av.view.roofT < 0.7;
+        if (lowRoof) this.crouch = true;
+        this.player.walker.placeAt(p.x + this.core.origin.x, p.y + this.core.origin.y, p.z + this.core.origin.z, h, lowRoof);
+        this.player.attachVehicle(av, 0.5);
+        this.player.refreshInside();
+        this.input.lookYaw = h;
+      }
     }
   }
 
@@ -2781,7 +2811,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       settings: () => ({ ...this.settings }),
       setSettings: (st) => this.applySettings(st),
       assists: () => this.assistItems(),
-      unstick: () => ({ car: this.vehicles.some((v) => !v.view.frame.towed), bed: this.canBackToBed() }),
+      unstick: () => ({ car: this.vehicles.some((v) => !v.view.frame.towed), bed: false }),
       unstickCar: () => this.unstickCar(),
       backToBed: () => this.backToBed(),
       toggleAssist: (i) => {
@@ -2889,7 +2919,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // (it wears at the difficulty's pace: docs/V3/plan/growth.md §五)
     v.sys.wearK = DIFFICULTY[this.difficulty].wear;
     this.vehicles.push(v);
-    this.player.addSolids(v.solid);
+    this.player.addSolids(v.walkSolids);
     this.vehicleSolids.add(v.solid);
     this.roadSolids(v);
     return v;
@@ -2901,8 +2931,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (i < 0) return;
     for (const l of this.loose.ridersOf(v)) this.loose.remove(l);
     this.vehicles.splice(i, 1);
-    this.player.removeSolids(v.solid);
+    this.player.removeSolids(v.walkSolids);
     this.vehicleSolids.remove(v.solid);
+    if (this.player.attachedVehicle === v) this.player.detachVehicle();
     this.cargo.forget(v);
     this.sparkDue.delete(v);
     // (what was being cleaned on it: its masks stay, taken up again if it comes back)
@@ -3001,8 +3032,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   }
 
   /**
-   * What a found vehicle's frame comes with, put in its places (FrameDef.fittings: the Old Elephant's hobs on its
-   * worktop): each where its place has room, packed by its real size once its model is in; what finds no room is left out
+   * What a found vehicle's frame comes with, put in its places (FrameDef.fittings — none since the campers' living spaces
+   * were emptied, docs/V3/plan/finish.md §十九 step 7: the Old Elephant's hobs and sofa went with its galley): each where
+   * its place has room, packed by its real size once its model is in; what finds no room is left out
    */
   async stowFittings(v: ModVehicle): Promise<void> {
     for (const f of v.view.frame.fittings ?? []) {
@@ -3110,42 +3142,26 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   /** what the keys do in the seat (down the right) */
   private driveKeys(v: ModVehicle): Action[] {
+    if (!this.driveHintsOn) return [{ keys: ['F1'], text: '显示按键' }];
     const out: Action = { keys: ['Q'], hold: true, text: '下车' };
-    const running = v.sys.running;
-    // (sat in a third time and after: only the key while the engine is off — docs/V3/plan/prompts.md §五)
-    if (v !== this.seatSeen) {
-      this.seatSeen = v;
-      this.seatCount++;
-      try {
-        localStorage.setItem('modcar.hint.seat', String(this.seatCount));
-      } catch {
-        /* none */
-      }
-    }
-    // (tired, in a seat of a vehicle standing with its engine off: sleep — docs/V3/plan/growth.md §四)
-    const doze: Action[] = this.canSleep() && (this.body.energy ?? 100) < 60 ? [{ keys: ['RMB'], hold: true, text: '睡觉' }] : [];
-    if (this.seatCount > 2) return [...(this.seatAt === 'pass' || running ? [] : [{ keys: ['LMB'], hold: true, text: '打火' } as Action]), ...doze];
-    if (this.seatAt === 'pass') return [{ keys: ['V'], text: '换视角' }, ...doze, out];
+    if (this.seatAt === 'pass') return [{ keys: ['V'], text: '换视角' }, out];
     return [
       { keys: ['W'], text: '油门' },
       { keys: ['S'], text: '刹车 / 倒车' },
-      { keys: ['Space'], hold: true, text: '手刹' },
-      // (the key is turned with the left button on it: said here until the engine runs)
-      ...(running ? [] : [{ keys: ['LMB'], hold: true, text: '打火' } as Action]),
-      ...(v.sim.manual ? [{ keys: ['Wheel'], text: '换挡' } as Action] : []),
-      // (the lamps and the horn on the card again, as on 11-24: docs/V3/plan/finish.md §十八, 界面恢复)
-      { keys: ['L'], text: '车灯' },
+      { keys: ['Space'], text: '手刹' },
+      { keys: ['I'], text: v.sys.running ? '熄火' : '点火' },
+      { keys: ['T'], text: '车灯' },
+      { keys: ['K'], text: '雨刷' },
+      { keys: ['U'], text: '车内灯' },
       { keys: ['H'], hold: true, text: '喇叭' },
       { keys: ['V'], text: '换视角' },
-      ...doze,
       out,
     ];
   }
 
-  /** in a seat of a vehicle standing still with its engine off, the hands empty: one may sleep */
+  /** sleep is disabled per player direction */
   canSleep(): boolean {
-    const v = this.seated;
-    return !!v && !v.sys.running && Math.abs(v.sim.kmh) < 1 && !this.player.held && this.deadT < 0 && this.sleepT < 0;
+    return false;
   }
 
   /** the wheel as the hands hold it (sleepy: it follows what one asks a moment late) */
@@ -3166,61 +3182,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the sleep under way is in a bed (rested sooner: vitals.ts sleepHours) */
   private sleepBed = false;
 
-  /** lie down in a bed and sleep (GameContext.sleepInBed: the camper's beds): why not, or null when it begins */
+  /** sleep is disabled */
   sleepInBed(): { zh: string; en: string } | null {
-    if (this.sleepT >= 0 || this.deadT >= 0) return { zh: '现在不行', en: 'Not now' };
-    if ((this.body.energy ?? 100) >= 80) return { zh: '还不困', en: 'Not tired' };
-    this.sleepBed = true;
-    this.sleepT = 0;
-    return null;
+    return { zh: '已取消睡觉', en: 'Sleep disabled' };
   }
 
-  /**
-   * Sleep in a seat (docs/V3/plan/growth.md §四): the right button held a second with the hands empty, the vehicle
-   * standing with its engine off — not when one is rested (还不困). The view goes dark, the night goes by (the clock
-   * on so many hours, eight from nothing), the body rested; it comes up again.
-   */
-  private stepSleep(dt: number): void {
-    if (this.sleepT >= 0) {
-      this.sleepT += dt;
-      const FADE = 0.9;
-      const HOLD = 1.1;
-      if (this.sleepT < FADE) this.ui.setFade(this.sleepT / FADE);
-      else if (this.sleepT < FADE + HOLD) {
-        this.ui.setFade(1);
-        if (this.sleptHours === 0) this.sleptHours = this.sleepNow();
-      } else if (this.sleepT < FADE * 2 + HOLD) this.ui.setFade(1 - (this.sleepT - FADE - HOLD) / FADE);
-      else {
-        this.ui.setFade(0);
-        this.sleepT = -1;
-        this.ui.say(`睡了 ${this.sleptHours} 小时`, 2.4);
-        this.sleptHours = 0;
-        this.sleepBed = false;
-        // (up again: the game's older copies moved on — the newer is of the moment one lay down — and the game kept)
-        if (this.sleptSave) {
-          this.sleptSave = false;
-          if (this.params.keep && !this.saveOff) rotateBackups();
-          this.save();
-        }
-      }
-      return;
-    }
-    // (in a seat: the right button held, as on 11-24 — docs/V3/plan/finish.md §十八, 界面恢复)
-    const held = !!this.seated && this.rightButton;
-    if (!held || !this.canSleep()) {
-      this.sleepHold = 0;
-      return;
-    }
-    if ((this.body.energy ?? 100) >= 80) {
-      if (this.sleepHold === 0) this.player.flashWhy('还不困');
-      this.sleepHold = dt;
-      return;
-    }
-    this.sleepHold += dt;
-    if (this.sleepHold >= 1) {
-      this.sleepHold = 0;
-      this.sleepT = 0;
-    }
+  private stepSleep(_dt: number): void {
+    this.sleepHold = 0;
   }
 
   /** the night gone by: the clock on, the body rested; how many hours */
@@ -3997,38 +3965,57 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   // ------------------------------------------------------------------ input
 
+  /**
+   * A mouse button down on the view (0 the left, 2 the right; the pointer locked): what it does where one is and with
+   * what is in the hands. The harness's presses come this way too (entry.ts rt.press, holdFor …), so that a walkthrough
+   * does what the player's hand does.
+   */
+  mouseDown(button: number): void {
+    // (the bench's blows: a click anywhere on the view strikes the next one)
+    if (this.benchWs?.crafting && button === 0) {
+      this.benchWs.strike();
+      return;
+    }
+    if (this.deadT >= 0) return;
+    this.audio.start();
+    if (button === 0) this.leftButton = true;
+    if (this.seated) {
+      // (the right button held in a seat is sleep's — stepSleep, as on 11-24; it was never told the button, so only the
+      // scripts, which set it, could sleep there)
+      if (button === 2) this.rightButton = true;
+      if (button === 0 && this.cockpit.aimedSeat && this.viewMode === 'cockpit') this.moveOver();
+      else if (button === 0 && this.cockpit.aimedAft) this.goAft();
+      else this.cockpit.press(this.seated, button === 2);
+      return;
+    }
+    // (a page of the Tab screen: the left button is its own, the right one shuts it — every page the same way: docs/V3/plan/finish.md §十三)
+    if (this.tabAt >= 0) {
+      if (button === 0) this.tabPages[this.tabAt]?.press?.();
+      else if (button === 2) this.closeTab();
+      return;
+    }
+    if (this.listV) {
+      if (button === 0) this.takeFromList();
+      else if (button === 2) this.closeCargoList();
+      return;
+    }
+    if (button === 0) this.player.press('mouse');
+    if (button === 2) this.rightButton = true;
+  }
+
+  /** …and up again (wherever the pointer is) */
+  mouseUp(button: number): void {
+    if (this.seated) this.cockpit.release(this.seated);
+    if (button === 0) this.player.release('mouse');
+    if (button === 0) this.leftButton = false;
+    if (button === 2) this.rightButton = false;
+  }
+
   private bindInput(canvas: HTMLCanvasElement): void {
     canvas.addEventListener('mousedown', (e) => {
-      // (the bench's blows: a click anywhere on the view strikes the next one)
-      if (this.benchWs?.crafting && e.button === 0) {
-        this.benchWs.strike();
-        return;
-      }
-      if (!this.input.locked || this.deadT >= 0) return;
-      this.audio.start();
-      if (e.button === 0) this.leftButton = true;
-      if (this.seated) {
-        // (the right button held in a seat is sleep's — stepSleep, as on 11-24; it was never told the button, so only the
-        // scripts, which set it, could sleep there)
-        if (e.button === 2) this.rightButton = true;
-        if (e.button === 0 && this.cockpit.aimedSeat && this.viewMode === 'cockpit') this.moveOver();
-        else if (e.button === 0 && this.cockpit.aimedAft) this.goAft();
-        else this.cockpit.press(this.seated, e.button === 2);
-        return;
-      }
-      // (a page of the Tab screen: the left button is its own, the right one shuts it — every page the same way: docs/V3/plan/finish.md §十三)
-      if (this.tabAt >= 0) {
-        if (e.button === 0) this.tabPages[this.tabAt]?.press?.();
-        else if (e.button === 2) this.closeTab();
-        return;
-      }
-      if (this.listV) {
-        if (e.button === 0) this.takeFromList();
-        else if (e.button === 2) this.closeCargoList();
-        return;
-      }
-      if (e.button === 0) this.player.press('mouse');
-      if (e.button === 2) this.rightButton = true;
+      // (the bench's blows: a click anywhere on the view strikes the next one, the pointer locked or not)
+      if (!(this.benchWs?.crafting && e.button === 0) && !this.input.locked) return;
+      this.mouseDown(e.button);
     });
     // scrubbing: the mouse moves the tool over the surface (the view holds still)
     document.addEventListener('mousemove', (e) => {
@@ -4036,12 +4023,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (the thing in the hands has the view — a rod with a fish on: kernel/heldUse.ts look() — the mouse pulls it over)
       else if (this.heldLookNow && this.input.locked) this.player.heldPointer(e.movementX);
     });
-    window.addEventListener('mouseup', (e) => {
-      if (this.seated) this.cockpit.release(this.seated);
-      if (e.button === 0) this.player.release('mouse');
-      if (e.button === 0) this.leftButton = false;
-      if (e.button === 2) this.rightButton = false;
-    });
+    window.addEventListener('mouseup', (e) => this.mouseUp(e.button));
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     // the parts bin open (the mouse free): a drag on the view turns it (either button: a trackpad has only the one)
     let turning = -1;
@@ -4062,10 +4044,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (this.tabAt >= 0) this.tabPages[this.tabAt]?.wheel?.(e.deltaY > 0 ? 1 : -1);
       else if (this.listV) this.moveListSel(e.deltaY > 0 ? 1 : -1);
       else if (this.seated && this.cockpit.wheel(this.seated, e.deltaY)) return;
-      else if (this.seated) {
-        const v = this.seated;
-        if (this.seatAt === 'driver' && v.sim.manual) this.sound(v.sys.stepLever(e.deltaY > 0 ? 1 : -1) ? 'lever' : 'grind');
-      } else this.player.wheel(e.deltaY);
+      else if (!this.seated) this.player.wheel(e.deltaY);
     });
     window.addEventListener('keydown', () => this.audio.start(), { once: true });
     // the key card: at the very first start until the first click (docs/V3/plan/prompts.md 定案 4), and on F1 any time
@@ -4117,7 +4096,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       }
       if (e.code === 'F1') {
         e.preventDefault();
-        this.ui.showHelp(!this.ui.helpShown);
+        if (this.seated) this.driveHintsOn = !this.driveHintsOn;
+        else this.ui.showHelp(!this.ui.helpShown);
         return;
       }
       if (e.code === 'F2') {
@@ -4130,9 +4110,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.askNewGame();
         return;
       }
-      // on foot: the number keys put the hotbar's slots in the hands (1 and 2, a backpack's 3 to 6 after
-      // them); I shows and hides the item cards
-      const slotKey = /^Digit([1-6])$/.exec(e.code);
+      // on foot: the number keys put the hotbar's slots in the hands (1 and 2, a backpack's 3 to 8 after them)
+      const slotKey = /^Digit([1-8])$/.exec(e.code);
       if (!this.ui.assistsShown && !this.seated && slotKey) {
         this.player.select(Number(slotKey[1]) - 1);
         return;
@@ -4168,14 +4147,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         else this.toggleCargoList();
         return;
       }
-      // Q on foot: what is in the hands put down at once (into the vehicle looked at); placing, a quarter round
-      // to the left (in a seat Q is held to stand up: the frame counts that) — docs/V3/plan/hands.md §四
+      // Q on foot: tap = soft toss (4 m/s), hold = charge throw (4 -> 14 m/s); in placement mode = 90 deg left
       if (a === 'drop') {
         if (this.seated || this.listV) return;
         const p = this.player.placer;
         if (p?.placing) p.turnStep(-1);
-        // (the thing in the hands may have its own way with Q: a fish held to the water goes back into it)
-        else if (!this.player.heldDrop()) this.player.drop();
+        else if (!this.player.heldDrop() && this.player.held) this.qHoldT = 0;
         return;
       }
       // R: placing — what is in the hands held out to be put down just so, or taken back
@@ -4206,21 +4183,41 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const v = this.seated;
       if (!v || this.seatAt === 'pass') return;
       if (a === 'key') {
-        if (v.sys.running) v.sys.stop('');
-        else if (!this.blockedStart(v)) v.sys.crank(true);
+        if (v.sys.running) {
+          this.autoCrank = false;
+          v.sys.stop('');
+        } else if (v.sys.cranking) {
+          this.autoCrank = false;
+          v.sys.crank(false);
+        } else if (!this.blockedStart(v)) {
+          this.autoCrank = true;
+          v.sys.crank(true);
+        }
         this.sound('key');
       } else if (a === 'lights') {
         v.sys.cycleLights();
         this.sound('switch');
+        if (v.sys.lights !== 'off' && !v.sys.lightsOn) this.player.flashWhy(v.sys.hasPart('headlight') ? '没电了' : '没有车灯');
+      } else if (a === 'wipers') {
+        if (!v.view.wipers.length) {
+          this.player.flashWhy('没有雨刷');
+        } else {
+          if (this.manualWiper === 'auto') this.manualWiper = this.env.wipePeriod > 0 ? 'fast' : 'slow';
+          else this.manualWiper = this.manualWiper === 'off' ? 'slow' : this.manualWiper === 'slow' ? 'fast' : 'off';
+          this.sound('switch');
+          if (this.manualWiper !== 'off' && (v.sys.dash.battery ?? 0) <= 0.02) this.player.flashWhy('没电了');
+        }
+      } else if (a === 'cabinLight') {
+        v.domeOn = !v.domeOn;
+        this.sound('switch');
+        if (v.domeOn && (v.sys.dash.battery ?? 0) <= 0.02) this.player.flashWhy('没电了');
       } else if (a === 'horn') v.sys.setHorn(true);
-      else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
-      else if (a === 'manual') v.sim.setManual(!v.sim.manual);
     });
     this.input.onRelease((a) => {
       const v = this.seated;
       if (!v) return;
       if (a === 'horn') v.sys.setHorn(false);
-      else if (a === 'key') v.sys.crank(false);
+      else if (a === 'key' && !this.autoCrank) v.sys.crank(false);
     });
   }
 
@@ -4355,10 +4352,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     this.seatAt = at;
     this.seatSlide = at === 'pass' ? 1 : 0;
-    // (one sits down standing up: C means the view in the seat)
+    this.manualWiper = 'auto';
+    this.autoCrank = false;
+    this.qHoldT = -1;
+    this.player.qCharge = 0;
+    this.eyeZoomT = 0;
+    // (one sits down standing up)
     this.crouch = false;
-    // (from the living space behind: one sits down where one stood)
-    if (this.player.aboard) this.player.leaveAboard();
+    this.player.detachVehicle();
     // a wreck by the road one gets into is one's own from then on (it stays when one drives off, it is saved)
     if (this.wrecks?.claim(v)) this.ui.say(`这辆${v.view.frame.name.zh}归你了`, 2.6);
     // (what is in the two slots goes along)
@@ -4381,9 +4382,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   getOut(): void {
     const v = this.seated;
-    // (how fast it goes, not only along its length: a car spinning out slides sideways with next to nothing along it —
-    // got out of at 13 km/h sideways it slid on for two seconds on its handbrake, J8–J10's "creep")
-    if (!v || v.sim.speed * 3.6 > 6) return;
+    if (!v) return;
+    this.autoCrank = false;
     const b = this.basis;
     v.sim.basis(b);
     const e = this.eyeOf(v, this.seatAt);
@@ -4403,6 +4403,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // nothing holds it now but the handbrake (or P): say so when it is off
     if (v.sim.parkBrake <= 0 && v.sim.selector !== 'P') this.player.flashWhy(v.sys.hasPart('handbrake') ? '没拉手刹' : '没有手刹');
     this.player.walker.place(x, z, heading);
+    // Exiting a moving vehicle imparts the vehicle's horizontal velocity (as Nomad Drive does).
+    if (v.sim.speed > 0.2) {
+      this.player.walker.vx = v.sim.vx;
+      this.player.walker.vz = v.sim.vz;
+    }
     this.input.freeLook = true;
     this.input.lookYaw = heading;
     this.input.lookPitch = 0;
@@ -4410,73 +4415,74 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (!v.view.frame.balance) this.foley?.cue('car_getout', 0.9);
   }
 
-  /** may one go into a vehicle's living space now: it stands still, an elevating roof is up (else says why) */
-  mayBoard(v: ModVehicle): boolean {
-    if (v.sim.bodyKmh > 3) {
-      this.player.flashWhy('车还在动');
-      return false;
-    }
-    // (an elevating roof down: no standing up in there)
-    if (aboardOf(v.view.frame.id)?.roof && v.view.roofT < 0.95) {
-      this.player.flashWhy('先把顶升起来');
-      return false;
-    }
+  /** living spaces are always freely walkable (even moving, or crouched under Turtle's lowered roof) */
+  mayBoard(_v: ModVehicle): boolean {
     return true;
   }
 
-  /** into a vehicle's living space by an open door (docs/V3/nodes/M2-rv.md): only a vehicle standing still */
+  /** place the free 3D walker just inside a living-space doorway (used by harness & programmatic helpers) */
   board(v: ModVehicle, door: BoardDoor, lookYaw?: number): void {
-    if (!this.mayBoard(v)) return;
-    const ab = new Aboard(v, door.inside, door.inYaw);
-    this.player.goAboard(ab);
+    const def = aboardOf(v.view.frame.id);
+    if (!def) return;
+    const area = def.areas.find((a) => door.inside[0] >= a.x0 && door.inside[0] <= a.x1 && door.inside[1] >= a.z0 && door.inside[1] <= a.z1) ?? def.areas[0];
+    const fy = area?.floor ?? 0.6;
+    v.view.model.updateMatrixWorld(true);
+    const wp = new THREE.Vector3(door.inside[0], fy, door.inside[1]).applyMatrix4(v.view.model.matrixWorld);
+    v.sim.basis(this.basis);
+    const heading = lookYaw ?? Math.atan2(this.basis[2], this.basis[0]) + door.inYaw;
+    const lowRoof = !!def.roof && v.view.roofT < 0.7;
+    if (lowRoof) this.crouch = true;
+    this.player.walker.placeAt(wp.x + this.core.origin.x, wp.y + this.core.origin.y, wp.z + this.core.origin.z, heading, lowRoof);
+    this.player.attachVehicle(v, 0.5);
+    this.player.refreshInside();
     this.input.freeLook = true;
-    // (walked in: still looking where one looked; by the key: straight in)
-    this.input.lookYaw = lookYaw ?? ab.heading() + door.inYaw;
-    this.sound('cloth', 0.35);
-  }
-
-  /** out of it by the door one looks at: outside the door, facing away from the vehicle */
-  alight(v: ModVehicle, door: BoardDoor): void {
-    const ab = this.player.aboard;
-    if (!ab || ab.v !== v) return;
-    const out = ab.toWorld(door.outside[0], 0, door.outside[1], this.core.origin, this.alightP);
-    const heading = ab.heading() + door.inYaw + Math.PI;
-    this.player.leaveAboard();
-    this.player.walker.place(out.x, out.z, heading);
     this.input.lookYaw = heading;
     this.sound('cloth', 0.35);
   }
-  private readonly alightP = { x: 0, y: 0, z: 0 };
 
-  /** from the driver's seat back into the living space behind it (looking back, E): standing behind the seats, facing aft */
+  /** place the free 3D walker outside a living-space doorway */
+  alight(v: ModVehicle, door: BoardDoor): void {
+    v.view.model.updateMatrixWorld(true);
+    const wp = new THREE.Vector3(door.outside[0], 0, door.outside[1]).applyMatrix4(v.view.model.matrixWorld);
+    v.sim.basis(this.basis);
+    const heading = Math.atan2(this.basis[2], this.basis[0]) + door.inYaw + Math.PI;
+    this.player.detachVehicle();
+    this.player.walker.place(wp.x + this.core.origin.x, wp.z + this.core.origin.z, heading);
+    this.player.refreshInside();
+    this.input.lookYaw = heading;
+    this.sound('cloth', 0.35);
+  }
+
+  /** from the driver's seat back into the living space behind it (works at any speed and any roof state) */
   goAft(): void {
     const v = this.seated;
     const def = v ? aboardOf(v.view.frame.id) : null;
     if (!v || !def || !def.aft) return;
-    if (v.sim.bodyKmh > 3) {
-      this.player.flashWhy('先停车');
-      return;
-    }
-    if (def.roof && v.view.roofT < 0.95) {
-      this.player.flashWhy('先把顶升起来');
-      return;
-    }
     this.seated = null;
     this.seatAt = 'driver';
     this.seatSlide = 0;
     this.seatSeen = null;
     v.view.highlight(null);
-    const ab = new Aboard(v, def.aft, Math.PI);
-    this.player.goAboard(ab);
+    const area = def.areas.find((a) => def.aft![0] >= a.x0 && def.aft![0] <= a.x1 && def.aft![1] >= a.z0 && def.aft![1] <= a.z1) ?? def.areas[0];
+    const fy = area?.floor ?? 0.6;
+    v.view.model.updateMatrixWorld(true);
+    const wp = new THREE.Vector3(def.aft[0], fy, def.aft[1]).applyMatrix4(v.view.model.matrixWorld);
+    v.sim.basis(this.basis);
+    const heading = Math.atan2(this.basis[2], this.basis[0]) + Math.PI;
+    const lowRoof = !!def.roof && v.view.roofT < 0.7;
+    this.crouch = lowRoof;
+    this.player.walker.placeAt(wp.x + this.core.origin.x, wp.y + this.core.origin.y, wp.z + this.core.origin.z, heading, lowRoof);
+    this.player.attachVehicle(v, 0.5);
+    this.player.refreshInside();
     this.input.freeLook = true;
-    this.input.lookYaw = ab.heading() + Math.PI;
+    this.input.lookYaw = heading;
     this.input.lookPitch = 0;
     this.sound('cloth', 0.4);
   }
 
-  /** looking back from the seat into a living space behind it, the vehicle standing (the cockpit's E 到车厢里) */
+  /** looking back from the seat into a living space behind it (available at any speed) */
   aftReady(v: ModVehicle): boolean {
-    return !!aboardOf(v.view.frame.id)?.aft && Math.abs(this.input.lookYaw) > 1.9 && v.sim.bodyKmh < 3;
+    return !!aboardOf(v.view.frame.id)?.aft && Math.abs(this.input.lookYaw) > 1.9;
   }
 
   /**
@@ -4530,7 +4536,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.cargo.invalidate(v);
     // a wheel or a spec change keeps the per-wheel grip in force
     applyWheelMods(v.sim, v.sys.derived);
-    void what;
+    if (what.startsWith('on:')) {
+      const mountId = what.slice(3).split(':')[0];
+      const node = v.view.mountNode(mountId);
+      if (node) {
+        node.updateWorldMatrix(true, false);
+        node.getWorldPosition(this.spoutV);
+        const o = this.core.origin;
+        this.dust.attachPuff(this.spoutV.x + o.x, this.spoutV.y + o.y, this.spoutV.z + o.z);
+      }
+    }
     this.checkTutorial();
   }
 
@@ -4755,18 +4770,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       k.x = NaN;
       return;
     }
-    let step = fresh && !w.swimming && w.depth < 0.3;
-    const ab = this.player.aboard;
-    if (ab) {
-      // (inside a living space the walk is the vehicle's own: a footfall every 70 cm of it)
-      if (Number.isFinite(k.x)) k.walked += Math.hypot(w.x - k.x, w.z - k.z);
-      k.x = w.x;
-      k.z = w.z;
-      if (k.walked > 0.7) {
-        k.walked = 0;
-        step = true;
-      }
-    } else k.x = NaN;
+    const step = fresh && !w.swimming && w.depth < 0.3;
+    k.x = NaN;
     if (!step && !jumped && !landed) return;
     const on = this.footing();
     if (landed) {
@@ -4776,7 +4781,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     } else if (jumped) {
       if (!f.cue(`jump:${on}`, 1)) f.cue('jump', 1);
     } else {
-      const speed = ab ? 1.2 : Math.hypot(w.vx, w.vz);
+      const speed = Math.hypot(w.vx, w.vz);
       f.cue(`step:${on}`, footfallGain(on, speed, speed > 3), { vary: 0.12 });
     }
   }
@@ -6010,17 +6015,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     return { ambientC: e.state.temp, dark: e.dark, rain: e.state.rain, wet: e.state.wetness, sun: sky.daylight ?? 1, surface, hour: e.clock.hourAt(this.time) };
   }
 
-  private handbrakeKey(dt: number, down: boolean, v: ModVehicle): number {
-    const sim = v.sim;
+  private handbrakeKey(_dt: number, down: boolean, v: ModVehicle): number {
     if (down && !this.hbWasDown) {
-      this.hbHeld = 0;
-      this.hbIgnore = sim.parkBrake > 0;
-      if (this.hbIgnore) sim.setParkBrake(false);
+      if (!v.sys.hasPart('handbrake')) {
+        this.player.flashWhy('没有手刹');
+      } else {
+        v.sim.setParkBrake(v.sim.parkBrake <= 0);
+        this.sound('ratchet');
+      }
     }
-    if (down) this.hbHeld += dt;
-    if (!down && this.hbWasDown && !this.hbIgnore && this.hbHeld >= 0.5 && sim.kmh < 1) sim.setParkBrake(true);
     this.hbWasDown = down;
-    return down && !this.hbIgnore ? 1 : 0;
+    return 0;
   }
 
   /** the render alpha of this frame (GameContext.renderAlpha) */
@@ -6101,7 +6106,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     // the V3 systems, before the body, the player and the vehicles are stepped
     this.systems.preStep(dt, this);
-    const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || this.pad.run;
+    // ND toggle sprint: Left Shift latches sprint until movement stops or stamina runs out (also works if held).
+    const shiftDown = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
+    if (!this.seated && !this.listV && shiftDown && !this.shiftWasDown) this.sprintToggle = !this.sprintToggle;
+    this.shiftWasDown = shiftDown;
+    const moveIn = Math.hypot(this.input.walk.forward, this.input.walk.right) > 0.05;
+    if (this.seated || (!moveIn && !shiftDown) || !canSprint(this.body)) this.sprintToggle = false;
+    const shift = this.sprintToggle || this.pad.run;
     this.stepBody(dt, shift);
     {
       const e = this.player.walker.eye(this.eyeP);
@@ -6180,12 +6191,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         // Drive's view is drawn back so when it would be in something)
         const ab = this.player.aboard;
         const want = v.ahead;
-        if (ab) {
-          const fw = this.player.walker;
-          const u = Math.max(-0.9, Math.min(1.1, -fw.pitch));
-          const extra = v.aheadDown * u + v.turn * (1 - Math.cos(u));
-          v.ahead = Math.max(0, Math.min(v.ahead, ab.roomAhead(0.5) + 0.05 - extra));
-        }
+        if (ab) v.ahead = Math.min(v.ahead, 0.04);
         this.aheadCut = want - v.ahead;
       }
       // (crouched to a stove by the kitchen — workCrouch — or stood up from it again, the view goes on looking at what
@@ -6224,11 +6230,26 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         jump: !listing && (i.isDown('Space') || this.pad.jump),
         crouch: this.crouch || this.workCrouch,
         drop: !listing && (this.dropButton || this.pad.drop),
-        // (the right button, as it is now: what the player made of it last frame is not fed back)
-        take: !listing && (this.rightButton || this.pad.take),
-        // (the right button's release is seen through the window's mouseup below)
+        // ND secondary interaction & held-item use on E; RMB reserved for eye zoom / free-rotate / viewfinder.
+        take: !listing && (i.isDown('KeyE') || this.pad.take),
+        rmb: !listing && this.rightButton,
       } as never);
-      // (Q is a press now: placing is R's — docs/V3/plan/hands.md §四; the thing in the hands may have the view: a rod with a fish on)
+      // Q charge-to-throw on foot: tap (<0.18 s) = soft 4 m/s toss, hold = charge 4 -> 14 m/s over 1.2 s.
+      if (this.qHoldT >= 0) {
+        if (listing || !this.player.held || this.player.placer?.placing) {
+          this.qHoldT = -1;
+          this.player.qCharge = 0;
+        } else if (i.isDown('KeyQ')) {
+          this.qHoldT += dt;
+          this.player.qCharge = this.qHoldT > 0.18 ? Math.min(1, (this.qHoldT - 0.18) / ND_HOLD_S.throwMax) : 0;
+        } else {
+          const ch = this.qHoldT > 0.18 ? Math.min(1, (this.qHoldT - 0.18) / ND_HOLD_S.throwMax) : 0;
+          this.qHoldT = -1;
+          this.player.qCharge = 0;
+          this.player.throwHeld(ch);
+        }
+      }
+      // (Q is throw, placing is R; the thing in the hands may have the view: a rod with a fish on)
       this.input.lookHold = this.player.transferring || listing || !!this.player.scrub || !!hl;
       // (a pad's right stick moves the scrubbing tool as the mouse does)
       if (this.player.scrub && (this.pad.rx !== 0 || this.pad.ry !== 0)) this.player.scrubMove(this.pad.rx * dt * 700, this.pad.ry * dt * 700);
@@ -6239,16 +6260,20 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // seated: the workbench words go away (the cab's controls have the mark now); the hotbar stays
       this.input.lookHold = false;
       this.heldLookNow = null;
+      this.qHoldT = -1;
+      this.player.qCharge = 0;
+      if (this.autoCrank && (this.seated.sys.running || !this.seated.sys.cranking)) this.autoCrank = false;
       const items = this.ui.items;
       items.showCards(null, null, false);
       items.showTransfer(null);
       items.showKeys(this.driveKeys(this.seated));
       items.showHotbar(this.player.slotViews(), this.player.sel);
       this.standUp(dt);
-      this.stepAutoLights(dt);
     }
     this.stepStranded(dt);
     this.stepKits(dt);
+    // Capture attached vehicle pose before vehicles step so surface carry matches this frame's exact displacement.
+    if (!this.seated) this.player.prepareCarry();
     // vehicles
     for (const v of this.vehicles) {
       let input = null;
@@ -6261,9 +6286,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
           this.ui.say('你接过了方向盘', 1.6);
         }
         const robot = this.deadT >= 0 || this.scripted ? null : (pr?.input(dt, v) ?? null);
-        // (sleepy at the wheel: the hands come round a moment late — docs/V3/plan/growth.md §四)
-        const k = sleepyNow(this.body) ? 1 - Math.exp(-dt * 3.5) : 1;
-        this.steerHeld += (d.steer - this.steerHeld) * k;
+        this.steerHeld = d.steer;
         input = this.deadT >= 0 ? { steer: 0, throttle: 0, brake: 1, handbrake: 1 } : this.scripted ?? robot ?? { steer: this.steerHeld, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
       }
       v.step(dt, this.ground, this.modEnv(v), input);
@@ -6279,6 +6302,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         if (gain > 0.02) this.sounds()?.play('tyre_burst', { gain });
       }
     }
+    // Per-frame vehicle surface attachment & carry for the on-foot walker (floors, pickup beds, roofs).
+    if (!this.seated) this.player.stepVehicleCarry(dt, this.input);
     this.stepCones(dt);
     this.provingRun?.update(dt);
     this.loose.update(dt);
@@ -6527,10 +6552,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const core = this.core;
     const cam = core.camera;
     const o = core.origin;
-    // the weather's wipers on the car one sits in (not under the workshop's roof: no rain on the glass there); the
-    // filler cap open while fuel goes in
+    // Wipers: automatic in rain by default; manual K cycles off -> slow -> fast -> off (needs battery).
     const sheltered = this.place === 'garage' && (!this.seamless || this.indoors());
-    this.env.wiperMode = this.seated?.view.wipers.length && !sheltered ? 'auto' : 'off';
+    const hasWipers = !!this.seated?.view.wipers.length && (this.seated.sys.dash.battery ?? 0) > 0.02;
+    this.env.wiperMode = !hasWipers ? 'off' : this.manualWiper === 'auto' ? (sheltered ? 'off' : 'auto') : this.manualWiper;
     const t = this.player.target;
     for (const v of this.vehicles) {
       v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
@@ -6684,7 +6709,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         cam.rotateY(sh.yaw);
       }
       // (looking at the instruments: the view drawn in — stepGauges)
-      const wide = this.rig.fov + this.tune.get('look.fov') + this.settings.fov - 70;
+      // (the seat's view is the rig's, Nomad Drive's 75°, moved by as much as the dial and the player's setting move the view on foot)
+      const wide = this.rig.fov + this.tune.get('look.fov') - (this.tune.dial('look.fov')?.def ?? 75) + this.settings.fov;
       const seatFov = this.gauges.zoom > 1.001 ? (Math.atan(Math.tan((wide * Math.PI) / 360) / this.gauges.zoom) * 360) / Math.PI : wide;
       if (Math.abs(cam.fov - seatFov) > 0.01) {
         cam.fov = seatFov;
@@ -6709,15 +6735,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.thunk *= Math.exp(-dt * 13);
       this.qb.setFromAxisAngle(Z, w.pitch - 0.02 * this.thunk);
       cam.quaternion.copy(this.qa).multiply(this.qb).multiply(QFIX);
-      // (sprinting widens the view by 4°; drunk, it sways)
+      // (sprinting widens the view by 2.2° as in Nomad Drive; hold RMB narrows 75° -> 50° in 0.49 s)
+      const wantEyeZoom = !this.listV && this.tabAt < 0 && !this.benchWs?.open && this.deadT < 0 && this.rightButton && !this.player.rmbClaimed;
+      this.eyeZoomT = Math.max(0, Math.min(1, this.eyeZoomT + (wantEyeZoom ? 1 : -1) * (dt / 0.49)));
+      const eyeZoomK = this.eyeZoomT * this.eyeZoomT * (3 - 2 * this.eyeZoomT);
       // (the thing in the hands may narrow it: a rod with a fish on, the fight drawn closer — eased in and out)
       const hf = this.heldLookNow?.fov;
       // (from one narrowing to another it eases too: a leap drawn in closer within the fight's own)
       if (hf) this.heldFov = this.heldZoomB < 0.01 ? hf : this.heldFov + (hf - this.heldFov) * (1 - Math.exp(-dt * 7));
       this.heldZoomB += ((hf ? 1 : 0) - this.heldZoomB) * (1 - Math.exp(-dt * 3.5));
       if (this.heldZoomB < 0.002) this.heldZoomB = 0;
-      const baseFov = this.tune.get('look.fov') + this.settings.fov + 4 * this.sprintB;
+      const baseFov = this.tune.get('look.fov') + this.settings.fov + 2.2 * this.sprintB;
       let footFov = this.heldZoomB > 0 ? baseFov + (this.heldFov - baseFov) * this.heldZoomB : baseFov;
+      if (eyeZoomK > 0) footFov = footFov + (50 + this.settings.fov - footFov) * eyeZoomK;
       // (a system's zoom: a camera raised to the eye, GameContext.lookZoom)
       // (… and drawn in on what one stands working at: GameContext.workZoom)
       const zoom = this.lookZoom * this.workZoom;
@@ -6786,15 +6816,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const tip = flow && dock && this.player.lastMoved > 0 && (this.heldThing.pouring > 0.7 || atPump) ? this.heldThing.spoutWorld(this.spoutV) : null;
     this.stream.update(dt, tip, this.dockMouth, this.liquidColour(this.player.held), flow?.dir === 'out' ? -1 : 1);
     this.icons?.pump();
-    // in the seat: the mark on the cab's controls (the one it is on lights up)
-    if (this.seated) {
-      this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
-      // (a small control lights up under the mark; the wheel one looks through, and a door, do not)
-      const a = this.cockpit.aimed;
-      this.seated.view.highlight(a && a.cat !== 'steering' && a.cat !== 'door' ? a.id : null);
-    }
     this.updateBeam();
     this.updateHer(dt, cam);
+    // in the seat: the mark on the cab's controls (the one it is on lights up) — from the eye the view is drawn from,
+    // her own as she sits posed (updateHer moves the camera there from the seat's eye point: looking down at the
+    // handbrake 15 cm ahead, 16 lower and 12 across, and the mark from the old point fell beside what the middle of the
+    // view was on; her hand reaches for what was marked the frame before)
+    if (this.seated) {
+      this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
+      // (a small control lights up under the mark; the wheel one looks through does not)
+      const a = this.cockpit.aimed;
+      this.seated.view.highlight(a && a.cat !== 'steering' && a.cat !== 'door' ? a.id : null);
+      this.core.frame.outline = this.viewMode === 'cockpit' && a && a.cat !== 'steering' ? this.seated.view.outlineTarget(a.id) : null;
+    } else {
+      this.core.frame.outline = !this.listV && this.tabAt < 0 && !this.benchWs?.open && this.deadT < 0 ? this.player.outlineTarget : null;
+    }
     this.stepGauges(dt, cam);
     // shadows round the vehicle in focus (or the walker)
     core.shadowFocus.set(fx - o.x, fy - o.y, fz - o.z);

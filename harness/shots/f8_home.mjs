@@ -194,7 +194,7 @@ try {
   await rt('setOrbit', 150, 10, 10.5, 1.5, snail.i);
   await shot('06_snail_back.png');
 
-  // ---- 3. the Whale: opened up
+  // ---- 3. the Whale: emptied (§十九 step 7: only the over-cab bunk kept, wall to wall)
   const whale = await page.evaluate(async () => {
     const g = window.__rt.game;
     const B = await import('/src/core/modcar/build.ts');
@@ -213,13 +213,13 @@ try {
     g.simulate(1.0);
     g.board(v, def.doors[0]);
     g.simulate(0.4);
-    const aisle = def.areas.find((a) => a.name === 'aisle');
-    return { i: g.vehicles.indexOf(v), aboard: g.player.aboard?.v === v, aisle: +(aisle.z1 - aisle.z0).toFixed(2), beds: def.beds.length, rearSeat: !!v.build.parts.seat_rear, mounts: v.view.frame.mounts.some((m) => m.id === 'seat_rear') };
+    const width = +(Math.max(...def.areas.map((r) => r.z1)) - Math.min(...def.areas.map((r) => r.z0))).toFixed(2);
+    return { i: g.vehicles.indexOf(v), aboard: g.player.aboard?.v === v, width, beds: def.beds.length, extraSeats: !!v.build.parts.seat_rear || !!v.build.parts.seat_dinette, mounts: v.view.frame.mounts.some((m) => m.id === 'seat_rear' || m.id === 'seat_dinette') };
   });
-  // (its living box inside its walls: from the back wall to the cab's opening, wall to wall; looked down on from under the shelves)
-  const whaleFloor = await openFloor(whale.i, -3.87, 0.94, -1.085, 1.085, 0.86, 2.3);
-  ok(whale.aboard && whale.aisle >= 1.0 && whale.beds === 2 && !whale.rearSeat && !whale.mounts, `a Whale: in by its side door; the aisle ${whale.aisle} m wide, two beds, no bench at the back (${JSON.stringify(whale)})`);
-  ok(whaleFloor.open >= 6.0, `its open floor: ${whaleFloor.open} m² of the box's ${whaleFloor.of} (six at least)`);
+  // (its living box inside its walls: wall to wall, from ahead of its rounded rear corners to behind the seats)
+  const whaleFloor = await openFloor(whale.i, -4.85, 0.85, -1.085, 1.085, 0.86, 2.3);
+  ok(whale.aboard && whale.width >= 1.9 && whale.beds === 1 && !whale.extraSeats && !whale.mounts, `a Whale: in by its side door; ${whale.width} m wall to wall, its over-cab bunk only, no rear/dinette bench (${JSON.stringify(whale)})`);
+  ok(whaleFloor.open >= 10.0, `its open floor: ${whaleFloor.open} m² of the box's ${whaleFloor.of} (ten at least)`);
   await rt('setView', 'cockpit');
   await standIn(0.7, 0.3, Math.PI, -0.1);
   await shot('07_whale_back.png');
@@ -228,11 +228,12 @@ try {
   await standIn(-1.3, 0.3, Math.PI / 2 + 0.5, 0.25);
   await shot('09_whale_shelf.png');
 
-  // ---- 4. the Old Elephant: its room opened up
+  // ---- 4. the Old Elephant: emptied (§十九 step 7: found with nothing in it; a sofa placed on the floor is moved)
   const eleph = await page.evaluate(async () => {
     const g = window.__rt.game;
     const B = await import('/src/core/modcar/build.ts');
     const A = await import('/src/core/modcar/aboard.ts');
+    const It = await import('/src/core/modcar/items.ts');
     g.alight(g.player.aboard.v, A.aboardOf('rv').doors[0]);
     g.simulate(0.3);
     const car = window.__car;
@@ -246,19 +247,26 @@ try {
     window.__eleph = v;
     await g.stowFittings(v);
     g.simulate(0.3);
+    const stockRiders = g.loose.ridersOf(v).length;
     const def = A.aboardOf('elephant');
     v.view.setPanelOpen('door_side', true);
     g.simulate(1.0);
     g.board(v, def.doors[0]);
     g.simulate(0.4);
-    const riders = g.loose.ridersOf(v);
-    const sofa = riders.find((l) => l.item?.item === 'nd_sofa_2');
-    return { i: g.vehicles.indexOf(v), aboard: g.player.aboard?.v === v, aisle: +Math.min(...def.areas.map((r) => r.z1 - r.z0)).toFixed(2), hobs: riders.filter((l) => l.item?.item === 'kit_hob').length, sofa: sofa ? { zone: sofa.stow, x: +sofa.riding.pos.x.toFixed(2), z: +sofa.riding.pos.z.toFixed(2) } : null };
+    const width = +(Math.max(...def.areas.map((r) => r.z1)) - Math.min(...def.areas.map((r) => r.z0))).toFixed(2);
+    const aisle = +Math.min(...def.areas.map((r) => r.z1 - r.z0)).toFixed(2);
+    // place a sofa on the floor so the pick-up check below verifies moving placed furniture
+    const held = { kind: 'item', item: It.newItem('nd_sofa_2') };
+    await g.cargo.measured(held);
+    const at = g.cargo.spotIn(v, 'cabin', held, { x: -2.22, z: 0.7 }, Math.PI / 2, 0);
+    const sofa = at ? g.cargo.stow(v, at.zone, at.spot, held) : null;
+    g.simulate(0.2);
+    return { i: g.vehicles.indexOf(v), aboard: g.player.aboard?.v === v, stockRiders, width, aisle, sofa: sofa ? { zone: sofa.stow, x: +sofa.riding.pos.x.toFixed(2), z: +sofa.riding.pos.z.toFixed(2) } : null };
   });
-  // (its room inside its walls: from the bed's platform to the cab's seat boxes; looked down on from under the lockers)
-  const elephFloor = await openFloor(eleph.i, -1.9, 2.5, -1.15, 1.15, 0.62, 2.4);
-  ok(eleph.aboard && eleph.aisle >= 1.1 && eleph.hobs === 4 && !!eleph.sofa && eleph.sofa.zone === 'cabin', `an Old Elephant: in by its entry door; the aisle ${eleph.aisle} m at the least, its four hobs, a sofa standing on the floor (${JSON.stringify(eleph)})`);
-  ok(elephFloor.open >= 6.5, `its open floor: ${elephFloor.open} m² of the room's ${elephFloor.of} (six and a half at least)`);
+  // (its room inside its walls: from the engine deck to the cab's seat boxes)
+  const elephFloor = await openFloor(eleph.i, -4.1, 2.45, -1.15, 1.15, 0.62, 2.4);
+  ok(eleph.aboard && eleph.stockRiders === 0 && eleph.width >= 2.0 && eleph.aisle >= 1.1 && !!eleph.sofa && eleph.sofa.zone === 'cabin', `an Old Elephant: found empty; ${eleph.width} m wall to wall (${eleph.aisle} m between humps), a placed sofa standing on the floor (${JSON.stringify(eleph)})`);
+  ok(elephFloor.open >= 11.0, `its open floor: ${elephFloor.open} m² of the room's ${elephFloor.of} (eleven at least)`);
   await rt('setView', 'cockpit');
   await standIn(2.3, -0.2, Math.PI, -0.1);
   await shot('10_elephant_back.png');
@@ -628,8 +636,8 @@ try {
     const held = { kind: 'item', item: fr };
     await g.loose.objectFor(held);
     for (let i = 0; i < 60 && !g.cargo.boxOf(held); i++) await new Promise((r) => setTimeout(r, 50));
-    // (its back to the galley's side, its door to the aisle)
-    const at = g.cargo.spotIn(v, 'cabin', held, { x: -1.3, z: -0.16 }, -Math.PI / 2, 0);
+    // (its back to the left wall, its door to the room)
+    const at = g.cargo.spotIn(v, 'cabin', held, { x: -2.0, z: -0.75 }, -Math.PI / 2, 0);
     if (!at || at.spot.lie) return { why: `no room for a fridge standing (${JSON.stringify(at?.spot ?? null)})` };
     const fridge = g.cargo.stow(v, at.zone, at.spot, held);
     g.simulate(0.4);

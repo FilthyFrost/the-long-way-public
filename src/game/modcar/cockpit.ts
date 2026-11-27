@@ -1,23 +1,42 @@
 /**
  * The controls in the cab (docs/MODCAR.md §5.1): in the driver's seat the mark finds the handbrake, the
- * gear lever, the key, the radio, the horn and the doors; a click works them (the key: hold to crank),
- * exactly like their keys. The parts move: the lever goes up, the gear lever leans, the key turns.
+ * key, the radio, the horn and the doors; a click works them (the key: hold to crank), exactly like their
+ * keys. The parts move: the lever goes up, the key turns, and the gear lever leans with the gear the box is in —
+ * the gearbox is an automatic, as Nomad Drive's are (no lever of theirs to work): the lever is the cab's look, never
+ * marked, never worked (the player's word of 2026-11-27).
  *
  * From the other front seat (docs/V3/nodes/M1-interact.md) one reaches what lies between the seats and beside
  * one — the handbrake, the radio, the door on one's own side — and from either front seat the mark finds the
  * other one: a click moves one over. Q held gets one out (docs/V3/plan/growth.md J1: E is gone).
+ *
+ * What the middle of the view is on is what is marked, as Nomad Drive's one ray from the eye does it: each control
+ * is met by a shape of its own — the small ones (the handbrake, the key, the radio) by their own box as they stand, a
+ * centimetre larger all round; the wheel, a door, the other seat by their own meshes — and the nearest one the ray
+ * meets is the one, unless anything else of the vehicle (the dashboard, a pillar, one's own seat) stands in front of
+ * it by more than its skin's grace. A seat's big box never stands over the lever beside it, nor the wheel's over the
+ * key behind it.
  */
 import type { Action } from './hudItems';
 import * as THREE from 'three';
 import { partDef } from '../../core/modcar/parts';
+import { nearestMarked } from './aim';
 import type { MountDef } from '../../core/modcar/types';
 import { SONGS, stationLabel } from './radio';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 
-const CONTROL_CATS = new Set(['handbrake', 'gearLever', 'ignition', 'radio', 'horn', 'door', 'steering']);
+/** what the mark finds from the driver's seat (gear lever is decorative; steering wheel is not horn — H or horn pad is) */
+const CONTROL_CATS = new Set(['handbrake', 'ignition', 'radio', 'horn', 'door']);
 /** what one reaches from the passenger's seat: the handbrake and the radio between the seats, the door beside one */
 const PASSENGER_CATS = new Set(['handbrake', 'radio', 'door']);
+/** the small controls, met on their own box (their own frame's, CONTROL_PAD larger) rather than their meshes alone */
+const BOXED_CATS = new Set(['handbrake', 'ignition', 'radio']);
+/** how much larger than it is all round a small control's box is (m): a key 3 cm wide is aimed at over 5.4 */
+export const CONTROL_PAD = 0.012;
+/** how far behind the first thing the ray meets a control may be met and still be the one (m: Nomad Drive's 2 cm) */
+export const SKIN_GRACE = 0.02;
+/** the hands' reach from a seat (m from the eye) */
+export const SEAT_REACH = 1.3;
 
 /** which front seat one sits in */
 export type FrontSeat = 'driver' | 'pass';
@@ -93,40 +112,38 @@ export class Cockpit {
   aimedAft = false;
   /** the key held down through a click on it */
   private cranking = false;
-  private readonly box = new THREE.Box3();
-  private readonly ray = new THREE.Ray();
-  private readonly hit = new THREE.Vector3();
-  private readonly v = new THREE.Vector3();
+  private readonly eye = new THREE.Vector3();
+  private readonly dir = new THREE.Vector3();
+  private readonly hits: { t: MountDef; d: number }[] = [];
 
   constructor(private readonly host: CockpitHost) {}
 
-  /** what the camera's middle is on, among the cab's controls */
+  /** a mount the hands reach from the seat one sits in: a control there, one's own door, the other front seat */
+  private reaches(v: ModVehicle, m: MountDef, seat: FrontSeat, other: MountDef | null): boolean {
+    if (!v.build.parts[m.id]) return false;
+    if (m === other) return true;
+    if (!CONTROL_CATS.has(m.cat) || (seat === 'pass' && !PASSENGER_CATS.has(m.cat))) return false;
+    // (only one's own doors from the seat)
+    return m.cat !== 'door' || ownDoor(m.id, seat);
+  }
+
+  /** what the camera's middle is on, among the cab's controls (the module's comment: Nomad Drive's one ray) */
   pick(v: ModVehicle, cam: THREE.PerspectiveCamera): MountDef | null {
     cam.updateMatrixWorld();
-    cam.getWorldPosition(this.v);
-    this.ray.origin.copy(this.v);
-    cam.getWorldDirection(this.ray.direction);
-    let best: MountDef | null = null;
-    let bd = 1.3;
+    const eye = cam.getWorldPosition(this.eye);
+    const dir = cam.getWorldDirection(this.dir);
     const seat = this.host.seatAt;
     const other = seatMount(v, seat === 'pass' ? 'driver' : 'pass');
-    this.aimedSeat = false;
+    const hits = this.hits;
+    hits.length = 0;
     for (const m of v.view.frame.mounts) {
-      const across = m === other;
-      if (!v.build.parts[m.id] || (!across && (!CONTROL_CATS.has(m.cat) || (seat === 'pass' && !PASSENGER_CATS.has(m.cat))))) continue;
-      // only one's own doors from the seat
-      if (m.cat === 'door' && !ownDoor(m.id, seat)) continue;
-      const b = v.view.boundsOf(m.id, this.box);
-      if (!b) continue;
-      b.expandByScalar(0.02);
-      const p = this.ray.intersectBox(b, this.hit);
-      if (!p) continue;
-      const d = p.distanceTo(this.ray.origin);
-      if (d < bd) {
-        bd = d;
-        best = m;
-      }
+      if (!this.reaches(v, m, seat, other)) continue;
+      const d = BOXED_CATS.has(m.cat) ? v.view.boxCast(m.id, eye, dir, CONTROL_PAD, SEAT_REACH) : v.view.castOn(m.id, eye, dir, SEAT_REACH);
+      if (d !== null) hits.push({ t: m, d });
     }
+    // (what of the vehicle the ray meets first of all: the dashboard, a pillar, one's own seat in front of a control hide it)
+    const best = hits.length ? nearestMarked(hits, v.view.castShown(eye, dir, SEAT_REACH)?.dist ?? null, SKIN_GRACE) : null;
+    hits.length = 0;
     this.aimedSeat = best !== null && best === other;
     return best;
   }
@@ -158,7 +175,6 @@ export class Cockpit {
       if (this.aimedSeat) acts.push({ keys: ['LMB'], text: this.host.seatAt === 'pass' ? '坐到驾驶座' : '坐到副驾驶' });
       else if (use) acts.push(...use.actions(v, m));
       else if (m.cat === 'handbrake') acts.push({ keys: ['LMB'], text: `${s.parkBrake > 0 ? '松开' : '拉起'} <b>${name}</b>` });
-      else if (m.cat === 'gearLever') acts.push({ keys: ['LMB'], text: '加挡' }, { keys: ['RMB'], text: '减挡' });
       else if (m.cat === 'ignition') acts.push(v.sys.running ? { keys: ['LMB'], text: `熄火 <b>${name}</b>` } : { keys: ['LMB'], hold: true, text: `打火 <b>${name}</b>` });
       else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: '换台' }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));
       else if (m.cat === 'horn' || m.cat === 'steering') acts.push({ keys: ['LMB'], hold: true, text: '按喇叭' });
@@ -182,8 +198,7 @@ export class Cockpit {
     if (m.cat === 'handbrake') {
       s.setParkBrake(s.parkBrake <= 0);
       this.host.sound('ratchet');
-    } else if (m.cat === 'gearLever') this.host.sound(v.sys.stepLever(right ? 1 : -1) ? 'lever' : 'grind');
-    else if (m.cat === 'ignition') {
+    } else if (m.cat === 'ignition') {
       if (v.sys.running) v.sys.stop('');
       else if (!this.host.blockedStart?.(v)) {
         v.sys.crank(true);

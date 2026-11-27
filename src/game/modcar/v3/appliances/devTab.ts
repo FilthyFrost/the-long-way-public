@@ -1,32 +1,64 @@
 /**
- * The developer's tab 电器 of the appliances module (node M2): a motorhome furnished at a click — the coffee machine
- * (its pot under the spout, beans in its hopper) on the galley's worktop, the lamp on the dinette's table, the solar
- * lamp beside it, the television and the record player by the door, the clock radio, a bag of beans and a mug beside
- * the coffee machine; each kind given into the hands; all of them switched on or off.
+ * The developer's tab 电器 of the appliances module (node M2): a motorhome furnished at a click — its living space an
+ * empty shell (docs/V3/plan/finish.md §十九 step 7), the furniture first: a kitchen stand along the left wall and a
+ * kitchen table ahead of it; then the coffee machine (its pot under the spout, beans in its hopper), a bag of beans, a
+ * mug and the clock radio along the stand's top, the lamp and the solar lamp on the table, the television and the
+ * record player on the floor by the door; each kind given into the hands; all of them switched on or off.
  *
  * It is made of the panel's own pieces (kernel/devTabs.ts DevPane).
  */
 import { newItem, type ItemInstance } from '../../../../core/modcar/items';
 import { aboardOf } from '../../../../core/modcar/aboard';
+import { zonesFor } from '../../../../core/modcar/cargo';
 import { appOf, COFFEE_POT, toggle } from '../../../../core/v3/appliances/appliances';
 import type { GameContext } from '../../kernel/context';
 import type { DevButton, DevTab } from '../../kernel/devTabs';
+import type { Loose } from '../../loose';
 import type { ModVehicle } from '../../vehicle';
 import type { Appliances } from './system';
 
-/** what goes where in a motorhome (its zones: core/modcar/cargo.ts) */
-/** what goes where in a motorhome (its zones: core/modcar/cargo.ts), near which point of it (frame model space — the Whale's since it was lengthened, docs/V3/plan/finish.md §18), facing which way (0: forward, −π/2: to the right) */
-const FURNISH: readonly { id: string; zone: string; at: [number, number]; yaw: number; set?: (it: ItemInstance) => void }[] = [
+interface Put {
+  id: string;
+  /** near which point (frame model space — the Whale's: where its galley and its dinette stood), or, for a thing on a piece of furniture, how far along the furniture from its middle (m, the vehicle's x) */
+  at: [number, number];
+  /** facing which way (0: forward, −π/2: to the right) */
+  yaw: number;
+  set?: (it: ItemInstance) => void;
+}
+/** the furniture (Nomad Drive's kitchen stand and kitchen table), then what goes on each, then what stands on the floor */
+const STAND: Put = { id: 'nd_kitchen_stand', at: [-2.2, -0.75], yaw: Math.PI / 2 };
+const TABLE: Put = { id: 'nd_dinner_table', at: [0.3, -0.62], yaw: 0 };
+const ON_STAND: readonly Put[] = [
   // (the coffee machine, its pot under the spout and a bag's worth of beans in it: core/v3/nd/coffee.ts)
-  { id: 'nd_coffee_machine', zone: 'galley', at: [-2.3, -0.85], yaw: -Math.PI / 2, set: (it) => void ((it.state ??= {}).ndCoffee = { fill: 1, cup: newItem(COFFEE_POT) }) },
-  { id: 'nd_coffee_pack', zone: 'galley', at: [-2.13, -0.62], yaw: -Math.PI / 2 },
-  { id: 'nd_mug', zone: 'galley', at: [-1.7, -0.75], yaw: 0 },
-  { id: 'junk_clockradio', zone: 'galley', at: [-1.95, -0.74], yaw: -Math.PI / 2 },
-  { id: 'junk_lamp', zone: 'table', at: [-0.32, -0.85], yaw: -Math.PI / 2 },
-  { id: 'junk_tv', zone: 'lounge', at: [-1.75, 0.45], yaw: 0 },
-  { id: 'junk_record', zone: 'lounge', at: [-0.9, 0.1], yaw: Math.PI },
-  { id: 'junk_solar_lamp', zone: 'table', at: [-0.515, -0.47], yaw: 0 },
+  { id: 'nd_coffee_machine', at: [-0.42, 0.05], yaw: -Math.PI / 2, set: (it) => void ((it.state ??= {}).ndCoffee = { fill: 1, cup: newItem(COFFEE_POT) }) },
+  { id: 'nd_coffee_pack', at: [-0.1, 0.05], yaw: -Math.PI / 2 },
+  { id: 'nd_mug', at: [0.15, 0.05], yaw: 0 },
+  { id: 'junk_clockradio', at: [0.45, 0.05], yaw: -Math.PI / 2 },
 ];
+const ON_TABLE: readonly Put[] = [
+  { id: 'junk_lamp', at: [0.18, 0], yaw: -Math.PI / 2 },
+  { id: 'junk_solar_lamp', at: [-0.22, 0], yaw: 0 },
+];
+const ON_FLOOR: readonly Put[] = [
+  { id: 'junk_tv', at: [-1.75, 0.45], yaw: 0 },
+  { id: 'junk_record', at: [-0.9, 0.1], yaw: Math.PI },
+];
+
+/**
+ * A thing put in a motorhome near a point of its floor (frame model space), turned so — or on top of what stands there,
+ * as one puts a thing on a table — once its model is measured; where the floor there has no room, wherever it has:
+ * where it went (model space) and the thing, or null
+ */
+async function putIn(ctx: GameContext, v: ModVehicle, p: Put, x: number, z: number, zone?: string): Promise<{ x: number; z: number; zone: string; l: Loose } | null> {
+  const it = newItem(p.id);
+  p.set?.(it);
+  const held = { kind: 'item' as const, item: it };
+  await ctx.cargo.measured(held);
+  const floor = zone ?? zonesFor(v.view.frame.id, v.build).find((q) => !q.wall && q.id !== 'pass' && q.id !== 'dash' && x >= q.x[0] && x <= q.x[1] && z >= q.z[0] && z <= q.z[1])?.id;
+  const at = (floor ? ctx.cargo.spotIn(v, floor, held, { x, z }, p.yaw, 0) : null) ?? ctx.cargo.packSpot(v, held);
+  if (!at) return null;
+  return { x: at.spot.x, z: at.spot.z, zone: at.zone.id, l: ctx.cargo.stow(v, at.zone, at.spot, held) };
+}
 
 /** the vehicle with a living space one is in, sits in, or stands nearest to (within 12 m) */
 function homeOf(ctx: GameContext): ModVehicle | null {
@@ -47,19 +79,16 @@ function homeOf(ctx: GameContext): ModVehicle | null {
   return best;
 }
 
-/** put the motorhome's furniture in, each once its model is in (so the next is packed round it): how many went in */
+/** furnish a motorhome: its furniture, then the appliances on it and by the door, each once its model is in (so the next is packed round it): how many things went in */
 export async function furnish(ctx: GameContext, v: ModVehicle): Promise<number> {
   let n = 0;
-  for (const f of FURNISH) {
-    const it = newItem(f.id);
-    f.set?.(it);
-    const held = { kind: 'item' as const, item: it };
-    await ctx.cargo.measured(held);
-    const at = ctx.cargo.spotIn(v, f.zone, held, { x: f.at[0], z: f.at[1] }, f.yaw, 0) ?? ctx.cargo.packSpot(v, held);
-    if (!at) continue;
-    ctx.cargo.stow(v, at.zone, at.spot, held);
+  for (const [f, on] of [[STAND, ON_STAND], [TABLE, ON_TABLE]] as const) {
+    const base = await putIn(ctx, v, f, f.at[0], f.at[1]);
+    if (!base) continue;
     n++;
+    for (const p of on) if (await putIn(ctx, v, p, base.x + p.at[0], base.z + p.at[1], base.zone)) n++;
   }
+  for (const p of ON_FLOOR) if (await putIn(ctx, v, p, p.at[0], p.at[1])) n++;
   return n;
 }
 
@@ -89,12 +118,12 @@ export function appliancesTab(sys: Appliances, game: () => GameContext | null): 
     build(pane) {
       const say = pane.message();
       pane.heading('房车');
-      pane.note('站在房车里、坐在房车里或站在旁边：咖啡机（壶在出水口下面，豆子装好了）放到厨房台面，台灯和太阳能灯放到餐桌，电视和唱片机放到车门边，收音闹钟放在咖啡机旁边，旁边再放一袋咖啡豆和一个杯子。');
+      pane.note('站在房车里、坐在房车里或站在旁边：车厢是空的，先靠左墙放一个橱柜、前面放一张方餐桌；咖啡机（壶在出水口下面，豆子装好了）、一袋咖啡豆、一个杯子和收音闹钟放到橱柜上，台灯和太阳能灯放到餐桌上，电视和唱片机放到车门边。');
       pane.buttons([
         {
           label: '一套电器放进房车',
           go: true,
-          tip: '把八样东西放进最近的房车',
+          tip: '把橱柜、餐桌和八样电器放进最近的房车',
           click: () => {
             const ctx = game();
             const v = ctx ? homeOf(ctx) : null;

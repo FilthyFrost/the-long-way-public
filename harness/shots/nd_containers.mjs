@@ -156,24 +156,22 @@ try {
   await click();
   s = await state();
   ok(s.held === 'ing_tomato' && JSON.stringify(await inside(c.uid)) === JSON.stringify(['drink_cola']), `a click takes the tomato into the hands; the can stays (held ${s.held}, in it ${JSON.stringify(await inside(c.uid))})`);
-  // (Q, the mark on the open cooler with a pack of coffee in the hands: in at the first place it fits)
-  await rt('hold', 'item:nd_coffee_pack');
-  await rt('aimPoint', c.x, c.mid, c.z, front, 0.8);
-  await step(0.3);
-  s = await state();
-  ok(/Q 放进 保温箱/.test(s.words), `with a thing in the hands, the mark on the open cooler: Q 放进 保温箱 ("${s.words}")`);
-  await key('KeyQ');
-  await step(0.3);
+  // (R placement puts a pack of coffee into the open cooler beside the can — old Q stow shortcut removed)
+  const a3 = await S('boardAt', c.uid, 0, -0.05, -0.1);
+  const r3 = await placeAt('nd_coffee_pack', a3, front, 0.55);
   s = await state();
   v = await view(c.uid);
-  ok(!s.held && JSON.stringify(await inside(c.uid)) === JSON.stringify(['drink_cola', 'nd_coffee_pack']) && v?.things.length === 2, `Q: the pack goes in beside the can (held ${s.held || 'nothing'}, ${JSON.stringify(v?.things.map((t) => [t.item, +t.x.toFixed(3), +t.z.toFixed(3)]))})`);
-  // (Tab still lists what is in it)
+  ok(r3.aim.ok && !s.held && JSON.stringify(await inside(c.uid)) === JSON.stringify(['drink_cola', 'nd_coffee_pack']) && v?.things.length === 2, `R placement: the pack goes in beside the can (held ${s.held || 'nothing'}, ${JSON.stringify(v?.things.map((t) => [t.item, +t.x.toFixed(3), +t.z.toFixed(3)]))})`);
+  // (Tab no longer lists container contents — ND immersion; only 'self' body list or closed)
   await rt('aimPoint', c.x, c.mid, c.z, front, 0.8);
   await step(0.2);
   await key('Tab');
   await step(0.2);
-  s = await state();
-  ok(s.list, `Tab on the cooler: its list, as before (${s.list})`);
+  const listKind = await ev(() => {
+    const lv = window.__rt.game.listV;
+    return lv === 'self' ? 'self' : lv ? 'container' : null;
+  });
+  ok(listKind === 'self' || listKind === null, `Tab on the cooler does not open a container contents list (${listKind})`);
   await key('Tab');
   await step(0.2);
 

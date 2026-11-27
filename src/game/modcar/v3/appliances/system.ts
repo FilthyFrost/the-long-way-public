@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
 import { itemDef, type ItemInstance } from '../../../../core/modcar/items';
+import { batteryCharge } from '../../../../core/modcar/rules';
 import type { Text } from '../../../../core/modcar/types';
 import { appOf, applianceOf, channelOf, COFFEE_POT, nextChannel, toggle, type ApplianceKind } from '../../../../core/v3/appliances/appliances';
 import type { GarageDevice } from '../../garageStub';
@@ -27,9 +28,12 @@ import { stationLabel } from '../../radio';
 import type { ModVehicle } from '../../vehicle';
 import { CABIN_GLOW, glowOf, makeLook, type ApplianceLook, type LookNow } from './looks';
 import { globals } from '../../../render/shaderlib';
+import { castMesh } from '../../../render/triGrid';
 
 /** what a living space's ceiling lamps give its cabin, fully lit: a warm room one can see to cook in (a table lamp gives 0.2 of its colour) */
 const CEILING_GLOW = new THREE.Color(1.0, 0.74, 0.46).multiplyScalar(0.85);
+/** what a vehicle's own cabin dome light (U) gives its interior when switched on */
+const DOME_GLOW = new THREE.Color(1.0, 0.88, 0.72).multiplyScalar(0.75);
 
 /** what each kind is called on the mark */
 const NAME: Record<ApplianceKind, string> = { radio: '收音闹钟', record: '唱片机', tv: '电视', lamp: '台灯', solar: '太阳能灯' };
@@ -145,7 +149,10 @@ class Unit implements GarageDevice {
 
   /**
    * Where the line of sight meets it: its model's box as it lies (a hand's breadth more all round), or until its
-   * model is in the sphere a thing lying about is picked by. The box keeps a clock radio by a lamp its own.
+   * model is in the sphere a thing lying about is picked by. The box keeps a clock radio by a lamp its own. Riding in a
+   * vehicle it is met where it is met, as a thing lying there is: the vehicle's own meshes in front of it hide it (it
+   * was offered 1.2 m nearer than it stood, from when the vehicle's body was a box round it — a can in front of it
+   * lost to it, and from outside it was marked through the wall).
    */
   hit(ray: THREE.Ray, reach: number): number | null {
     const l = this.loose;
@@ -154,12 +161,26 @@ class Unit implements GarageDevice {
     if (box) {
       this.inv.copy(l.obj.matrixWorld).invert();
       this.lray.copy(ray).applyMatrix4(this.inv);
-      const m = 0.02;
+      const m = 0.005;
       this.b3.min.set(box.minX - m, box.minY - m, box.minZ - m);
       this.b3.max.set(box.maxX + m, box.maxY + m, box.maxZ + m);
       const p = this.lray.intersectBox(this.b3, this.hitP);
       if (!p) return null;
       d = p.distanceTo(this.lray.origin);
+      // Test the appliance's actual meshes so empty space around a tapered shade or stem never steals rays from items beside it.
+      let hasMesh = false;
+      let md = Infinity;
+      l.obj.traverse((ob) => {
+        const mesh = ob as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        hasMesh = true;
+        const h = castMesh(mesh, ray.origin, ray.direction, Math.min(reach, md));
+        if (h && h.dist < md) md = h.dist;
+      });
+      if (hasMesh) {
+        if (!Number.isFinite(md)) return null;
+        d = md;
+      }
     } else {
       const o = this.sys.origin();
       this.sph.center.set(l.x - o.x, l.y + l.mid - o.y, l.z - o.z);
@@ -168,10 +189,7 @@ class Unit implements GarageDevice {
       if (!p) return null;
       d = p.distanceTo(ray.origin);
     }
-    if (d > reach) return null;
-    // (riding in a vehicle: as a thing lying in it is offered, nearer than the vehicle's coarse body round it, and
-    // among such things the nearest first)
-    return l.riding ? Math.max(0, d - 1.2) + d * 0.001 : d;
+    return d > reach ? null : d;
   }
 
   /** where its middle is in render space (for the sounds' distance) */
@@ -346,6 +364,16 @@ export class Appliances implements System<GameContext>, InteractSource {
       c.r += CEILING_GLOW.r * ceil;
       c.g += CEILING_GLOW.g * ceil;
       c.b += CEILING_GLOW.b * ceil;
+    }
+    // (each vehicle's own cabin dome light toggled with U)
+    for (let i = 0; i < ctx.vehicles.length; i++) {
+      const v = ctx.vehicles[i];
+      if (!v.domeOn || batteryCharge(v.build) <= 0.02) continue;
+      let c = this.lamps.get(v);
+      if (!c) this.lamps.set(v, (c = new THREE.Color(0, 0, 0)));
+      c.r += DOME_GLOW.r;
+      c.g += DOME_GLOW.g;
+      c.b += DOME_GLOW.b;
     }
     for (const [v, c] of this.lamps) {
       if (!ctx.vehicles.includes(v)) {

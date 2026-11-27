@@ -97,7 +97,7 @@ try {
   await page.evaluate(() => { const p = window.__rt.game.player; p.sel = 1 - p.sel; });
   console.log('held now', await page.evaluate(() => window.__rt.game.player.held?.item?.item ?? null));
   await page.evaluate(({ c, from }) => window.__rt.aimPoint(c.x, c.y + 0.25, c.z, from, 1.2), { c: chest, from });
-  await page.evaluate(() => { const g = window.__rt.game; g.player.press(); for (let i = 0; i < 40; i++) { g.player.primary = true; g.step(1 / 60, 1); } g.player.release(); g.simulate(0); });
+  await page.evaluate(() => { const g = window.__rt.game; g.mouseDown(0); for (let i = 0; i < 40; i++) { g.step(1 / 60, 1); } g.mouseUp(0); g.simulate(0); });
   await frames(26);
   await shot('17_unlocked_padlock_falls.png', JSON.stringify(await H('nd-dig', 'chests')));
   await frames(60);

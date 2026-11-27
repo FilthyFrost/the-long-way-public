@@ -153,6 +153,18 @@ export async function holdKeyUntil(page, code, fn, arg, timeout = 120_000) {
   return ok;
 }
 
+/**
+ * A mouse button down (or up) on the game's view, as the player's hand does it: the canvas's own mousedown (the window's
+ * mouseup), with the pointer lock that a headless page cannot take marked as taken. button: 0 the left, 2 the right.
+ */
+export async function mouseButton(page, down, button = 0) {
+  await page.evaluate(({ down, button }) => {
+    window.__rt.game.input.locked = true;
+    if (down) document.querySelector('canvas').dispatchEvent(new MouseEvent('mousedown', { button, bubbles: true }));
+    else window.dispatchEvent(new MouseEvent('mouseup', { button, bubbles: true }));
+  }, { down, button });
+}
+
 /** Open a page, wait until the game says it is ready, return {page, errors}. */
 export async function openGame(browser, url, { width = 1280, height = 720, timeout = 180_000 } = {}) {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });

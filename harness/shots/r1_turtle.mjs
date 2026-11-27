@@ -93,7 +93,7 @@ try {
     return { blocked: b, running: v.sys.running, said: document.body.innerText.includes('先把顶放下') };
   });
   ok(blocked.blocked && !blocked.running && blocked.said, `in the seat with the roof up the key does nothing: 先把顶放下 (${JSON.stringify(blocked)})`);
-  // the roof down, the sliding door open: no standing up in there (先把顶升起来); up again, in
+  // the roof down, the sliding door open: player enters crouched (no 先把顶升起来 blocker); up again, stands upright
   const boardDown = await page.evaluate(async () => {
     const g = window.__rt.game;
     const v = window.__v;
@@ -106,15 +106,16 @@ try {
     g.simulate(0.8);
     g.board(v, A.aboardOf('turtle').doors[0]);
     g.simulate(0.1);
-    return { aboard: !!g.player.aboard, said: document.body.innerText.includes('先把顶升起来') };
+    return { aboard: !!g.player.aboard, crouched: g.player.walker.crouched };
   });
-  ok(!boardDown.aboard && boardDown.said, `the roof down: not in (先把顶升起来) (${JSON.stringify(boardDown)})`);
+  ok(boardDown.aboard && boardDown.crouched, `the roof down: inside crouched (${JSON.stringify(boardDown)})`);
   const boardUp = await page.evaluate(async () => {
     const g = window.__rt.game;
     const v = window.__v;
     const C = await import('/src/game/modcar/v3/camper/index.ts');
     const A = await import('/src/core/modcar/aboard.ts');
     C.camper.setUp(v, true);
+    g.crouch = false;
     g.simulate(2.0);
     g.board(v, A.aboardOf('turtle').doors[0]);
     g.simulate(0.3);
@@ -126,44 +127,47 @@ try {
   await rt('look', Math.PI, -0.18);
   await rt('simulate', 0.2);
   await shot('04_inside.png');
-  // a cassette stove on the galley's worktop
-  const stove = await page.evaluate(async () => {
+  // an empty shell (§十九 step 7): place a kitchen stand along the left wall with a cassette stove on it, and a camp cot
+  const fitted = await page.evaluate(async () => {
     const g = window.__rt.game;
     const v = window.__v;
     const It = await import('/src/core/modcar/items.ts');
-    const held = { kind: 'item', item: It.newItem('kit_stove') };
-    await g.loose.objectFor(held);
-    // (its own box once its model is measured: packed by its real size)
-    for (let i = 0; i < 40 && !g.cargo.boxOf(held); i++) await new Promise((r) => setTimeout(r, 50));
-    const at = g.cargo.spotIn(v, 'galley', held);
-    if (!at) return null;
-    window.__stove = g.cargo.stow(v, at.zone, at.spot, held);
-    return { zone: at.zone.id, y: +at.spot.y.toFixed(3), x: +at.spot.x.toFixed(2) };
+    const put = async (id, near, yaw) => {
+      const held = { kind: 'item', item: It.newItem(id) };
+      await g.cargo.measured(held);
+      const at = g.cargo.spotIn(v, 'cabin', held, near, yaw, 0);
+      if (!at) return null;
+      return g.cargo.stow(v, at.zone, at.spot, held);
+    };
+    const stand = await put('nd_kitchen_stand', { x: 0.1, z: -0.7 }, Math.PI / 2);
+    let stove = null;
+    if (stand) {
+      const sx = stand.riding.pos.x + v.sys.derived.cg.x;
+      const sz = stand.riding.pos.z + v.sys.derived.cg.z;
+      stove = await put('kit_stove', { x: sx, z: sz }, -Math.PI / 2);
+    }
+    const cot = await put('nd_cot', { x: -0.45, z: 0.55 }, Math.PI / 2);
+    window.__stand = stand;
+    window.__stove = stove;
+    window.__cot = cot;
+    g.simulate(0.3);
+    const y = (l) => (l ? +(l.riding.pos.y + v.sys.derived.cg.y).toFixed(3) : null);
+    return { stand: !!stand, stove: stove ? { zone: stove.stow, y: y(stove), x: +(stove.riding.pos.x + v.sys.derived.cg.x).toFixed(2) } : null, standY: y(stand), cot: !!cot };
   });
-  ok(!!stove && stove.zone === 'galley' && Math.abs(stove.y - 1.22) < 0.03, `a cassette stove on the galley's worktop (${JSON.stringify(stove)})`);
-  // tired, at the bed: 长按 睡觉 — six hours from nothing (a seat's eight: seven from here)
-  const bed = await page.evaluate(() => {
+  ok(fitted.stand && !!fitted.stove && fitted.stove.zone === 'cabin' && fitted.stove.y > fitted.standY + 0.8 && fitted.cot, `a kitchen stand with a cassette stove on it and a camp cot in the Turtle (${JSON.stringify(fitted)})`);
+  // Sleep removed (2026-11-27 user ruling): camp cot is placed furniture with no sleep prompt
+  await page.evaluate(() => {
     const g = window.__rt.game;
-    g.body.energy = 10;
-    g.simulate(0.1);
-    return { energy: g.body.energy };
+    const ab = g.player.aboard;
+    const cot = window.__cot;
+    ab.w.place(0.1, -0.1, 0);
+    g.simulate(0);
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(cot.x, cot.y + 0.38, cot.z));
+    g.simulate(0.2);
   });
-  await rt('look', Math.PI, -0.62);
-  await rt('simulate', 0.2);
   w = await words();
-  ok(/睡觉/.test(w), `tired, looking at the bed: 长按 睡觉 (${w.split('\n').filter((l) => l.includes('睡')).join(' · ') || '—'}; energy ${bed.energy})`);
+  ok(!/睡觉/.test(w), `camp cot placed cleanly with no sleep prompt`);
   await shot('05_bed.png');
-  const hour0 = await page.evaluate(() => window.__rt.game.env.clock.hourAt(window.__rt.game.time));
-  await rt('useFor', 1.2);
-  await rt('simulate', 4.0);
-  const slept = await page.evaluate(() => ({ energy: window.__rt.game.body.energy, said: document.body.innerText.match(/睡了 (\d+) 小时/)?.[1] ?? null, hour: window.__rt.game.env.clock.hourAt(window.__rt.game.time) }));
-  const hours = Number(slept.said);
-  ok(slept.energy >= 99 && hours === 5, `held: slept ${slept.said} hours in the bed (energy 10 → ${slept.energy.toFixed(0)}; a seat would be 7), the clock ${hour0.toFixed(1)} → ${slept.hour.toFixed(1)} h`);
-  // rested: the bed says 还不困 on the press
-  await rt('useFor', 0.2);
-  await rt('simulate', 0.1);
-  w = await words();
-  ok(/还不困/.test(w), 'rested, pressed on the bed: 还不困');
   // out, the roof down from outside, the key turned, driven off round a bend
   const drove = await page.evaluate(async () => {
     const g = window.__rt.game;
@@ -253,7 +257,7 @@ try {
     g.simulate(0.2);
   });
   w = await words();
-  ok(/睡觉/.test(w), `tired, looking up at the Whale's bunk: 长按 睡觉 (${w.split('\n').filter((l) => l.includes('睡')).join(' · ') || '—'})`);
+  ok(!/睡觉/.test(w), `Whale over-cab bunk present with no sleep prompt`);
   await shot('07_whale_bunk.png');
   const lastError = await page.evaluate(() => window.__rt.lastError);
   if (lastError) fail(`a frame threw: ${lastError}`);

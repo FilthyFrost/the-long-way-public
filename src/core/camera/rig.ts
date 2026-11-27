@@ -47,8 +47,8 @@ export const DEFAULT_RIG: RigTuning = {
   lookAheadMax: 0.13,
   lookAheadTau: 0.25,
   basePitch: -0.065,
-  // (Nomad Drive's view in a seat is its view on foot, 70°, with nothing added at speed)
-  baseFov: 70,
+  // (Nomad Drive's view in a seat is its view on foot, its players' default 75°, with nothing added at speed)
+  baseFov: 75,
   fovKick: 0,
   fovSpeed: 27,
 };

@@ -1189,9 +1189,9 @@ export class Workshop {
     const h = heldOfMakes(r.makes);
     const p = this.worldOf(this.bm.mark('M_craft', this.v1, [0.05, 0.92, 0]));
     const yaw = -this.plan.bench.heading + Math.PI / 2;
-    if (h.kind === 'part') this.host.loose.addPart(h.inst, p.x, p.y + 0.05, p.z, yaw).resting = true;
-    else if (h.kind === 'tool') this.host.loose.addTool(h.tool, p.x, p.y + 0.05, p.z, yaw).resting = true;
-    else this.host.loose.addItem(h.item, p.x, p.y + 0.05, p.z, yaw).resting = true;
+    // (its lowest point on the plate, whatever its model's origin)
+    const L = this.host.loose;
+    L.seat(h.kind === 'part' ? L.addPart(h.inst, p.x, p.y + 0.05, p.z, yaw) : h.kind === 'tool' ? L.addTool(h.tool, p.x, p.y + 0.05, p.z, yaw) : L.addItem(h.item, p.x, p.y + 0.05, p.z, yaw), p.y);
     this.host.sound('craft_done');
     this.host.sparks(p.x, p.y + 0.1, p.z, 24);
     this.host.ui.say(`做好了：${this.nameOf(r.makes)}`, 2.6);

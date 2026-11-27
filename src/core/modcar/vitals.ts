@@ -312,9 +312,8 @@ export function stepVitals(v: Vitals, inp: VitalsInput, R: VitalsRules = VITALS)
   // food and water go down (water half again as fast in the heat)
   v.food = Math.max(0, v.food - R.foodDrain * (m ? m.foodK : 1) * dt);
   v.water = Math.max(0, v.water - R.waterDrain * (m ? m.waterK * (inp.ambientC > HOT_AIR ? m.heatWaterK : 1) : 1) * (hot ? R.heatThirst : 1) * dt);
-  // energy: lost awake (half as fast while coffee keeps one awake), back slowly sitting still in a seat
-  const e = v.energy ?? 100;
-  v.energy = Math.min(100, Math.max(0, e - R.energyDrain * (has(v, 'awake') ? 0.5 : 1) * dt + (inp.resting ? R.energySit * dt : 0)));
+  // (sleep mechanic removed 2026-11-27: energy stays full, no drowsy state)
+  v.energy = 100;
   // what a meal or a drink is still giving (a warming only warms a cold body, a cooling only cools a hot one)
   for (const g of v.gains) {
     const k = Math.min(1, dt / Math.max(1e-6, g.left));
@@ -500,9 +499,9 @@ export function drink(v: Vitals, liquid: DrinkLiquid, litres: number, R: VitalsR
   } else add(v, 'energy');
 }
 
-/** is one sleepy (energy under the rules' line) */
-export function sleepy(v: Vitals, R: VitalsRules = VITALS): boolean {
-  return (v.energy ?? 100) < R.sleepyBelow;
+/** sleep mechanic removed (2026-11-27): never sleepy */
+export function sleepy(_v: Vitals, _R: VitalsRules = VITALS): boolean {
+  return false;
 }
 
 /** what coffee gives back of energy a litre (a mug of a quarter litre: 40), and how long it keeps one awake */
@@ -612,9 +611,8 @@ export function speedFactor(v: Vitals): number {
   if (has(v, 'energy')) k *= 1.5;
   if (has(v, 'hypo')) k *= 0.75;
   if (has(v, 'heat')) k *= 0.85;
-  // (hurt: a limp; sleepy: heavy-footed)
+  // (hurt: a limp)
   if (has(v, 'hurt')) k *= 0.85;
-  if ((v.energy ?? 100) < VITALS.sleepyBelow) k *= 0.9;
   return Math.max(0.35, k);
 }
 

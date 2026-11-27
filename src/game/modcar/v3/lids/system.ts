@@ -24,9 +24,9 @@ const T = (zh: string, en: string): Text => ({ zh, en });
 
 /** the kinds whose models' LID is a lid one opens (not a pot's lid: the kitchen's own) */
 const LIDDED: ReadonlySet<string> = new Set([COOLER]);
-/** how far it swings open (rad, about the hinge's +z: its free edge up) and how quickly (s) */
-const OPEN = 1.92;
-const SWING_S = 0.35;
+/** how far it swings open (rad, about the hinge's +z: 150° as Nomad Drive's cooler) and how quickly (s) */
+const OPEN = (150 * Math.PI) / 180;
+const SWING_S = 0.5;
 const LID = 'LID';
 
 interface Lid {
@@ -104,6 +104,9 @@ export class Lids implements System<GameContext> {
         radius: 0.2,
         get loose() {
           return l;
+        },
+        get outline() {
+          return lid.obj;
         },
         get word(): Text {
           const name = l.item ? itemDef(l.item.item).name.zh : '';

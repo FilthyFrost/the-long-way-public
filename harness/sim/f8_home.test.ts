@@ -3,10 +3,10 @@
  *   - one walks about in the Tadpole's box and the Snail's, by their rear doors and no way from a seat; each living
  *     space has its room — a box from wall to wall holding every place one walks in — under its roof;
  *   - headroom 1.9 m at the least, the doorways 0.8 × 1.9 m at the least (the Turtle's sliding door, a small van's, as it was);
- *     the aisles: the Whale's and the Old Elephant's 1.1 m at the least;
+ *     the Whale, the Old Elephant and the Turtle walked on wall to wall, empty shells since §十九 step 7;
  *   - a save written before a vehicle's inside was made anew: what rode in it has its place there taken from it, to be put
  *     in again (SavedVehicle.room under the frame's roomRev); a part on a mount the frame has no more — the Whale's rear
- *     bench — is taken off the build and rides in it as a thing.
+ *     bench, its dinette's bench — is taken off the build and rides in it as a thing.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ABOARD, aboardOf, roomOf, roomRev } from '../../src/core/modcar/aboard';
@@ -87,21 +87,19 @@ describe('F8: rooms on wheels', () => {
         expect(d.box.hi[1] - d.box.lo[1], `${id}: a doorway's height`).toBeGreaterThanOrEqual(id === 'turtle' ? 1.2 : 1.65);
       }
     }
-    // (the aisles of the two that were narrow: 0.86 m and 0.76 m before)
-    for (const id of ['rv', 'elephant']) {
+    // (the three that had their furniture built in walked on wall to wall since they were emptied — docs/V3/plan/finish.md
+    // §十九 step 7 — where an aisle 0.76–0.86 m wide, then 1.1, ran between it)
+    for (const id of ['rv', 'elephant', 'turtle']) {
       const a = aboardOf(id)!;
-      const aisle = a.areas.filter((r) => r.name !== 'lounge').map((r) => r.z1 - r.z0);
-      expect(Math.min(...aisle), id).toBeGreaterThanOrEqual(1.1 - 1e-9);
+      expect(Math.max(...a.areas.map((r) => r.z1)) - Math.min(...a.areas.map((r) => r.z0)), id).toBeGreaterThan(1.9);
     }
-    // (the Whale: no bench at its back — a bed, its second; the Turtle: the bunk in its roof's opening over its bed)
-    expect(frameDef('rv').mounts.some((m) => m.id === 'seat_rear')).toBe(false);
-    expect(aboardOf('rv')!.beds).toHaveLength(2);
-    const tb = aboardOf('turtle')!.beds!;
-    expect(tb).toHaveLength(2);
-    expect(tb[1].top).toBeGreaterThan(tb[0].top + 0.7);
-    expect(tb[1].x1 - tb[1].x0).toBeGreaterThan(1.63);
-    // (… clear of where one stands in it)
-    expect(tb[1].x1).toBeLessThanOrEqual(aboardOf('turtle')!.areas[0].x0);
+    // (the Whale: no bench at its back, no dinette's bench — its seats the cab's two; its bunk over the cab its one bed;
+    // the Turtle and the Old Elephant none)
+    expect(frameDef('rv').mounts.some((m) => m.id === 'seat_rear' || m.id === 'seat_dinette')).toBe(false);
+    expect(frameDef('rv').mounts.filter((m) => m.cat === 'seat').map((m) => m.id).sort()).toEqual(['seat_driver', 'seat_pass']);
+    expect(aboardOf('rv')!.beds).toHaveLength(1);
+    expect(aboardOf('turtle')!.beds ?? []).toHaveLength(0);
+    expect(aboardOf('elephant')!.beds ?? []).toHaveLength(0);
   });
 });
 
@@ -114,18 +112,22 @@ describe('F8: a save from before a vehicle was made anew inside', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('the frames made anew inside say so; the rest are as they were first made', () => {
-    // (the Whale and the Old Elephant twice: opened up, then lengthened with the Camel and the Turtle — docs/V3/plan/
-    // finish.md §18)
-    for (const id of ['rv', 'elephant']) expect(roomRev(id), id).toBe(2);
-    for (const id of ['camel', 'turtle', 'trailer', 'snail']) expect(roomRev(id), id).toBe(1);
+    // (the Whale and the Old Elephant three times: opened up, then lengthened with the Camel and the Turtle — docs/V3/
+    // plan/finish.md §18 — then emptied with the Turtle, §十九 step 7)
+    for (const id of ['rv', 'elephant']) expect(roomRev(id), id).toBe(3);
+    expect(roomRev('turtle')).toBe(2);
+    for (const id of ['camel', 'trailer', 'snail']) expect(roomRev(id), id).toBe(1);
     for (const id of ['sedan', 'pickup', 'van', 'moto']) expect(roomRev(id), id).toBe(0);
   });
 
-  it('a part on a mount the frame has no more — the Whale’s rear bench — is taken off its build and rides in it, with no place: to be put in anew', () => {
+  it('a part on a mount the frame has no more — the Whale’s rear bench, its dinette’s bench — is taken off its build and rides in it, with no place: to be put in anew', () => {
     const whale = stockBuild('rv', { fuel: 0.5 });
-    // (as a save of before has it: a bench at the back)
+    // (as a save of before has it: a bench at the back; and, as every save of before the living spaces were emptied, the
+    // dinette's bench on its mount)
     const bench = newInstance('seat_bench');
     (whale.parts as Record<string, unknown>).seat_rear = bench;
+    const dinette = newInstance('seat_bench');
+    (whale.parts as Record<string, unknown>).seat_dinette = dinette;
     const kept = stockBuild('rv', { fuel: 0.2 });
     const bench2 = newInstance('seat_bench');
     (kept.parts as Record<string, unknown>).seat_rear = bench2;
@@ -150,10 +152,13 @@ describe('F8: a save from before a vehicle was made anew inside', () => {
     const back = loadSave()!;
     expect(back).toBeTruthy();
     expect(back.vehicles[1].build.parts.seat_rear).toBeUndefined();
-    const rider = back.loose.find((l) => l.part?.uid === bench.uid)!;
-    expect(rider).toBeTruthy();
-    expect(rider.on).toBe(1);
-    expect(rider.pos).toBeUndefined();
+    expect((back.vehicles[1].build.parts as Record<string, unknown>).seat_dinette).toBeUndefined();
+    for (const uid of [bench.uid, dinette.uid]) {
+      const rider = back.loose.find((l) => l.part?.uid === uid)!;
+      expect(rider).toBeTruthy();
+      expect(rider.on).toBe(1);
+      expect(rider.pos).toBeUndefined();
+    }
     // (a save of before says nothing of the room: under the Whale's, 1)
     expect(back.vehicles[1].room ?? 0).toBeLessThan(roomRev('rv'));
     // (… and a wreck kept as it was left the same)

@@ -1,10 +1,11 @@
 // ND3's other tools in the game (docs/ND/PLAN.md): the compass in the hands (its lid open, its needle to the north);
 // the polisher on the pickup's faded body; an engine repair kit on a worn engine and a charger on a flat battery lying
-// about (E held, the kit used up); a worn sponge rinsed in a bucket of water.
+// about (the left button held half a second — the real mouse, the canvas's own mousedown and mouseup — the kit used up,
+// the part left where it lies); a worn sponge rinsed in a bucket of water.
 //   SHOTS_GPU=1 node harness/shots/nd3_tools.mjs [seed] [hour]
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
+import { ROOT, launchBrowser, mouseButton, openGame, startServer } from './lib.mjs';
 
 const out = path.join(ROOT, 'loop/shots/nd3');
 fs.mkdirSync(out, { recursive: true });
@@ -12,6 +13,11 @@ const seed = process.argv[2] || '7';
 const hour = process.argv[3] || '15.6';
 const { server, url } = await startServer();
 const browser = await launchBrowser();
+let bad = 0;
+const fail = (why) => {
+  bad++;
+  console.log('FAIL', why);
+};
 try {
   const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=5&seed=${seed}&start=road&build=stock:pickup&time=${hour}&weather=clear`, { width: 1280, height: 720 });
   const step = (n = 6) => page.evaluate((n) => { const g = window.__rt.game; for (let i = 0; i < n; i++) g.simulate(1 / 30); }, n);
@@ -53,10 +59,23 @@ try {
   await frames(40);
   await page.evaluate(() => window.__rt.hold('item:nd_engine_kit'));
   console.log('aim engine', await page.evaluate(() => window.__rt.aimLoose('eng_i4', 1.1)));
-  await page.evaluate(() => { const g = window.__rt.game; g.player.press(); for (let i = 0; i < 18; i++) { g.player.primary = true; g.step(1 / 60, 1); } });
-  await shot('32_engine_kit_holding.png', JSON.stringify(await page.evaluate(() => window.__rt.game.player.progress)));
-  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 20; i++) { g.player.primary = true; g.step(1 / 60, 1); } g.player.release(); g.simulate(0); });
-  console.log('engine cond', await page.evaluate(() => window.__rt.game.loose.list.find((l) => l.part?.part === 'eng_i4')?.part.cond), 'held', await page.evaluate(() => window.__rt.game.player.held?.item?.item ?? null));
+  // (the kit on what it mends offers only repair in the centre prompt; right-hand list keeps non-conflicting held actions without duplicating LMB)
+  const words = await page.evaluate(() => [document.querySelector('.mc-acts')?.textContent ?? '', document.querySelector('.mc-keys')?.textContent ?? '']);
+  console.log('words', JSON.stringify(words));
+  if (!/修理/.test(words[0]) || /拿起/.test(words[0]) || /修理/.test(words[1])) fail(`the kit at the engine: centre must offer repair alone and right list must not duplicate LMB (${words.join(' | ')})`);
+  await mouseButton(page, true);
+  await frames(18);
+  const ring = await page.evaluate(() => { const p = window.__rt.game.player; return p.handsUse()?.ring?.(p.held) ?? -1; });
+  await shot('32_engine_kit_holding.png', JSON.stringify(ring));
+  if (!(ring > 0.4 && ring < 0.8)) fail(`no ring round the mark while the kit is held on (${ring})`);
+  if ((await page.evaluate(() => window.__rt.game.loose.list.filter((l) => l.part?.part === 'eng_i4').length)) !== 1) fail('the press with the kit picked the engine up');
+  await frames(20);
+  await mouseButton(page, false);
+  await page.evaluate(() => window.__rt.game.simulate(0));
+  const eng = await page.evaluate(() => window.__rt.game.loose.list.find((l) => l.part?.part === 'eng_i4')?.part.cond);
+  const heldAfter = await page.evaluate(() => window.__rt.game.player.held?.item?.item ?? null);
+  console.log('engine cond', eng, 'held', heldAfter);
+  if (!(Math.abs((eng ?? 0) - 0.8) < 1e-6) || heldAfter) fail(`the kit did not mend the engine 30 → 80 % and go (${eng}, ${heldAfter})`);
   // a charger on a flat battery lying about
   await page.evaluate(() => window.__rt.hold('bat_std'));
   await page.evaluate(() => { const h = window.__rt.game.player.held; h.inst.fluids.charge = 0.15; });
@@ -65,9 +84,13 @@ try {
   await frames(40);
   await page.evaluate(() => window.__rt.hold('item:nd_charger'));
   console.log('aim battery', await page.evaluate(() => window.__rt.aimLoose('bat_std', 1.1)));
-  await page.evaluate(() => { const g = window.__rt.game; g.player.press(); for (let i = 0; i < 40; i++) { g.player.primary = true; g.step(1 / 60, 1); } g.player.release(); g.simulate(0); });
+  await mouseButton(page, true);
+  await frames(40);
+  await mouseButton(page, false);
   await frames(4);
-  await shot('33_charger_done.png', JSON.stringify(await page.evaluate(() => window.__rt.game.loose.list.find((l) => l.part?.part === 'bat_std')?.part.fluids.charge)));
+  const charge = await page.evaluate(() => window.__rt.game.loose.list.find((l) => l.part?.part === 'bat_std')?.part.fluids.charge);
+  await shot('33_charger_done.png', JSON.stringify(charge));
+  if (!(Math.abs((charge ?? 0) - 0.8) < 1e-6)) fail(`the charger did not charge the battery 15 → 80 % (${charge})`);
   // a worn sponge rinsed in a bucket of water
   await page.evaluate(() => window.__rt.hold('item:nd_bucket'));
   await page.evaluate(() => { const h = window.__rt.game.player.held; h.item.litres = 8; h.item.state = { found: true }; });
@@ -78,10 +101,15 @@ try {
   const bk = (await H('nd-water', 'vessels')).find((x) => x.item === 'nd_bucket' && x.litres > 7);
   const m = await H('nd-water', 'mouth', bk.uid);
   console.log('aim bucket', await page.evaluate(({ m }) => window.__rt.aimPoint(m.x, m.y - 0.1, m.z, 0.8, 1.0), { m }));
-  await page.evaluate(() => { const g = window.__rt.game; g.player.press(); for (let i = 0; i < 180; i++) { g.player.primary = true; g.step(1 / 60, 1); } });
+  await mouseButton(page, true);
+  await frames(180);
   await shot('34_sponge_rinsing.png', JSON.stringify(await page.evaluate(() => window.__rt.game.player.held?.tool?.life)));
-  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 360; i++) { g.player.primary = true; g.step(1 / 60, 1); } g.player.release(); g.simulate(0); });
-  console.log('sponge', await page.evaluate(() => window.__rt.game.player.held?.tool?.life), 'bucket', JSON.stringify((await H('nd-water', 'vessels')).find((x) => x.uid === bk.uid)));
+  await frames(360);
+  await mouseButton(page, false);
+  await page.evaluate(() => window.__rt.game.simulate(0));
+  const life = await page.evaluate(() => window.__rt.game.player.held?.tool?.life);
+  console.log('sponge', life, 'bucket', JSON.stringify((await H('nd-water', 'vessels')).find((x) => x.uid === bk.uid)));
+  if (!(life > 0.9)) fail(`the sponge was not rinsed in the bucket (${life})`);
   // the pickup's paint faded (its condition 15 %), and polished (the fading taken off), from a few steps off
   await page.evaluate(() => { const p = window.__rt.game.player; p.slots[p.sel] = null; });
   for (const [polish, name] of [[0, '35_paint_faded.png'], [1, '36_paint_polished.png']]) {
@@ -90,8 +118,12 @@ try {
     await step(6);
     await shot(name);
   }
-  if (errors.length) console.log('errors:', errors.slice(0, 8).join('\n'));
+  if (errors.length) fail(`page errors: ${errors.slice(0, 8).join('\n')}`);
+} catch (e) {
+  fail(e.message);
 } finally {
   await browser.close();
   await server.close();
 }
+console.log(bad ? `nd3_tools: ${bad} FAILED` : 'nd3_tools: ok');
+process.exit(bad ? 1 : 0);

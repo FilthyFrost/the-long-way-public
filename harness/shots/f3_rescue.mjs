@@ -352,15 +352,12 @@ try {
   ok(aimed && String(tel.target).startsWith('filler:') && /加水/.test(line) && !/抽回/.test(line), `the bottle of water at the radiator's cap: the mark is on ${tel.target} (${line.slice(0, 60)})`);
   await ev(() => {
     const g = window.__rt.game;
-    g.player.press('mouse');
-    g.leftDown = true;
+    g.mouseDown(0);
     // (a second of it: some goes in, some is left to drink)
     for (let i = 0; i < 60 && (g.player.held?.item?.litres ?? 0) > 0.9; i++) {
-      g.player.primary = true;
       g.step(1 / 60, 1);
     }
-    g.player.release('mouse');
-    g.leftDown = false;
+    g.mouseUp(0);
     g.simulate(0.3);
   });
   await shot('09_water_into_the_radiator.png');

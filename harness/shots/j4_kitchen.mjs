@@ -117,10 +117,10 @@ try {
         return word();
       },
       holdL(seconds = 1.0) {
-        g.player.press();
+        g.mouseDown(0);
         for (let t = 0; t < seconds; t += 1 / 60) g.step(1 / 60, 1);
         clock += seconds;
-        g.player.release();
+        g.mouseUp(0);
         for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
         return word();
       },

@@ -3,17 +3,17 @@
 // a berry that stacks to twelve and goes off, a basket that holds four stacks):
 //  - a stack of five berries put down is ONE thing lying about, named with its count, weighing five berries;
 //  - stowed in a vehicle it is one row of the list with its count and the load rose by five berries; taken from
-//    the list (E) it is back in the hands whole;
+//    the list (the left button) it is back in the hands whole;
 //  - with the basket in the hands Tab opens the basket's list, empty; the berries in the other slot are brought
-//    into the hands with that slot's number key and put in with G (the key is shown only while they would go
-//    in); the row shows them; E takes them out again, into the free hand and not back into the basket;
+//    into the hands with that slot's number key and put in with Q (the key is shown only while they would go
+//    in); the row shows them; the left button takes them out again, into the free hand and not back into the basket;
 //  - the list stays open on the basket put down within reach and shuts when one has walked away; Tab with the
-//    mark on the basket lying there opens it again, and G puts the berries into it where it lies;
+//    mark on the basket lying there opens it again, and Q puts the berries into it where it lies;
 //  - a stack that has gone off is another kind where it lies, drawn again;
 //  - the recycler gives five berries' scrap for the stack (one each, as anything gives: counted up as it is ground), and for the basket
-//    with five berries in it the basket's and theirs, its list shutting as it goes in;
+//    with five berries in it the basket's and theirs, and an open list on a basket shuts when it goes in;
 //  - an open list notices the time: with the list of a basket lying there open, two days and more go by, and the
-//    row is what the berries have turned into before E hands it over;
+//    row is what the berries have turned into before the left button hands it over;
 //  - a system's own source that throws is reported by the kernel, its list shuts and the game goes on.
 // The page is not drawn (shot=1): the game is stepped from here, so nothing waits on the clock on the wall.
 //   SHOTS_GL=llvmpipe node harness/shots/v3_items_world.mjs
@@ -39,7 +39,8 @@ try {
     const I = await import('/src/core/modcar/items.ts');
     const C = await import('/src/game/modcar/cargo.ts');
     const T = await import('/src/game/modcar/itemTime.ts');
-    window.__w = { I, C, T };
+    const L = await import('/src/game/modcar/listSources.ts');
+    window.__w = { I, C, T, L };
     return I.hasItem('v3t_berry') && I.hasItem('v3t_basket') && I.hasItem('v3t_mush');
   });
   if (!has) throw new Error('the page has no test content: was it opened with v3test=1?');
@@ -121,9 +122,9 @@ try {
   console.log('the list', JSON.stringify(l2));
   const mine = l2?.rows.filter((r) => r.includes(kinds.berry.name)) ?? [];
   if (!l2 || mine.length !== 1 || !mine[0].includes(`${kinds.berry.name} ×5`)) fail(`the vehicle's list does not show the stack as one row with its count (${JSON.stringify(l2?.rows)})`);
-  // (down to its row, and out with E)
+  // (down to its row, and out with the left button)
   for (let i = 0; i < (l2?.rows.length ?? 0) && !(await page.evaluate((nm) => document.querySelector('.mc-cargo .r.on')?.textContent?.includes(nm), kinds.berry.name)); i++) await key('KeyS');
-  await key('KeyE');
+  await rt('press');
   const h2 = await hands();
   const got = h2.slots[h2.sel];
   const back = await rt('stowed', pk);
@@ -151,13 +152,14 @@ try {
   if (!l3 || on3 !== basket.uid || l3.title !== kinds.basket.name) fail(`Tab with the basket in the hands did not open the basket's list (${JSON.stringify(l3)})`);
   if (l3 && (l3.rows.length || !l3.empty)) fail('the empty basket does not list as empty');
   if (l3 && !l3.sum.includes(`0 / ${kinds.basket.slots}`)) fail(`the basket's list does not say how much it holds (${l3.sum})`);
-  if (l3?.keys.some((k) => k.startsWith('G'))) fail('G is offered for putting the basket into itself');
-  // the other slot's number key brings the berries into the hands; G is offered now, and puts them in
+  if (l3?.keys.some((k) => k.startsWith('Q'))) fail('Q is offered for putting the basket into itself');
+  // the other slot's number key brings the berries into the hands; Q is offered now, and puts them in
   await key('Digit2');
   const l3b = await list();
+  const put3b = await page.evaluate(() => window.__rt.game.listing.view.put);
   if (!l3b) fail('the list shut when the other slot was selected (the basket is still in the hands)');
-  if (!l3b?.keys.some((k) => k.startsWith('G') && k.includes(`${kinds.berry.name} ×5`))) fail(`G is not offered for the berries (${JSON.stringify(l3b?.keys)})`);
-  await key('KeyG');
+  if (!l3b?.keys.some((k) => k.startsWith('Q')) || !put3b.includes(`${kinds.berry.name} ×5`)) fail(`Q is not offered for the berries (${JSON.stringify(l3b?.keys)}, put ${JSON.stringify(put3b)})`);
+  await key('KeyQ');
   const l3c = await list();
   const h3c = await hands();
   const fk = await page.evaluate(() => window.__rt.game.player.slots[0]?.item.inside?.[0]?.fk ?? 1);
@@ -166,10 +168,10 @@ try {
   if (h3c.slots[0]?.inside?.join() !== 'v3t_berry*5') fail(`the berries are not in the basket (${JSON.stringify(h3c.slots[0])})`);
   if (l3c?.rows.length !== 1 || !l3c.rows[0].includes(`${kinds.berry.name} ×5`)) fail(`the basket's list does not show the berries (${JSON.stringify(l3c?.rows)})`);
   if (l3c && !l3c.sum.includes(`1 / ${kinds.basket.slots}`)) fail(`the basket's list does not count what is in it (${l3c.sum})`);
-  if (l3c?.keys.some((k) => k.startsWith('G'))) fail('G is still offered with nothing in the hands');
+  if (l3c?.keys.some((k) => k.startsWith('Q'))) fail('Q is still offered with nothing in the hands');
   if (!near(fk, kinds.basket.decay)) fail(`the berries in the basket do not go off at its rate (${fk}, not ${kinds.basket.decay})`);
-  // E takes the row out: into the free hand, not back into the basket it came from
-  await key('KeyE');
+  // the left button takes the row out: into the free hand, not back into the basket it came from
+  await rt('press');
   const l3d = await list();
   const h3d = await hands();
   console.log('taken out of the basket', JSON.stringify(h3d));
@@ -202,13 +204,13 @@ try {
   console.log('walked away', JSON.stringify({ away, open: !!l4b }));
   if (!(away > 4)) fail(`could not walk away from the basket (${away} m)`);
   else if (l4b) fail('the list did not shut when one walked away from the basket');
-  // Tab with the mark on the basket lying there opens it; G puts the berries into it where it lies
+  // Tab with the mark on the basket lying there opens it; Q puts the berries into it where it lies
   if (!(await rt('aimLoose', 'item:v3t_basket', 1.1))) fail('the mark could not be put on the basket lying about');
   await page.evaluate(() => (window.__rt.game.player.sel = 1));
   await key('Tab');
   const on4 = await page.evaluate(() => window.__rt.game.listV?.box?.uid ?? null);
   if (on4 !== basket.uid) fail('Tab with the mark on the basket lying about did not open its list');
-  await key('KeyG');
+  await key('KeyQ');
   const in4 = await page.evaluate(() => {
     const g = window.__rt.game;
     const l = g.loose.list.find((x) => x.item?.item === 'v3t_basket');
@@ -270,20 +272,36 @@ try {
     if (s1 - s0 !== 5 * kinds.berry.organics) fail(`five berries gave ${s1 - s0} scrap, not ${5 * kinds.berry.organics}`);
     if (!(mid >= 1 && mid < 5 * kinds.berry.organics)) fail(`the stack's scrap was not counted up as it was ground (${mid} half way)`);
     if ((await hands()).slots[1] !== null) fail('the stack is still in the hands after it went into the recycler');
-    // the basket with the five berries in it, its list open: it goes in with them, and the list shuts
+    // the basket with the five berries in it: it goes into the recycler with them (a left click on the recycler, list shut;
+    // with a list open the left button belongs to the list's rows, never the machine behind it)
     if (!(await rt('pickUp', 'item:v3t_basket'))) fail('the basket could not be picked up');
-    await key('Tab');
-    if (!(await list())) fail('the list of the basket in the hands did not open');
     const t2 = await rt('aimAt', 'recycler', Math.PI, 0.95);
     const says = await page.evaluate(() => document.body.textContent ?? '');
-    if (t2 === 'device:recycler' && !/连里面的 1 样/.test(says)) fail('the recycler does not say that the basket goes in with what is in it');
+    if (t2 === 'device:recycler' && !new RegExp(`回收\\s*${kinds.basket.name}`).test(says)) fail(`the recycler does not say it takes the basket (${says.slice(-80)})`);
     await rt('press');
     await rt('simulate', 3.5);
     const s2 = (await rt('workshop')).stock.scrap;
     const want = kinds.basket.organics + 5 * kinds.berry.organics;
-    console.log('the basket ground', JSON.stringify({ scrap: s2 - s1, open: !!(await list()) }));
+    console.log('the basket ground', JSON.stringify({ scrap: s2 - s1 }));
     if (s2 - s1 !== want) fail(`the basket with five berries gave ${s2 - s1} scrap, not ${want}`);
-    if (await list()) fail('the list did not shut when its basket went into the recycler');
+    // an open list on a basket lying in the hopper shuts as soon as the recycler takes it in
+    await page.evaluate(() => {
+      const g = window.__rt.game;
+      const rec = g.workshop.devices.find((d) => d.id === 'recycler');
+      const b = window.__w.I.newItem('v3t_basket');
+      const l = g.loose.addItem(b, rec.x, rec.y, rec.z, 0);
+      l.resting = true;
+      g.openList(window.__w.L.boxSource(g, b));
+      g.showCargoList();
+    });
+    const openBefore = !!(await list());
+    await rt('simulate', 3.5);
+    const openAfter = !!(await list());
+    const s3 = (await rt('workshop')).stock.scrap;
+    console.log('hopper basket list', JSON.stringify({ openBefore, openAfter, scrap: s3 - s2 }));
+    if (!openBefore) fail('the list of the basket in the hopper did not open');
+    if (openAfter) fail('the list did not shut when its basket went into the recycler');
+    if (s3 - s2 !== kinds.basket.organics) fail(`the basket in the hopper gave ${s3 - s2} scrap, not ${kinds.basket.organics}`);
   }
   // 6b. an open list and the time: a basket with four berries lying there, its list open; two days and a half go by
   await rt('stand', home.footX, home.footZ, home.heading);
@@ -299,7 +317,7 @@ try {
   await page.evaluate(() => (window.__rt.game.player.sel = 0));
   await key('Tab');
   await key('Digit2');
-  await key('KeyG');
+  await key('KeyQ');
   await key('Tab');
   await page.evaluate(() => {
     const g = window.__rt.game;
@@ -325,9 +343,9 @@ try {
   if (!fresh || fresh.rows.length !== 1 || !fresh.rows[0].includes(`${kinds.berry.name} ×4`)) fail(`the basket lying there does not list its four berries (${JSON.stringify(fresh?.rows)})`);
   if (!(went > 49 * 3600)) fail(`the world's clock did not go on two days (${went} s)`);
   else if (!stale || stale.rows.length !== 1 || !stale.rows[0].includes(`${mush} ×4`)) fail(`the open list did not notice that its row had turned (${JSON.stringify(stale?.rows)})`);
-  await key('KeyE');
+  await rt('press');
   const h6 = await hands();
-  if (h6.slots[h6.sel]?.item !== 'v3t_mush' || h6.slots[h6.sel].n !== 4) fail(`what E handed over is not what the berries turned into (${JSON.stringify(h6.slots[h6.sel])})`);
+  if (h6.slots[h6.sel]?.item !== 'v3t_mush' || h6.slots[h6.sel].n !== 4) fail(`what the left button handed over is not what the berries turned into (${JSON.stringify(h6.slots[h6.sel])})`);
   await page.evaluate(() => window.__rt.game.closeCargoList());
 
   const last = await page.evaluate(() => window.__rt.lastError);

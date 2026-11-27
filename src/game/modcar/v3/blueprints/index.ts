@@ -37,7 +37,7 @@ for (const r of BLUEPRINT_RECIPES) {
       model: 'nd_photo',
       paint: BLUES[Math.min(BLUES.length - 1, r.chapter)],
       paint2: 0xe8eef5,
-      blurb: `一张${r.name.zh}的图纸。拿着它按右键学会，图纸就用掉了；以后在哪张工作台上都能做，一个要${costWords(r.cost)}。`,
+      blurb: `一张${r.name.zh}的图纸。拿着它按 E 学会，图纸就用掉了；以后在哪张工作台上都能做，一个要${costWords(r.cost)}。`,
     },
   ]);
 }

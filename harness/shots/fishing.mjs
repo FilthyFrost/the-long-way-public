@@ -301,9 +301,9 @@ try {
     const kept = await page.evaluate(() => {
       const f = window.__f;
       const g = window.__rt.game;
-      g.player.press('key');
+      g.mouseDown(0);
       f.step(1 / 60);
-      g.player.release('key');
+      g.mouseUp(0);
       f.step(0.4);
       const creel = g.player.slots.find((h) => h?.kind === 'item' && h.item.item === 'fishing_creel');
       return { tel: f.tel(), inCreel: creel?.item.inside?.filter((x) => x.item.startsWith('fish_')).length ?? 0, near: f.nearestFish(), xp: g.systems.harness('progress', 'xp', 'fishing') };

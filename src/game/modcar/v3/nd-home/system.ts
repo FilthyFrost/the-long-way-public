@@ -168,18 +168,32 @@ class Piece {
         return l;
       },
       get word(): Text {
-        return T(`拿起 <b>${itemDef(l.item!.item).name.zh}</b>`, 'Pick it up');
+        const id = l.item!.item;
+        if ((id === ND_PEGBOARD || id === ND_ROD_RACK) && l.riding && self.sys.heldNow()) {
+          return id === ND_PEGBOARD ? T('挂到 <b>工具挂板</b> 上', 'Hang on the tool board') : T('搁到 <b>鱼竿架</b> 上', 'Rest on the rod rack');
+        }
+        return T(`拿起 <b>${itemDef(id).name.zh}</b>`, 'Pick it up');
       },
       get card(): ItemCard {
         return itemCardKept(l.item!, itemNow(), self.sys.time);
       },
       alt: null,
-      // (a big piece standing in a vehicle: E held)
+      // (a big piece standing in a vehicle: hold to pick up; wall pegboard/rod rack takes LMB tap when holding a tool/rod)
       get holdS() {
-        return BIG.has(l.item!.item) && l.riding ? TAKE_HOLD_S : undefined;
+        const id = l.item!.item;
+        if ((id === ND_PEGBOARD || id === ND_ROD_RACK) && l.riding && self.sys.heldNow()) return undefined;
+        return BIG.has(id) && l.riding ? TAKE_HOLD_S : undefined;
       },
       holding: () => {},
-      use: () => self.sys.pickUp(self),
+      use: () => {
+        const id = l.item!.item;
+        const held = self.sys.heldNow();
+        if ((id === ND_PEGBOARD || id === ND_ROD_RACK) && l.riding && held) {
+          self.sys.hangOn(self, held);
+          return;
+        }
+        self.sys.pickUp(self);
+      },
       hit: (ray, reach) => {
         const b = self.box ?? self.sys.boxOf(l);
         if (!b) return null;
@@ -249,8 +263,7 @@ export class NdHome implements System<GameContext>, InteractSource {
   init(ctx: GameContext): void {
     this.ctx = ctx;
     this.sit = new Sitting(ctx);
-    // (Q with a thing in the hands, the mark on a piece: into it)
-    ctx.player.shelver = { word: (t) => this.shelfWord(t), into: (t, held) => this.stowInto(t, held) };
+    // (old Q-to-stow into furniture removed 2026-11-27: all stowing uses R placement mode)
     ctx.loose.keeper = (l) => this.keeperOf(l);
     ctx.loose.boards = (eye, dir, box, yaw, grid, reach) => this.boardAim(eye, dir, box, yaw, grid, reach);
     // (a thing put down over a piece of furniture lands on it, as on a floor)
@@ -381,6 +394,9 @@ export class NdHome implements System<GameContext>, InteractSource {
         radius: 0.3,
         get loose() {
           return l;
+        },
+        get outline() {
+          return mv.obj;
         },
         get word(): Text {
           const isOpen = (p.item.state?.open ?? []).includes(name);
@@ -616,12 +632,14 @@ export class NdHome implements System<GameContext>, InteractSource {
     if (v) ctx.cargo.weigh(v);
   }
 
+  heldNow(): Held {
+    return this.ctx?.player.held ?? null;
+  }
+
   /**
-   * Q with a tool in the hands, the mark on the tool board (docs/V3/plan/finish.md §十一 2 工具挂板): it stands on the
-   * board's ledge under its own hook — its long side up the wall, its thin side to it. Or with a rod, on the rod rack: across the first free
-   * pair of rests. The board or the rack hung on a vehicle's wall: lying about, they hold nothing. True: the press is taken.
+   * Hang a tool on a wall-mounted pegboard or rest a fishing rod on a rod rack (LMB tap with the item held).
    */
-  private hangOn(p: Piece, held: NonNullable<Held>): boolean {
+  hangOn(p: Piece, held: NonNullable<Held>): boolean {
     const ctx = this.ctx!;
     const on = p.l.riding?.on;
     const board = p.item.item === ND_PEGBOARD;

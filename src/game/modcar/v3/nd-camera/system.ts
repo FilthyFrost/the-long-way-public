@@ -218,14 +218,14 @@ export class NdCamera implements System<GameContext>, InteractSource {
     },
   };
 
-  /** a print's way in the hands: F (the right button) held brings it up before the eye, face on */
+  /** a print's way in the hands: RMB held brings it up before the eye, face on */
   readonly photoHands: HandsUse = {
     id: 'nd-camera:print',
     claims: (h) => h.kind === 'item' && h.item.item === ND_PHOTO,
-    takesF: () => true,
-    step: (h, dt, f) => {
+    takesRmb: () => true,
+    step: (h, dt, _e, rmb) => {
       const ctx = this.ctx!;
-      this.photoUp = f || this.photoForce ? Math.min(1, this.photoUp + dt / 0.25) : Math.max(0, this.photoUp - dt / 0.25);
+      this.photoUp = rmb || this.photoForce ? Math.min(1, this.photoUp + dt / 0.25) : Math.max(0, this.photoUp - dt / 0.25);
       ctx.heldThing.liftTurn = PHOTO_FACE;
       ctx.heldThing.lift = 0.9 * this.photoUp;
       // (looked at, it is not being stuck; else the surface the mark is on shows it as a ghost)
@@ -233,8 +233,10 @@ export class NdCamera implements System<GameContext>, InteractSource {
       this.ghost ??= new PrintGhost(ctx.core.scene);
       this.ghost.show(this.stickAim, h.kind === 'item' ? this.store.texture(photoKey(h.item)) : null);
     },
-    press: (h, from) => {
-      if (from !== 'key' || !this.stickAim || h.kind !== 'item') return false;
+    // (the left button, or a pad's use button: where it would stick the press is the print's — the door it is held to
+    // is not opened by it)
+    press: (h) => {
+      if (!this.stickAim || h.kind !== 'item') return false;
       this.stick(h.item, this.stickAim);
       return true;
     },
@@ -249,6 +251,7 @@ export class NdCamera implements System<GameContext>, InteractSource {
       else out.push({ keys: ['LMB'], text: '贴上', off: true, why: '对着墙或车身' });
       return out;
     },
+    aims: () => (this.stickAim ? [{ keys: ['LMB'], text: '贴上' }, { keys: ['Wheel'], text: '转 90°' }] : null),
     gone: () => {
       const ctx = this.ctx!;
       this.photoUp = 0;
@@ -268,18 +271,21 @@ export class NdCamera implements System<GameContext>, InteractSource {
 
   // ------------------------------------------------------------------ in the hands (HandsUse)
 
-  /** its way in the hands (player.ts HandsUse) */
+  /** its way in the hands (player.ts HandsUse): E takes a photo, RMB raises the viewfinder */
   readonly hands: HandsUse = {
     id: 'nd-camera',
     claims: (h) => this.claims(h),
     takesF: () => true,
+    takesRmb: () => true,
     press: (h, from) => this.press(h, from),
     release: () => false,
     wheel: (h, d) => this.wheel(h, d),
-    step: (h, dt, f) => this.handStep(h, dt, f),
+    step: (h, dt, e, rmb) => this.handStep(h, dt, e, !!rmb),
     words: (h) => this.words(h),
     gone: () => this.gone(),
   };
+
+  private eWas = false;
 
   claims(held: NonNullable<Held>): boolean {
     return held.kind === 'item' && held.item.item === ND_CAMERA;
@@ -291,7 +297,8 @@ export class NdCamera implements System<GameContext>, InteractSource {
 
   press(held: NonNullable<Held>, from: 'key' | 'mouse'): boolean {
     if (from !== 'mouse' || held.kind !== 'item') return false;
-    this.shutter(held.item);
+    if (this.raise < 0.92) return false;
+    this.shutter(held.item, false);
     return true;
   }
 
@@ -306,9 +313,11 @@ export class NdCamera implements System<GameContext>, InteractSource {
     return true;
   }
 
-  handStep(held: NonNullable<Held>, dt: number, f: boolean): void {
+  handStep(held: NonNullable<Held>, dt: number, e: boolean, rmb = false): void {
     const ctx = this.ctx!;
-    const want = f || this.forceRaise ? 1 : 0;
+    const eEdge = e && !this.eWas;
+    this.eWas = e;
+    const want = rmb || this.forceRaise ? 1 : 0;
     this.raise = want > this.raise ? Math.min(1, this.raise + dt / CAMERA.raiseS) : Math.max(0, this.raise - dt / CAMERA.raiseS);
     this.cool = Math.max(0, this.cool - dt);
     const k = this.raise * this.raise * (3 - 2 * this.raise);
@@ -317,6 +326,7 @@ export class NdCamera implements System<GameContext>, InteractSource {
     ctx.heldThing.handTurn = 2.1;
     ctx.lookZoom = 1 + (zoomAt(this.zoom) - 1) * k;
     this.showFinder(this.raise > 0.92, held.kind === 'item' ? held.item : null);
+    if (eEdge && held.kind === 'item') this.shutter(held.item, true);
     // (the print out of the slot follows the camera in the hands)
     if (this.hanging) this.poseHanging();
   }
@@ -324,10 +334,10 @@ export class NdCamera implements System<GameContext>, InteractSource {
   words(held: NonNullable<Held>): Action[] {
     const n = held.kind === 'item' ? filmOf(held.item) : 0;
     const up = this.raise > 0.92;
-    const out: Action[] = [{ keys: ['RMB'], hold: true, text: '举起' }];
-    if (n <= 0) out.push({ keys: ['LMB'], text: '拍照', off: true, why: '没有相纸了' });
-    else if (!up) out.push({ keys: ['LMB'], text: '拍照', off: true, why: '先按住右键举起' });
-    else out.push({ keys: ['LMB'], text: '拍照', off: this.cool > 0, why: '等一下' });
+    const out: Action[] = [];
+    if (n <= 0) out.push({ keys: ['E'], text: '拍照', off: true, why: '没有相纸了' });
+    else out.push({ keys: ['E'], text: '拍照', off: this.cool > 0, why: '等一下' });
+    out.push({ keys: ['RMB'], hold: true, text: '举起取景' });
     if (up) out.push({ keys: ['Wheel'], text: '变焦' });
     return out;
   }
@@ -335,6 +345,7 @@ export class NdCamera implements System<GameContext>, InteractSource {
   gone(): void {
     const ctx = this.ctx!;
     this.raise = 0;
+    this.eWas = false;
     ctx.heldThing.lift = 0;
     ctx.heldThing.handTurn = null;
     ctx.lookZoom = 1;
@@ -344,9 +355,9 @@ export class NdCamera implements System<GameContext>, InteractSource {
 
   // ------------------------------------------------------------------ the shutter
 
-  private shutter(cam: ItemInstance): void {
+  private shutter(cam: ItemInstance, direct = false): void {
     const ctx = this.ctx!;
-    if (this.raise < 0.92) return void ctx.player.flashWhy('先按住右键举起');
+    if (!direct && this.raise < 0.92) return void ctx.player.flashWhy('先按住右键举起');
     if (this.cool > 0) return void blip('tick', 0.6);
     if (filmOf(cam) <= 0) {
       blip('tick', 0.8);
@@ -521,9 +532,12 @@ export class NdCamera implements System<GameContext>, InteractSource {
       }
       p.mat.userData.dev.value = developed(now - (it.state?.photo?.at ?? -1e9));
       if (p.model) {
+        // (only a print pushed out of the camera turns as it falls: one let go from the hands comes down flat, and lies so)
         if (!l.resting && !l.riding) {
-          p.tilt += p.spin * dt;
-          p.model.rotation.set(0.35 * Math.sin(p.tilt * 0.7), p.tilt, 0.3 * Math.cos(p.tilt * 0.9));
+          if (p.spin) {
+            p.tilt += p.spin * dt;
+            p.model.rotation.set(0.35 * Math.sin(p.tilt * 0.7), p.tilt, 0.3 * Math.cos(p.tilt * 0.9));
+          }
         } else if (p.spin) {
           p.spin = 0;
           p.model.rotation.set(0, p.model.rotation.y, 0);
@@ -673,6 +687,7 @@ export class NdCamera implements System<GameContext>, InteractSource {
         return rec.z;
       },
       radius: 0.1,
+      outline: obj,
       word: T('揭下照片', 'Take the photo down'),
       get card(): ItemCard {
         return itemCardKept(rec.item, itemNow(), sys.time);

@@ -24,48 +24,21 @@ import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
 import { bodyCut, floorAt, ladderLine, ladderSpot, LADDER_PART, LADDER_SPOTS, roofFloors, type LadderFloor, type LadderSpot, type RoofAsBuilt } from '../../../../core/modcar/ladders';
 import { CLIMB } from '../../../../core/v3/nd/climb';
-import { Solid, solidWithin, type SolidSource } from '../../../../core/world/solids';
 import type { Action } from '../../hudItems';
 import type { GameContext } from '../../kernel/context';
 import type { ModVehicle } from '../../vehicle';
 import type { LadderNow, LadderSource, NdClimb } from '../nd-climb/system';
 
-/** a ladder is taken hold of on a vehicle standing still (km/h) */
-const STILL_KMH = 1.5;
 /** the ladders of the vehicles this near the walker are offered (m, past the vehicle's own half length) */
 const NEAR = 5;
-/** up on a roof that goes faster than a walk (km/h), or tips over further (rad): put down beside it */
-const PUT_DOWN_KMH = 8;
+/** up on a roof that tips over further than this (rad): put down beside it */
 const PUT_DOWN_TILT = 0.45;
 /** drawn onto the roof, the walk waits this long at most for the forward key to be let go (s) */
-const SETTLE_S = 1.0;
+const SETTLE_S = 0.8;
 /** each roofed frame's lowest floor up there (model space, m): worked out once */
 const LOWEST: ReadonlyMap<string, number> = new Map(Object.entries(LADDER_SPOTS).map(([id, s]) => [id, Math.min(...s.floors.map((f) => f.top))]));
 /** below the lowest floor by this, one is down off the roof again (m) */
 const DOWN = 0.5;
-
-/** a pose as the sim keeps it */
-interface PoseQ {
-  x: number;
-  y: number;
-  z: number;
-  qx: number;
-  qy: number;
-  qz: number;
-  qw: number;
-}
-
-function simPose(v: ModVehicle, out: PoseQ): PoseQ {
-  const s = v.sim;
-  out.x = s.px;
-  out.y = s.py;
-  out.z = s.pz;
-  out.qx = s.qx;
-  out.qy = s.qy;
-  out.qz = s.qz;
-  out.qw = s.qw;
-  return out;
-}
 
 /** up on a vehicle's roof (or on its ladder, going up or coming down) */
 interface Up {
@@ -75,12 +48,6 @@ interface Up {
   floors: LadderFloor[];
   roofPart: string;
   cut: number;
-  /** its pose last frame: what it moved since, one is carried by */
-  was: PoseQ;
-  /** its body's box out of the walker's way (put back when one is down) */
-  solidOut: boolean;
-  /** the solids offered for it: the body cut below the roof, the floors, the walls */
-  solids: Solid[];
 }
 
 /** a ladder as the climbing is told of it, kept per vehicle and brought up to date */
@@ -94,7 +61,7 @@ interface Now {
   wood?: boolean;
 }
 
-export class VehicleLadders implements System<GameContext>, LadderSource, SolidSource {
+export class VehicleLadders implements System<GameContext>, LadderSource {
   readonly id = 'ladder';
   readonly after = ['nd-climb'];
   readonly budget = { cpuMs: 0.1 };
@@ -104,8 +71,9 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
   private climbing: string | null = null;
   /** drawn onto the roof: the walk held there until the forward key is let go (s left) */
   private settle = 0;
+  private settleV: ModVehicle | null = null;
   private readonly settleWords: readonly Action[] = [];
-  private readonly settlePin = { x: 0, y: 0, z: 0, eye: 1.62, words: this.settleWords };
+  private readonly settlePin = { x: 0, y: 0, z: 0, eye: 1.5, words: this.settleWords };
   private readonly nows = new Map<string, Now>();
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
@@ -122,9 +90,8 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
   init(ctx: GameContext): void {
     this.ctx = ctx;
     this.climb.sources.push(this);
-    // (the roof's floors, the body cut below them, the walls: the walker's only — ctx.addSolids would hand them to the
-    // vehicles' own driving too)
-    ctx.player.addSolids(this);
+    // Roofs are always solid in each vehicle's VehicleWalkSolids; VehicleLadders only exposes climbable ladders
+    // and tracks roof state / settle latch.
   }
 
   // ------------------------------------------------------------------ which vehicles have one
@@ -158,7 +125,8 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     if (!ctx) return;
     const w = ctx.player.walker;
     for (const v of ctx.vehicles) {
-      if (v === ctx.seated || v.carriedBy || Math.abs(v.sim.kmh) > STILL_KMH) continue;
+      if (v === ctx.seated || v.carriedBy) continue;
+      if (Math.abs(v.sim.pitch) > PUT_DOWN_TILT || Math.abs(v.sim.roll) > PUT_DOWN_TILT) continue;
       if (Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) > NEAR + v.sim.spec.body.halfLength) continue;
       if (!VehicleLadders.hasLadder(v)) continue;
       out.push(this.lineOf(v));
@@ -203,16 +171,19 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
   left(key: string, how: 'head' | 'foot' | 'jump' | 'gone'): void {
     if (this.climbing === key) this.climbing = null;
     if (how !== 'head' || !this.ctx) return;
-    // drawn onto the roof: there until the forward key is let go
+    // drawn onto the solid roof: attach vehicle carry and hold until the forward key is let go
+    const v = this.byKey(key);
+    if (v) this.ctx.player.attachVehicle(v, 0.5);
     const w = this.ctx.player.walker;
     this.settle = SETTLE_S;
+    this.settleV = v;
     this.settlePin.x = w.x;
     this.settlePin.y = w.y;
     this.settlePin.z = w.z;
-    const n = this.nows.get(key);
+    const n = v ? this.lineOf(v) : this.nows.get(key);
     if (n) {
       this.settlePin.x = n.exit.x;
-      this.settlePin.y = n.exit.y;
+      this.settlePin.y = n.exit.y + 0.04;
       this.settlePin.z = n.exit.z;
     }
     this.ctx.player.pin = this.settlePin;
@@ -221,7 +192,6 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
 
   // ------------------------------------------------------------------ up and down
 
-  /** up on (or onto) this vehicle's roof: its body's box out of the walker's way, the roof's floors in */
   private goUp(v: ModVehicle): void {
     const ctx = this.ctx!;
     if (this.up?.v === v) return;
@@ -229,29 +199,21 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     const spot = ladderSpot(v.view.frame.id);
     if (!spot) return;
     const floors = VehicleLadders.floorsOf(v);
-    const n = floors.length + (spot.walls?.length ?? 0) + 1;
     this.up = {
       v,
       spot,
       floors,
       roofPart: v.build.parts.roof?.part ?? '',
       cut: bodyCut(floors),
-      was: simPose(v, { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }),
-      solidOut: true,
-      solids: Array.from({ length: n }, () => new Solid()),
     };
-    this.placeSolids(this.up);
-    ctx.player.removeSolids(v.solid);
     ctx.player.onRoof = v;
   }
 
-  /** down off it: its body's box back in the walker's way (a vehicle gone from the world took its own with it) */
   private comeDown(): void {
     const ctx = this.ctx;
     const up = this.up;
     this.up = null;
     if (!ctx || !up) return;
-    if (up.solidOut && ctx.vehicles.includes(up.v)) ctx.player.addSolids(up.v.solid);
     if (ctx.player.onRoof === up.v) ctx.player.onRoof = null;
   }
 
@@ -264,16 +226,17 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     return out.set(w.x - s.px, w.y - s.py, w.z - s.pz).applyQuaternion(this.q2).add(this.v2.set(cg.x, cg.y, cg.z));
   }
 
-  /** standing on a vehicle's roof without having climbed there (a save taken up there, put there by a script) */
+  /** standing on a vehicle's roof (climbed, jumped onto, or restored from save) */
   private roofUnder(): ModVehicle | null {
     const ctx = this.ctx!;
     const w = ctx.player.walker;
     for (const v of ctx.vehicles) {
-      if (v.carriedBy || Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) > v.sim.spec.body.halfLength + 1) continue;
+      if (v.carriedBy) continue;
+      if (w.grounded && w.floorTag === v.walkSolids.tagRoof) return v;
+      if (Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) > v.sim.spec.body.halfLength + 1) continue;
       const s = ladderSpot(v.view.frame.id);
       if (!s) continue;
       const f = this.feetIn(v, this.v1);
-      // (well below its roof: on the ground beside it, nothing more to ask)
       if (f.y < (LOWEST.get(v.view.frame.id) ?? 0) - 0.3) continue;
       const y = floorAt(VehicleLadders.floorsOf(v), f.x, f.z);
       if (y !== null && f.y > y - 0.25 && f.y < y + 0.6) return v;
@@ -281,26 +244,7 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     return null;
   }
 
-  /** what it moved since the last frame, the walker moved with it (the feet and the heading) */
-  private carry(up: Up): void {
-    const ctx = this.ctx!;
-    const s = up.v.sim;
-    const was = up.was;
-    if (was.x === s.px && was.y === s.py && was.z === s.pz && was.qx === s.qx && was.qy === s.qy && was.qz === s.qz && was.qw === s.qw) return;
-    const w = ctx.player.walker;
-    const q0 = this.q1.set(was.qx, was.qy, was.qz, was.qw);
-    const turn = this.q2.set(s.qx, s.qy, s.qz, s.qw).multiply(q0.invert());
-    const p = this.v1.set(w.x - was.x, w.y - was.y, w.z - was.z).applyQuaternion(turn);
-    w.x = s.px + p.x;
-    w.y = s.py + p.y;
-    w.z = s.pz + p.z;
-    // (the heading only: the view is not tipped with the vehicle)
-    const yaw0 = Math.atan2(-2 * (was.qx * was.qz - was.qw * was.qy), 1 - 2 * (was.qy * was.qy + was.qz * was.qz));
-    ctx.input.lookYaw -= s.yaw - yaw0;
-    simPose(up.v, was);
-  }
-
-  /** put down on the ground beside its ladder (it drove off, it tipped) */
+  /** put down on the ground beside its ladder if the vehicle tips over */
   private putDown(up: Up): void {
     const ctx = this.ctx!;
     const ln = ladderLine(up.spot, up.floors);
@@ -308,6 +252,8 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     const w = ctx.player.walker;
     if (ctx.player.pin === this.settlePin) ctx.player.pin = null;
     this.settle = 0;
+    this.settleV = null;
+    ctx.player.detachVehicle();
     w.place(p.x, p.z, w.heading, 4);
     this.comeDown();
     this.putDowns++;
@@ -323,6 +269,7 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
       this.climbing = null;
       if (ctx.player.pin === this.settlePin) ctx.player.pin = null;
       this.settle = 0;
+      this.settleV = null;
       ctx.player.onRoof = null;
       return;
     }
@@ -332,12 +279,9 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     }
     const up = this.up;
     if (up) {
-      // (gone from the world: its body's box went with it)
       if (!ctx.vehicles.includes(up.v)) {
-        up.solidOut = false;
         this.comeDown();
       } else {
-        // (the roof as built now: a rack fitted, taken off)
         const part = up.v.build.parts.roof?.part ?? '';
         if (part !== up.roofPart) {
           up.roofPart = part;
@@ -345,67 +289,39 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
           up.cut = bodyCut(up.floors);
         }
         if (!this.climbing) {
-          this.carry(up);
           const s = up.v.sim;
-          if (Math.abs(s.kmh) > PUT_DOWN_KMH || Math.abs(s.pitch) > PUT_DOWN_TILT || Math.abs(s.roll) > PUT_DOWN_TILT) this.putDown(up);
+          if (Math.abs(s.pitch) > PUT_DOWN_TILT || Math.abs(s.roll) > PUT_DOWN_TILT) this.putDown(up);
           else if (this.feetIn(up.v, this.v1).y < up.cut + 0.03 - DOWN) this.comeDown();
-        } else simPose(up.v, up.was);
-        if (this.up) this.placeSolids(this.up);
+        }
       }
     }
     ctx.player.onRoof = this.up?.v ?? null;
-    // drawn onto the roof: held there until the forward key is let go (or a second has gone)
+    // drawn onto the roof: held at exit (following a moving vehicle) until W is released or timer expires
     if (this.settle > 0) {
       this.settle -= dt;
-      if (ctx.player.pin !== this.settlePin) this.settle = 0;
-      else if (this.settle <= 0 || ctx.input.walk.forward < 0.2) {
+      if (this.settleV && ctx.vehicles.includes(this.settleV)) {
+        const n = this.lineOf(this.settleV);
+        this.settlePin.x = n.exit.x;
+        this.settlePin.y = n.exit.y + 0.04;
+        this.settlePin.z = n.exit.z;
+      }
+      if (ctx.player.pin !== this.settlePin) {
         this.settle = 0;
+        this.settleV = null;
+      } else if (this.settle <= 0 || ctx.input.walk.forward < 0.2) {
+        this.settle = 0;
+        if (this.settleV) ctx.player.attachVehicle(this.settleV, 0.5);
+        this.settleV = null;
         ctx.player.pin = null;
       }
     }
   }
-
-  // ------------------------------------------------------------------ the walker's solids while up there
 
   /** a point of a vehicle's model (frame model space) in the world, as it stands (its sim pose; allocates nothing) */
   private worldOf(v: ModVehicle, x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
     const s = v.sim;
     const cg = v.sys.derived.cg;
     return out.set(x - cg.x, y - cg.y, z - cg.z).applyQuaternion(this.qp.set(s.qx, s.qy, s.qz, s.qw)).add(this.vp.set(s.px, s.py, s.pz));
-  }
-
-  /**
-   * The solids up there, as the vehicle stands this frame (worked out once a frame, handed out to the walker as they are):
-   * the body's box cut below what one stands on, the floors (from the cut up: what is between them and the body is solid),
-   * the walls
-   */
-  private placeSolids(up: Up): void {
-    const v = up.v;
-    const sd = v.solid.update();
-    const tag = v.sim.spec.id;
-    let k = 0;
-    const cutY = this.worldOf(v, 0, up.cut, 0, this.v1).y;
-    up.solids[k++].set(sd.x, sd.z, sd.hx, sd.hz, sd.yaw, sd.y0, Math.max(sd.y0 + 0.05, cutY), false, tag);
-    for (const f of up.floors) {
-      const cx = (f.along[0] + f.along[1]) / 2;
-      const cz = (f.across[0] + f.across[1]) / 2;
-      const top = this.worldOf(v, cx, f.top, cz, this.v1);
-      const bottom = this.worldOf(v, cx, up.cut, cz, this.v2).y;
-      up.solids[k++].set(top.x, top.z, (f.along[1] - f.along[0]) / 2, (f.across[1] - f.across[0]) / 2, sd.yaw, Math.min(bottom, top.y - 0.05), top.y, true, tag);
-    }
-    for (const wl of up.spot.walls ?? []) {
-      const cx = (wl.along[0] + wl.along[1]) / 2;
-      const cz = (wl.across[0] + wl.across[1]) / 2;
-      const lo = this.worldOf(v, cx, wl.height[0], cz, this.v1);
-      const hi = this.worldOf(v, cx, wl.height[1], cz, this.v2).y;
-      up.solids[k++].set(lo.x, lo.z, (wl.along[1] - wl.along[0]) / 2, (wl.across[1] - wl.across[0]) / 2, sd.yaw, lo.y, hi, false, tag);
-    }
-  }
-
-  solidsNear(x: number, z: number, r: number, out: Solid[]): void {
-    const up = this.up;
-    if (!up) return;
-    for (let i = 0; i < up.solids.length; i++) if (solidWithin(up.solids[i], x, z, r)) out.push(up.solids[i]);
   }
 
   // ------------------------------------------------------------------ the probes'
@@ -454,7 +370,6 @@ export class VehicleLadders implements System<GameContext>, LadderSource, SolidS
     const ctx = this.ctx;
     this.comeDown();
     if (ctx) {
-      ctx.player.removeSolids(this);
       const i = this.climb.sources.indexOf(this);
       if (i >= 0) this.climb.sources.splice(i, 1);
     }

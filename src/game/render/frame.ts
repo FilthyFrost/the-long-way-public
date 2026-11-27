@@ -52,6 +52,18 @@ export interface SeeLayer {
   bandPx: number;
 }
 
+/**
+ * Target outlined with a 4.6 px pure-white through-occluder silhouette contour
+ * (Nomad Drive style: zero interior tint/fill, always visible through intervening geometry).
+ */
+export interface OutlineTarget {
+  readonly root: THREE.Object3D;
+  /** when root contains a merged mesh with aPartId, only vertices matching partId (> 0) are outlined */
+  readonly partId?: number;
+  /** optional companion subtree outlined into the same mask (e.g. moving lever/key of a merged control) */
+  readonly extra?: THREE.Object3D | null;
+}
+
 export class Frame {
   readonly rtScene: THREE.WebGLRenderTarget;
   bloom = STYLE.pipeline.bloom.strength;
@@ -95,8 +107,17 @@ export class Frame {
   private height = 0;
   /** the thing laid over the frame this frame (null: none) — set by whoever draws it, each frame */
   overlay: SeeLayer | null = null;
+  /** the aimed target outlined with a 4.6 px solid white through-occluder contour (null: none) */
+  outline: OutlineTarget | null = null;
   /** its layer (made the first time one is laid over), and the frame's MSAA and depth for it */
   private rtLayer: THREE.WebGLRenderTarget | null = null;
+  /** silhouette mask for the aimed target (made on first use; pooled proxy meshes for zero per-frame alloc) */
+  private rtOutline: THREE.WebGLRenderTarget | null = null;
+  private readonly outlineScene = new THREE.Scene();
+  private readonly outlinePool: THREE.Mesh[] = [];
+  private readonly outlineStack: THREE.Object3D[] = [];
+  private outlineMat: THREE.ShaderMaterial | null = null;
+  private outlinePartMat: THREE.ShaderMaterial | null = null;
   private readonly samples: number;
   private readonly reversed: boolean;
   /** (bound in its place while there is no layer) */
@@ -198,6 +219,8 @@ export class Frame {
       uniform vec4 uLayer;           // x how far it is seen through (0: no layer), y its faces' least opacity, z its outline's, w its band's width (px)
       uniform vec4 uLayerWin;        // x, y the window's inner and outer radius (screen heights), z its stretch across, w the inked edge's width (px)
       uniform float uLayerEdge;      // its faces' opacity outside the window at full fade
+      uniform sampler2D tOutline;    // silhouette mask of the aimed target (r=1 inside, depthTest off)
+      uniform float uOutline;        // 1 when an aimed target outline is active
       varying vec2 vUv;
 
       // The inked line of a cel-painted thing (the vehicle): its parts write small alphas of their own
@@ -364,6 +387,22 @@ export class Frame {
         c = pow(max(c, 0.0) / 0.18, vec3(uContrast)) * 0.18;
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = toSrgb(max(mix(vec3(l), c, uSat), 0.0));
+        // Aimed target silhouette contour: 4.6 px (at 1080p) pure solid white, visible through occluders, zero interior tint
+        if (uOutline > 0.5) {
+          float c0 = texture2D(tOutline, vUv).r;
+          if (c0 < 0.5) {
+            vec2 px = uPaintTexel * (4.6 * max(0.5, 1.0 / (uPaintTexel.y * 1080.0)));
+            float m = 0.0;
+            for (int i = 0; i < 16; i++) {
+              float a = float(i) * 0.3926991;
+              vec2 off = vec2(cos(a), sin(a)) * px;
+              m = max(m, texture2D(tOutline, vUv + off).r);
+              m = max(m, texture2D(tOutline, vUv + off * 0.5).r);
+            }
+            float edge = smoothstep(0.15, 0.55, m) * (1.0 - smoothstep(0.3, 0.7, c0));
+            c = mix(c, vec3(1.0), edge);
+          }
+        }
         float nz = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)) + fract(uTime * 7.1) * 0.618));
         gl_FragColor = vec4(c + (nz - 0.5) / 255.0, 1.0);
       }`,
@@ -387,8 +426,8 @@ export class Frame {
         uTime: { value: 0 },
         uInkColor: { value: new THREE.Color(...p.ink.color) },
         uInk: { value: p.ink.strength },
-        // the highlight's outline (linear, before exposure): the car materials' cyan-white
-        uLitLine: { value: new THREE.Color(0.62, 1.0, 1.08) },
+        // the highlight's outline (pure white)
+        uLitLine: { value: new THREE.Color(1.0, 1.0, 1.0) },
         uShaft: { value: new THREE.Vector3(0.5, 0.5, 0) },
         uShaftColor: { value: this.shaftColor },
         uAspect: { value: 16 / 9 },
@@ -398,6 +437,8 @@ export class Frame {
         uLayer: { value: new THREE.Vector4(0, 1, 1, 3) },
         uLayerWin: { value: new THREE.Vector4(0.12, 0.42, 1.4, 1.4) },
         uLayerEdge: { value: 1 },
+        tOutline: { value: this.noLayer },
+        uOutline: { value: 0 },
       },
     );
   }
@@ -435,6 +476,115 @@ export class Frame {
     } finally {
       r.autoClear = auto;
     }
+  }
+
+  private ensureOutline(w: number, h: number): THREE.WebGLRenderTarget {
+    if (!this.rtOutline) {
+      this.rtOutline = new THREE.WebGLRenderTarget(1, 1, {
+        type: THREE.UnsignedByteType,
+        format: THREE.RGBAFormat,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        generateMipmaps: false,
+        depthBuffer: false,
+        stencilBuffer: false,
+        colorSpace: THREE.NoColorSpace,
+      });
+    }
+    if (this.rtOutline.width !== w || this.rtOutline.height !== h) this.rtOutline.setSize(w, h);
+    if (!this.outlineMat) {
+      this.outlineMat = new THREE.ShaderMaterial({
+        vertexShader: /* glsl */ `
+          void main() {
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: /* glsl */ `
+          void main() {
+            gl_FragColor = vec4(1.0);
+          }`,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.NoBlending,
+      });
+      this.outlinePartMat = new THREE.ShaderMaterial({
+        uniforms: { uPartId: { value: -1 } },
+        vertexShader: /* glsl */ `
+          attribute float aPartId;
+          varying float vPartId;
+          void main() {
+            vPartId = aPartId;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: /* glsl */ `
+          uniform float uPartId;
+          varying float vPartId;
+          void main() {
+            if (abs(vPartId - uPartId) > 0.5) discard;
+            gl_FragColor = vec4(1.0);
+          }`,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.NoBlending,
+      });
+    }
+    return this.rtOutline;
+  }
+
+  /** Render the aimed target's solid silhouette mask using pooled proxy meshes (zero per-frame alloc). */
+  private drawOutline(out: OutlineTarget, camera: THREE.PerspectiveCamera, w: number, h: number): boolean {
+    const rt = this.ensureOutline(w, h);
+    const partId = out.partId ?? -1;
+    const partMat = this.outlinePartMat!;
+    const plainMat = this.outlineMat!;
+    partMat.uniforms.uPartId.value = partId;
+    const stack = this.outlineStack;
+    let count = 0;
+    const collect = (root: THREE.Object3D, filterPart: boolean): void => {
+      stack.length = 0;
+      stack.push(root);
+      while (stack.length > 0) {
+        const o = stack.pop()!;
+        if (!o.visible) continue;
+        if (o.userData.ghostDepth || o.userData.ghostXray || o.name === 'nd:light-glow') continue;
+        const m = o as THREE.Mesh;
+        if (m.isMesh && m.geometry) {
+          let proxy = this.outlinePool[count];
+          if (!proxy) {
+            proxy = new THREE.Mesh();
+            proxy.matrixAutoUpdate = false;
+            proxy.frustumCulled = false;
+            this.outlinePool.push(proxy);
+            this.outlineScene.add(proxy);
+          }
+          proxy.geometry = m.geometry;
+          proxy.material = filterPart && partId > 0 && m.geometry.hasAttribute('aPartId') ? partMat : plainMat;
+          proxy.matrix.copy(m.matrixWorld);
+          proxy.matrixWorld.copy(m.matrixWorld);
+          proxy.visible = true;
+          count++;
+        }
+        const ch = o.children;
+        for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
+      }
+    };
+    collect(out.root, partId > 0);
+    if (out.extra) collect(out.extra, false);
+    for (let i = count; i < this.outlinePool.length; i++) this.outlinePool[i].visible = false;
+    if (count === 0) return false;
+    const r = this.renderer;
+    r.setRenderTarget(rt);
+    r.setClearColor(0x000000, 0);
+    r.clear();
+    const auto = r.autoClear;
+    r.autoClear = false;
+    try {
+      r.render(this.outlineScene, camera);
+    } finally {
+      r.autoClear = auto;
+    }
+    return true;
   }
 
   private makeSmaa(): void {
@@ -486,6 +636,7 @@ export class Frame {
       if (lay) lay.root.visible = true;
     }
     if (lay) this.drawLayer(lay, camera, size.x, size.y);
+    const outOn = !!this.outline && this.drawOutline(this.outline, camera, size.x, size.y);
     const ul = this.finalMat.uniforms;
     if (lay && this.rtLayer) {
       ul.tLayer.value = this.rtLayer.texture;
@@ -498,6 +649,8 @@ export class Frame {
       ul.tLayerDepth.value = this.noLayer;
       (ul.uLayer.value as THREE.Vector4).x = 0;
     }
+    ul.tOutline.value = outOn && this.rtOutline ? this.rtOutline.texture : this.noLayer;
+    ul.uOutline.value = outOn ? 1 : 0;
 
     // bloom chain
     let src: THREE.WebGLRenderTarget = this.rtScene;

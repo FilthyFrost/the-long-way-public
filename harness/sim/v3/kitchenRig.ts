@@ -195,11 +195,18 @@ export async function kitchenRig(o: { save?: FakeSave | null; pack?: number } = 
       player.release();
       step();
     },
-    /** the left button held so long (s), then let go: a pick-up, a fitting (docs/V3/plan/growth.md J1; a hold where a press also works takes 0.9 s: docs/V3/plan/hands.md) */
+    /** the left button held so long (s), then let go: a promoted grab or hold */
     holdL: (s = 1.0): void => {
       player.press();
       frames(Math.round(s * 60));
       player.release();
+      step();
+    },
+    /** E held so long (s), then let go: secondary grab on a functional device (lift vessel off burner, pick up appliance) */
+    holdE: (s = 0.65): void => {
+      keys.take = true;
+      frames(Math.round(s * 60));
+      keys.take = false;
       step();
     },
     /** the wheel turned with the mark where it is: a device's second thing (a flame up or down) */

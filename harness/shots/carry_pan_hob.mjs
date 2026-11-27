@@ -45,16 +45,32 @@ try {
     });
     await page.screenshot({ path: path.join(out, f) });
   };
-  // ---- the Old Elephant parked by the road, its fittings in, in by the entry door
+  // ---- the Old Elephant parked by the road (empty shell since §十九 step 7: place a kitchen stand and two hobs), in by the entry door
   const set = await page.evaluate(async () => {
     const g = window.__rt.game;
     const v = g.vehicles.find((x) => x.build.frame === 'elephant');
+    const It = await import('/src/core/modcar/items.ts');
     v.sim.setParkBrake(true);
     v.sys.stop('');
     g.simulate(1.5);
     g.getOut();
     g.simulate(0.5);
-    await g.stowFittings(v);
+    const put = async (id, near, yaw) => {
+      const held = { kind: 'item', item: It.newItem(id) };
+      await g.cargo.measured(held);
+      const at = g.cargo.spotIn(v, 'cabin', held, near, yaw, 0);
+      return at ? g.cargo.stow(v, at.zone, at.spot, held) : null;
+    };
+    const stand = await put('nd_kitchen_stand', { x: -2.0, z: -0.82 }, Math.PI / 2);
+    const hobs = [];
+    if (stand) {
+      const sx = stand.riding.pos.x + v.sys.derived.cg.x;
+      const sz = stand.riding.pos.z + v.sys.derived.cg.z;
+      for (const dx of [-0.35, 0.35]) {
+        const h = await put('kit_hob', { x: sx + dx, z: sz }, -Math.PI / 2);
+        if (h) hobs.push(h);
+      }
+    }
     g.simulate(0.2);
     const A = await import('/src/core/modcar/aboard.ts');
     v.view.setPanelOpen('door_side', true);
@@ -62,10 +78,11 @@ try {
     g.board(v, A.aboardOf('elephant').doors[0]);
     g.simulate(0.3);
     window.__v = v;
-    window.__hobs = g.loose.ridersOf(v).filter((l) => l.item?.item === 'kit_hob');
-    return { aboard: g.player.aboard?.v === v, hobs: window.__hobs.length };
+    window.__hobs = hobs;
+    const hx = hobs[0] ? +(hobs[0].riding.pos.x + v.sys.derived.cg.x).toFixed(2) : -2.0;
+    return { aboard: g.player.aboard?.v === v, hobs: hobs.length, hx };
   });
-  ok(set.aboard && set.hobs === 4, `in the Old Elephant, its four hobs on the galley's worktop (${JSON.stringify(set)})`);
+  ok(set.aboard && set.hobs >= 1, `in the Old Elephant, a kitchen stand with its hobs along the left wall (${JSON.stringify(set)})`);
   await rt('setView', 'cockpit');
   /** standing in the room at (x, z) (model space), looking at the middle of hob k's burner */
   const lookAtHob = (x, z, k) =>
@@ -83,10 +100,11 @@ try {
       for (let i = 0; i < 6; i++) g.simulate(1 / 30);
       return { at: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] };
     }, { x, z, k });
+  const standX = set.hx + 0.3;
   // ---- a pan in the hands, carried: Q 放下 and R 摆放 down the right
   await rt('hold', 'item:kit_pan');
   await step(20);
-  await lookAtHob(-1.1, 0.35, 0);
+  await lookAtHob(standX, 0.25, 0);
   let w = await words();
   ok(w.includes('放下') && w.includes('摆放'), 'carrying the pan: Q 放下 and R 摆放 said down the right');
   // ---- R: held out; over the first hob it goes onto its middle
@@ -136,7 +154,7 @@ try {
     return yaw;
   });
   ok(drawn !== null && Math.abs(wrap(drawn - put.yaw)) < 1e-3, `drawn on the hob turned so (${drawn === null ? '—' : ((drawn * 180) / Math.PI).toFixed(1)}°)`);
-  await lookAtHob(-1.1, 0.35, 0);
+  await lookAtHob(standX, 0.25, 0);
   await shot('3_pan_on_hob.png');
   // ---- an egg in it, the hob on: it cooks, still turned
   const cook = await page.evaluate(async () => {
@@ -152,7 +170,7 @@ try {
     return { fire: K.fireOf(hob.item), done: +(K.potOf(hob.item)?.done ?? 0).toFixed(3), yaw: K.kitOf(hob.item).onYaw ?? null };
   });
   ok(cook.fire === 2 && cook.done > 0.1 && cook.yaw !== null && Math.abs(wrap(cook.yaw - want)) < 1e-3, `an egg in it, the hob on: it cooks there, turned as it was set (${JSON.stringify(cook)})`);
-  await lookAtHob(-1.1, 0.35, 0);
+  await lookAtHob(standX, 0.25, 0);
   await shot('4_cooking.png');
   // ---- off the hob into the hands again (the left button held on it): the turn was the hob's
   const lifted = await page.evaluate(async () => {

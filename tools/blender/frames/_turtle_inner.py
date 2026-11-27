@@ -1,7 +1,7 @@
 """Turtle (frames/turtle.py): everything behind the outer skin — the Loaf's (frames/_van_inner.py) on the longer body, its room
-a camper's: the galley block along the left wall (a sink, a worktop for a stove, cupboards), the floor by the sliding
-door, the bed across the back over the engine's deck (a cupboard under its front), the elevating roof's opening over
-it all. The Loaf's own words follow: everything behind the outer skin. The engine bay at the back (its tin firewall, the deck over it, the
+an empty shell as Nomad Drive's camper van's: the floor from the cab to a deck over the rear axle, the engine's deck
+behind that, the elevating roof's opening over it all; what one lives with is what the player puts in. The Loaf's own
+words follow: everything behind the outer skin. The engine bay at the back (its tin firewall, the deck over it, the
 carrier bar), the cab (the floor, the seat boxes over the front wheels and their struts, the console with the long
 gear lever, a shelf of a dash with the binnacle and its four dials, pedals, the flat-angled column), the room
 behind (the floor with the gearbox's tunnel, the bench's base over the rear axle, the engine deck), the door
@@ -31,23 +31,13 @@ EYE = (SEAT_X - 0.16, DRIVER_Y, SEAT_Z + 0.90)
 ROOM_FRONT_X = 0.90      # where the cab ends and the room begins (the seat boxes' backs)
 FIREWALL_X = -1.58       # the engine bay's front wall
 DECK_Z = 0.95            # the engine deck's top (its underside 2 cm lower)
-BENCH_Z = 0.76           # the rear bench's base over the rear axle (the bench part stands on it)
-BENCH_X = -1.13
-# the bed across the back: its platform from the engine deck forward over the rear axle (a cupboard under its front),
-# the mattress on it; the galley block along the left wall (its worktop, the sink in it)
-BED_X0 = -0.40
-BED_TOP = DECK_Z + 0.115
-# the upper bunk (docs/V3/plan/finish.md, decision 9: the bunk the pop-up roof was owed): a board with a thin mattress
-# across the back half of the roof's opening, just under the roof's line - the shell comes down over it; with the
-# shell up one sleeps under the canvas. Over the bed below, clear of where one stands (x beyond -0.38)
-BUNK_X = (-2.10, -0.38)
-BUNK_HW = 0.73
-BUNK_TOP = D['roof_z'] - 0.025
-GALLEY_X0 = -0.22
-GALLEY_X1 = 0.80
-GALLEY_Y = 0.46
-WORKTOP_Z = 1.22
-SINK_X = 0.42
+# the deck over the rear axle, as Nomad Drive's camper van has one (its engine's shelf behind it higher): from the
+# engine deck's front forward over the rear wheels' wells and the gearbox (whose top stands over the floor), wall to
+# wall, 38 cm over the floor as theirs; the room ahead of it an empty shell - the bed on its platform with its
+# cupboard, the bunk in the roof's opening and the galley along the left wall that stood in it are gone
+# (docs/V3/plan/finish.md section 19 step 7)
+AXLE_DECK_X1 = -0.63
+AXLE_DECK_Z = FLOOR_Z + 0.38
 DASH_FACE_X = 1.98       # the shelf's face towards the cab
 DASH_TOP = 1.08
 WALL_IN = -0.035         # how far inside the nose's skin the dash ends
@@ -336,51 +326,22 @@ def interior(ex):
     for sy in (1, -1):
         vp = np.array([mx - 0.03, sy * 0.44, 1.86])
         C.extend(K.box_buf(vp + (-0.17, -0.20, -0.012), vp + (0.0, 0.20, 0.008), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 6, vp)))
-    # ---------------------------------------------------------------- the room: a camper's
-    # wood floor from the bed's cupboard to the cab
-    L.extend(K.box_buf((BED_X0 - 0.01, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, 0.87, FLOOR_Z), 'wood', 0.004, 1))
-    # the bed's platform from the engine deck forward over the rear axle (its wells, the gearbox and the dampers' tops
-    # inside it), its front a cupboard of two doors with their knobs
+    # ---------------------------------------------------------------- the room: an empty shell
+    # (nothing built in, as Nomad Drive's camper van: what one lives with is what the player puts in)
+    # wood floor from the deck over the rear axle to the cab, out under the walls' lining (it stopped 1.6 cm short of it:
+    # along the walls, bare now, a slot down to the sills)
+    L.extend(K.box_buf((AXLE_DECK_X1 - 0.01, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, 0.89, FLOOR_Z), 'wood', 0.004, 1))
+    # the deck over the rear axle (the wells, the gearbox and the dampers' tops under it): between the wells from the
+    # floor, out to the walls ahead of them, over them from the wells' tops; its front the step up to it
     wy = WELL_IN_R - 0.006
-    wx0, wx1 = xr_a - WELL_R - 0.02, xr_a + WELL_R + 0.02
+    wx1 = xr_a + WELL_R + 0.02
     wz = D['hub_z'] + WELL_R + 0.02
-    L.extend(K.box_buf((FIREWALL_X, 0.0, FLOOR_Z - 0.005), (BED_X0, wy, DECK_Z), 'wood', 0.012, 2))
-    L.extend(K.box_buf((wx1, wy, FLOOR_Z - 0.005), (BED_X0, 0.87, DECK_Z), 'wood', 0.012, 2))
-    L.extend(K.box_buf((FIREWALL_X, wy, wz), (wx1, 0.87, DECK_Z), 'wood', 0.012, 2))
-    for y0, y1, ky in ((0.03, 0.42, 0.37), (0.46, 0.85, 0.51)):
-        L.extend(K.box_buf((BED_X0, y0, FLOOR_Z + 0.07), (BED_X0 + 0.012, y1, DECK_Z - 0.06), 'wood', 0.006, 2))
-        L.extend(K.cyl_buf((BED_X0 + 0.012, ky, DECK_Z - 0.17), (BED_X0 + 0.032, ky, DECK_Z - 0.17), 0.012, 'chrome', 10))
-    # the engine deck behind it (carpeted, as the Loaf's), the mattress across the whole back over both, a pillow
-    # each side
-    L.extend(K.prism_buf(corner_plan(D['xr'] + 0.03, FIREWALL_X + 0.012, 0.0, 0.88, 'R', 0.14), DECK_Z - 0.02, DECK_Z, 'fabric', 0.008, 2))
-    L.extend(K.prism_buf(corner_plan(D['xr'] + 0.05, BED_X0 + 0.015, 0.0, 0.865, 'R', 0.13), DECK_Z, BED_TOP, 'fabric', 0.035, 3))
-    L.extend(K.box_buf((D['xr'] + 0.10, 0.16, BED_TOP - 0.012), (D['xr'] + 0.44, 0.76, BED_TOP + 0.075), 'fabric', 0.035, 3))
-    # the upper bunk: its board on a rail along each side of the roof's opening, the mattress on it, a lip at its front
-    bx0, bx1 = BUNK_X
-    L.extend(K.box_buf((bx0, 0.0, BUNK_TOP - 0.075), (bx1, BUNK_HW, BUNK_TOP - 0.05), 'wood', 0.004, 1))
-    L.extend(K.box_buf((bx0 + 0.02, 0.0, BUNK_TOP - 0.05), (bx1 - 0.03, BUNK_HW - 0.03, BUNK_TOP), 'fabric', 0.02, 2))
-    L.extend(K.box_buf((bx0, BUNK_HW - 0.02, BUNK_TOP - 0.10), (bx1, BUNK_HW + 0.03, BUNK_TOP - 0.075), 'alu', 0.004, 1))
-    L.extend(K.box_buf((bx1 - 0.02, 0.0, BUNK_TOP - 0.075), (bx1, BUNK_HW, BUNK_TOP - 0.01), 'wood', 0.004, 1))
-    # the galley along the left wall behind the driver (one side only: in C): its carcass, two doors and two drawers
-    # towards the aisle, the worktop, the sink let into its front half with the tap, the stove's place behind it
-    gx0, gx1, gy = GALLEY_X0, GALLEY_X1, GALLEY_Y
-    C.extend(K.box_buf((gx0, gy, FLOOR_Z - 0.005), (gx1, 0.87, WORKTOP_Z - 0.035), 'wood', 0.01, 2))
-    for a_, b_ in ((gx0 + 0.02, gx0 + 0.49), (gx0 + 0.53, gx1 - 0.02)):
-        C.extend(K.box_buf((a_, gy - 0.012, FLOOR_Z + 0.08), (b_, gy + 0.001, WORKTOP_Z - 0.22), 'wood', 0.006, 2))
-        C.extend(K.box_buf((a_, gy - 0.012, WORKTOP_Z - 0.20), (b_, gy + 0.001, WORKTOP_Z - 0.06), 'wood', 0.006, 2))
-        km = (a_ + b_) / 2
-        C.extend(K.box_buf((km - 0.05, gy - 0.026, WORKTOP_Z - 0.14), (km + 0.05, gy - 0.012, WORKTOP_Z - 0.12), 'chrome', 0.004, 1))
-        C.extend(K.cyl_buf((b_ - 0.05, gy - 0.012, WORKTOP_Z - 0.34), (b_ - 0.05, gy - 0.03, WORKTOP_Z - 0.34), 0.012, 'chrome', 10))
-    C.extend(K.box_buf((gx0 - 0.012, gy - 0.025, WORKTOP_Z - 0.035), (gx1 + 0.012, 0.87, WORKTOP_Z), 'plastic_int', 0.008, 2))
-    sx, sy_ = SINK_X, (gy + 0.87) / 2
-    C.extend(K.box_buf((sx - 0.19, sy_ - 0.15, WORKTOP_Z - 0.002), (sx + 0.19, sy_ + 0.15, WORKTOP_Z + 0.008), 'chrome', 0.006, 2))
-    C.extend(K.box_buf((sx - 0.16, sy_ - 0.12, WORKTOP_Z + 0.008), (sx + 0.16, sy_ + 0.12, WORKTOP_Z + 0.0095), 'steel', 0.0, 1))
-    C.extend(K.cyl_buf((sx, sy_, WORKTOP_Z + 0.0095), (sx, sy_, WORKTOP_Z + 0.011), 0.02, 'trim', 12))
-    tap = np.array([(sx, 0.84, WORKTOP_Z), (sx, 0.84, WORKTOP_Z + 0.22), (sx, 0.77, WORKTOP_Z + 0.25), (sx, 0.72, WORKTOP_Z + 0.19)])
-    C.extend(K.tube_buf(smooth_path(tap, 2), 0.011, 'chrome', 10))
-    C.extend(K.cyl_buf((sx + 0.07, 0.83, WORKTOP_Z), (sx + 0.07, 0.83, WORKTOP_Z + 0.05), 0.016, 'chrome', 10))
-    # the splash board up the wall behind the worktop to the window
-    C.extend(K.box_buf((gx0, 0.855, WORKTOP_Z), (gx1, 0.868, D['win_mid'][2] - 0.02), 'plastic_int', 0.004, 1))
+    L.extend(K.box_buf((FIREWALL_X, 0.0, FLOOR_Z - 0.005), (AXLE_DECK_X1, wy, AXLE_DECK_Z), 'wood', 0.008, 2))
+    L.extend(K.box_buf((wx1, wy, FLOOR_Z - 0.005), (AXLE_DECK_X1, 0.89, AXLE_DECK_Z), 'wood', 0.008, 2))
+    L.extend(K.box_buf((FIREWALL_X, wy, wz), (wx1, 0.89, AXLE_DECK_Z), 'wood', 0.008, 2))
+    # the engine deck behind it (carpeted, as the Loaf's), and its front over the axle's deck up to it, wall to wall
+    L.extend(K.box_buf((FIREWALL_X + 0.002, 0.0, AXLE_DECK_Z - 0.01), (FIREWALL_X + 0.022, 0.89, DECK_Z - 0.005), 'wood', 0.004, 1))
+    L.extend(K.prism_buf(corner_plan(D['xr'] + 0.03, FIREWALL_X + 0.022, 0.0, 0.88, 'R', 0.14), DECK_Z - 0.02, DECK_Z, 'fabric', 0.008, 2))
     # the sliding door's step (right side, in left coordinates)
     R.extend(K.box_buf((D['sd_x0'] + 0.03, 0.69, FLOOR_Z - 0.03), (D['sd_x1'] - 0.03, 0.89, D['sd_z0'] - 0.012), 'wood', 0.006, 2))
     R.extend(K.box_buf((D['sd_x0'] + 0.03, 0.87, D['sd_z0'] - 0.016), (D['sd_x1'] - 0.03, 0.905, D['sd_z0'] - 0.004), 'alu', 0.003, 1))

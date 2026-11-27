@@ -301,7 +301,7 @@ describe('the kitchen module in the game', () => {
     rig.give(newItem(ingItem('egg')));
     rig.aim(stove, 'top');
     rig.pressE();
-    rig.holdL();
+    rig.holdE();
     expect(vesselOf(stove.item)).toBeNull();
     const pan = rig.held()!;
     expect(pan.item).toBe(VESSEL.fry);

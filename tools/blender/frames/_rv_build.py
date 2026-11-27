@@ -661,11 +661,10 @@ def mounts(ex, panels):
     ang = math.radians(35)
     E.append(mount('steering', tuple(p), dict(cat='steering', column_deg=35.0), rot=K.frame_from(d, (math.sin(ang), 0, math.cos(ang)))))
     fz = IN.FLOOR_Z + 0.03
+    # (the cab's two only: the living space is an empty shell, as Nomad Drive's campers are - the dinette's bench that
+    # stood on its own mount is gone with the dinette, docs/V3/plan/finish.md section 19 step 7)
     for name, x, y, z, drv, side, note in (('seat_driver', IN.SEAT_X, IN.DRIVER_Y, fz, True, -1, ''),
-                                           ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, fz, False, 1, ''),
-                                           # (no seat at the back since docs/V3/plan/finish.md section 11.1: a bed
-                                           # across it, part of the box - _rv_inner.box_furniture_L)
-                                           ('seat_dinette', -0.15, 0.47, D['box_floor'], False, -1, 'dinette, left wall, facing forward')):
+                                           ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, fz, False, 1, '')):
         E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=round(z, 4), side=side, note=note)))
     for pname, info in panels.items():
         if info['mount'] is None:

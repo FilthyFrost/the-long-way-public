@@ -1078,7 +1078,7 @@ describe('items: reading a thing back from a save', () => {
       newItem('food_chips'),
       newItem('drink_water', { litres: 0.75, opened: true }),
       newItem('hammer_2', { uses: 4 }),
-      newItem('repair_1', { uses: 122.5 }),
+      newItem('hammer_3', { uses: 12.5 }),
       newItem('wear_jacket', { tint: 0x336699 }),
       newItem('tx_berry', { n: 7, t0: 1234.5, fresh: 0.6, fk: 0.5, q: 3 }),
       newItem('tx_page', { n: 2, state: { page: 3, marks: [1, { deep: [true, null] }] } as ItemInstance['state'] }),
@@ -1128,11 +1128,11 @@ describe('items: reading a thing back from a save', () => {
     expect(of('drink_water', { litres: 99 }).litres).toBe(2);
     for (const l of ['2', null, NaN, Infinity]) expect('litres' in of('drink_water', { litres: l }), String(l)).toBe(false);
     expect('litres' in of('food_chips', { litres: 1 })).toBe(false);
-    // uses: a hammer's blows, a repair kit's points; on anything else, gone
+    // uses: a hammer's blows; on anything else, gone
     expect(of('hammer_2', { uses: 4 }).uses).toBe(4);
     expect(of('hammer_2', { uses: 400 }).uses).toBe(10);
     expect(of('hammer_2', { uses: -4 }).uses).toBe(0);
-    expect(of('repair_2', { uses: 1e9 }).uses).toBe(1000);
+    expect(of('hammer_3', { uses: 1e9 }).uses).toBe(25);
     expect('uses' in of('hammer_2', { uses: 'many' })).toBe(false);
     expect('uses' in of('food_chips', { uses: 2 })).toBe(false);
     expect('uses' in of('tx_nut', { uses: 2 })).toBe(false);
@@ -1202,7 +1202,7 @@ describe('items: reading a thing back from a save', () => {
   });
 
   it('never throws, whatever it is handed, and what it gives back is sound and stays so', () => {
-    const IDS = ['food_chips', 'drink_water', 'hammer_1', 'repair_1', 'wear_jacket', 'tx_berry', 'tx_mush', 'tx_nut', 'tx_page', 'tx_milk', 'tx_basket', 'tx_cool', 'tx_sack', 'gone', 'gone_too', '__proto__', 'constructor'];
+    const IDS = ['food_chips', 'drink_water', 'hammer_1', 'hammer_3', 'wear_jacket', 'tx_berry', 'tx_mush', 'tx_nut', 'tx_page', 'tx_milk', 'tx_basket', 'tx_cool', 'tx_sack', 'gone', 'gone_too', '__proto__', 'constructor'];
     const r = new Rng(20261118);
     const odd = (): unknown => {
       const k = r.int(22);

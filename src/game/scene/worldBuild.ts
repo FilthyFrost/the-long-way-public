@@ -557,6 +557,175 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   return { geometry: g, wx: x0, wy: oy, wz: z0, chapters: [cFirst, cLast] };
 }
 
+// ---------------------------------------------------------------------------------------------- the ground as drawn
+
+/**
+ * The height of the ground as it is drawn at (x, z): the road strip and the terrain leaf as buildStrip and buildTerrain
+ * lay them at their finest (the strip's every station, a leaf's 8 m grid — what is drawn wherever one is near enough to
+ * see a thing lying on it), straight between their points as the triangles are, the higher of the two where both are
+ * (the land is sunk under the strip; past its edge the strip's skirt goes down into it). The wheels and the feet go by
+ * the land itself (World.sample: its points exact, with a long gentle unevenness the eye does not see), a few
+ * centimetres off this on a meadow; a thing lying about lies on what is drawn, or a cassette sinks into the grass and a
+ * page floats over it (docs/V3/plan/finish.md §十九 step 6).
+ */
+export function drawnHeight(world: World, x: number, z: number): number {
+  const leaf = leafHeight(world, x, z);
+  const strip = stripHeight(world, x, z);
+  return strip === null || strip < leaf ? leaf : strip;
+}
+
+const dtp = new TerrainPoint();
+const dst = new SpineSample();
+const dBridge: { river: River | null; mask: number } = { river: null, mask: 0 };
+const LEAF_STEP = TERRAIN_ROOT / Math.pow(2, TERRAIN_MAX_LEVEL) / TERRAIN_N;
+
+/**
+ * The points of the finest leaves and of the strip already worked out, by world (a point is asked again and again: by
+ * the four corners of a thing put down, by every step of a line of sight that looks for a surface): a leaf's by its
+ * place on the grid, the strip's by its station and column (x, z and height). Let go when they grow many.
+ */
+const drawnKept = new WeakMap<World, { leaf: Map<number, number>; strip: Map<number, Float64Array> }>();
+function keptOf(world: World): { leaf: Map<number, number>; strip: Map<number, Float64Array> } {
+  let k = drawnKept.get(world);
+  if (!k) drawnKept.set(world, (k = { leaf: new Map(), strip: new Map() }));
+  return k;
+}
+const KEEP_MOST = 1 << 15;
+
+/** a finest leaf's point (on its grid: i, j): its height as buildTerrain gives it (no wood is lifted on a leaf this fine) */
+function leafPoint(world: World, i: number, j: number): number {
+  const kept = keptOf(world).leaf;
+  const key = (i + 1048576) * 2097152 + (j + 1048576);
+  const was = kept.get(key);
+  if (was !== undefined) return was;
+  world.shape(i * LEAF_STEP, j * LEAF_STEP, dtp);
+  const ad = dtp.d < 0 ? -dtp.d : dtp.d;
+  const h = dtp.bed - stripSink(ad) * (1 - dtp.bridge) * sinkShare(world, dtp);
+  if (kept.size >= KEEP_MOST) kept.clear();
+  kept.set(key, h);
+  return h;
+}
+
+/** the finest leaf's surface at (x, z): its grid's square, cut corner (i+1, j) to corner (i, j+1) as terrainIndex cuts it */
+function leafHeight(world: World, x: number, z: number): number {
+  const i = Math.floor(x / LEAF_STEP);
+  const j = Math.floor(z / LEAF_STEP);
+  const u = x / LEAF_STEP - i;
+  const v = z / LEAF_STEP - j;
+  const hb = leafPoint(world, i + 1, j);
+  const hc = leafPoint(world, i, j + 1);
+  if (u + v <= 1) {
+    const ha = leafPoint(world, i, j);
+    return ha + (hb - ha) * u + (hc - ha) * v;
+  }
+  const hd = leafPoint(world, i + 1, j + 1);
+  return hd + (hc - hd) * (1 - u) + (hb - hd) * (1 - v);
+}
+
+/** a point of the strip at its finest (station r, column j): where it is on the plan and how high, as buildStrip lays it */
+function stripPoint(world: World, r: number, j: number, out: Float64Array, o: number): void {
+  const kept = keptOf(world).strip;
+  const key = (r + 1048576) * 64 + j;
+  let p = kept.get(key);
+  if (!p) {
+    p = new Float64Array(3);
+    stripPointOf(world, r, COLS_FULL[j], p);
+    if (kept.size >= KEEP_MOST) kept.clear();
+    kept.set(key, p);
+  }
+  out[o] = p[0];
+  out[o + 1] = p[1];
+  out[o + 2] = p[2];
+}
+
+function stripPointOf(world: World, r: number, d: number, out: Float64Array): void {
+  const sp = world.spine;
+  const s = r * sp.ds;
+  sp.ensure(s + 2 * sp.ds);
+  sp.at(s, dst);
+  const skirt = d < -STRIP_HALF || d > STRIP_HALF;
+  world.water.bridgeAt(s, dBridge);
+  const onBridge = dBridge.mask > 0.5;
+  if (onBridge) d = d < -DECK_HALF ? -DECK_HALF : d > DECK_HALF ? DECK_HALF : d;
+  const wx = dst.x - Math.sin(dst.phi) * d;
+  const wz = dst.z + Math.cos(dst.phi) * d;
+  world.shape(wx, wz, dtp);
+  let hd = dtp.zone === 3 && (d > KERB_AT || d < -KERB_AT) ? dtp.h - KERB_HEIGHT : dtp.zone !== 0 ? dtp.h : dtp.bed;
+  if (world.deadEnd && dtp.zone === 0 && s < 12) hd += 0.03 * (1 - smoothstep(4, 12, s));
+  out[0] = wx;
+  out[1] = wz;
+  out[2] = hd - (skirt && !onBridge ? 1.6 : 0);
+}
+
+const quad = new Float64Array(12);
+
+/**
+ * The strip's surface at (x, z), or null where there is none: past its skirts, behind the start of a road that ends
+ * there. Its square found from where the land says the point is along the road and across it, then stepped to the
+ * next square over while the point is outside both of its triangles — (a, b, c) and (b, d, c), a and b one station's
+ * points, c and d the next one's — on a curve the squares are not quite where the nearest point of the road puts them.
+ */
+function stripHeight(world: World, x: number, z: number): number | null {
+  world.shape(x, z, dtp);
+  const cols = COLS_FULL;
+  const nc = cols.length;
+  const d0 = dtp.d;
+  if (d0 < cols[0] - 2 || d0 > cols[nc - 1] + 2) return null;
+  // (where no square is found — a hairpin's other leg nearer — the land's own height: never the land sunk under the strip)
+  const own = dtp.zone !== 0 ? dtp.h : dtp.bed;
+  const ds = world.spine.ds;
+  let r = Math.floor(dtp.s / ds);
+  let j = 0;
+  while (j < nc - 2 && d0 >= cols[j + 1]) j++;
+  const side = d0 >= 0 ? 1 : -1;
+  for (let k = 0; k < 12; k++) {
+    if (world.deadEnd && r < 0) return null;
+    stripPoint(world, r, j, quad, 0);
+    stripPoint(world, r, j + 1, quad, 3);
+    stripPoint(world, r + 1, j, quad, 6);
+    stripPoint(world, r + 1, j + 1, quad, 9);
+    // (a, b, c): across the column from a to b, along the road from a to c
+    let w = bary(x, z, 0, 3, 6);
+    if (w && w[0] >= -1e-9 && w[1] >= -1e-9 && w[0] + w[1] <= 1 + 1e-9) return quad[2] + (quad[5] - quad[2]) * w[0] + (quad[8] - quad[2]) * w[1];
+    let dr = 0;
+    let dj = 0;
+    if (w) {
+      if (w[1] < 0) dr = -1;
+      if (w[0] < 0) dj = -1;
+    }
+    if (!dr && !dj) {
+      // (b, d, c) from d: back across the column from d to c, back along the road from d to b
+      w = bary(x, z, 9, 6, 3);
+      if (w && w[0] >= -1e-9 && w[1] >= -1e-9 && w[0] + w[1] <= 1 + 1e-9) return quad[11] + (quad[8] - quad[11]) * w[0] + (quad[5] - quad[11]) * w[1];
+      if (w) {
+        if (w[1] < 0) dr = 1;
+        if (w[0] < 0) dj = 1;
+      }
+      // (a square folded flat onto a bridge's deck: on towards the point's side)
+      if (!w || (!dr && !dj)) dj = side;
+    }
+    r += dr;
+    j += dj;
+    if (j < 0 || j > nc - 2) return null;
+  }
+  return Math.abs(d0) <= STRIP_HALF ? own : null;
+}
+
+/** the point's weights for the corners at q1 and q2 of the triangle (q0, q1, q2) on the plan (offsets into quad); null: no triangle */
+function bary(x: number, z: number, q0: number, q1: number, q2: number): [number, number] | null {
+  const ax = quad[q0];
+  const az = quad[q0 + 1];
+  const ux = quad[q1] - ax;
+  const uz = quad[q1 + 1] - az;
+  const vx = quad[q2] - ax;
+  const vz = quad[q2 + 1] - az;
+  const det = ux * vz - uz * vx;
+  if (Math.abs(det) < 1e-9) return null;
+  const px = x - ax;
+  const pz = z - az;
+  return [(px * vz - pz * vx) / det, (ux * pz - uz * px) / det];
+}
+
 // ---------------------------------------------------------------------------------------------- scatter
 
 export const TILE = 128;

@@ -55,9 +55,9 @@ try {
   // the crowbar: E held, the bar in the gap
   await page.evaluate(() => window.__rt.hold('item:nd_crowbar'));
   await look(-0.05);
-  await page.evaluate(() => { const g = window.__rt.game; g.player.press(); for (let i = 0; i < 54; i++) { g.player.primary = true; g.step(1 / 60, 1); } });
+  await page.evaluate(() => { const g = window.__rt.game; g.mouseDown(0); for (let i = 0; i < 54; i++) { g.step(1 / 60, 1); } });
   await shot('22_crowbar_prying.png');
-  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 60; i++) { g.player.primary = true; g.step(1 / 60, 1); } g.player.release(); g.simulate(0); });
+  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 60; i++) { g.step(1 / 60, 1); } g.mouseUp(0); g.simulate(0); });
   await frames(30);
   await shot('23_forced_open.png');
   console.log('bar', JSON.stringify(await page.evaluate(() => { const h = window.__rt.game.player.held; return h ? { item: h.item.item, pries: h.item.state?.pries } : null; })));

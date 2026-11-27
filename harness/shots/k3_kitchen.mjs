@@ -104,9 +104,9 @@ try {
       /** F pressed and let go at once */
       /** the left button held so long (s), then let go: a pick-up (docs/V3/plan/growth.md J1) */
       holdL(seconds = 1.0) {
-        g.player.press();
+        g.mouseDown(0);
         for (let t = 0; t < seconds; t += 1 / 60) g.step(1 / 60, 1);
-        g.player.release();
+        g.mouseUp(0);
         for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
         return word();
       },

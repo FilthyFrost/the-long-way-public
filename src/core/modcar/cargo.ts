@@ -11,7 +11,7 @@
 import { frameDef } from './frames';
 import type { Text } from './types';
 
-export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'table' | 'galley' | 'bench' | 'wall' | 'dash' | 'roof' | 'sofa' | 'fridge' | 'shelfL' | 'shelfR' | 'cubby' | 'nook' | 'fore';
+export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'bench' | 'wall' | 'dash' | 'roof' | 'sofa' | 'nook' | 'fore';
 export type Carry = 'small' | 'medium' | 'large';
 
 export interface CargoZone {
@@ -84,30 +84,17 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     D([0.67, 0.8], [-0.6, 0.6], 1.08, 1.29, ['door_FL', 'door_FR']),
   ],
   rv: [
-    // (the floor from the bed's foot to the dinette, wall to wall on the right since docs/V3/plan/finish.md §十一 1 — the
-    // wardrobe and the bath's cubicle that stood there are gone, and the floor is flat over the rear wheels; the corner
-    // between the bed and the galley's end on the left is a place of its own)
-    // (their rectangles the walls' own: the bed's foot at −4.1, the right wall at 1.1, the galley's worktop's edge at
-    // −0.5, the side door's frame at −1.37; the corner's the left wall at −1.1 and the galley's end — the room 1.2 m longer
-    // since docs/V3/plan/finish.md §18: 0.45 m of it in the back, 0.75 m ahead of the dinette's table, 'fore')
-    W('cabin', '车厢', 'Cabin', [-4.1, -1.37], [-0.5, 1.1], 0.86, 2.3, 'large', 0, ['door_side', 'trunk']),
-    { ...W('nook', '车厢后角', 'Rear corner', [-4.1, -2.73], [-1.1, -0.5], 0.86, 2.3, 'large', 0.5, ['door_side', 'trunk']), put: '放到车厢地上' },
-    { ...W('fore', '车厢前部左侧', 'Ahead of the table', [0.12, 0.85], [-1.1, -0.1], 0.86, 2.3, 'large', 0.6, ['door_side']), put: '放到车厢地上' },
+    // (an empty shell since docs/V3/plan/finish.md §十九 step 7, as Nomad Drive's class C: its floor in three as theirs is —
+    // the back of the room wall to wall, the strip by the side door as far as its stairwell, the front wall to wall.
+    // Their rectangles the walls' own: ahead of the back wall's tail-lamp covers at −5.065 (and over the floor slab, which
+    // begins at −5.070), the side walls' at ±1.1, the side door's frame at −1.37 and −0.48, the stairwell's nosing at 0.70,
+    // behind the cab's seats at 0.85. The shelves, the galley's worktop and the cubby under its sink, the dinette's table
+    // and the bed that were places of their own are gone)
+    W('cabin', '车厢', 'Cabin', [-5.065, -1.37], [-1.1, 1.1], 0.86, 2.7, 'large', 0, ['door_side', 'trunk']),
+    { ...W('fore', '车厢前部', 'Front of the cabin', [-0.48, 0.85], [-1.1, 1.1], 0.86, 2.7, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
+    { ...W('lounge', '车门边', 'By the door', [-1.37, -0.48], [-1.1, 0.7], 0.86, 2.7, 'large', 0.6, ['door_side']), put: '放到车厢地上' },
     Z('pass', '副驾驶座', 'Passenger seat', [0.9, 1.35], [0.3, 0.8], 0.9, 1.55, 'medium', 1, ['door_FR']),
-    // (the living space as one walks about in it, docs/V3/nodes/M2-rv.md: the floor by the door, the dinette's
-    // table, the galley's worktop under its shelf, the bed across the back, the open shelves over both walls, the
-    // cubby under the sink, and the walls)
-    { ...Z('lounge', '车厢前部', 'By the door', [-2.05, 0.85], [-0.1, 1.0], 0.86, 2.3, 'large', 2, ['door_side']), put: '放到车厢地上' },
-    { ...Z('table', '餐桌', 'Dinette table', [-0.58, -0.16], [-1.04, -0.37], 1.59, 2.3, 'medium', 3, ['door_side']), put: '放到餐桌上' },
-    { ...Z('galley', '厨房台面', 'Galley worktop', [-2.69, -1.54], [-1.06, -0.51], 1.75, 2.18, 'medium', 4, ['door_side']), put: '放到厨房台面上' },
-    { ...Z('bed', '床上', 'Bed', [-5.04, -4.13], [-1.04, 1.04], 1.4, 2.3, 'large', 5, ['door_side', 'trunk']), put: '放到床上' },
-    // (the shelves over the walls — tools/blender/frames/_rv_inner.py LOCKER_*: their boards at 2.385, the lip along
-    // their front; the left one's run over the galley and the dinette, the right one's over the door)
-    { ...Z('shelfL', '左边吊柜', 'Left overhead shelf', [-3.98, -0.07], [-1.07, -0.76], 2.385, 2.78, 'medium', 6, ['door_side']), put: '放进吊柜' },
-    // (their orders under the roof rack's, 8: what is packed in without aiming goes inside before it goes on the roof)
-    { ...Z('shelfR', '右边吊柜', 'Right overhead shelf', [-3.98, -1.45], [0.76, 1.07], 2.385, 2.78, 'medium', 6.5, ['door_side']), put: '放进吊柜' },
-    { ...Z('cubby', '水槽下面', 'Under the sink', [-2.08, -1.62], [-1.03, -0.53], 0.92, 1.6, 'medium', 7, ['door_side']), put: '放进橱柜' },
-    // (the walls' inner faces stand at about ±1.09: the rectangle reaches a little past them)
+    // (the walls' inner faces stand at about ±1.1: the rectangle reaches a little past them)
     { ...Z('wall', '墙上', 'On the wall', [-5.15, 1.05], [-1.13, 1.13], 1.0, 2.5, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
     D([1.64, 2.04], [-0.75, 0.75], 1.4, 1.62, ['door_FL', 'door_FR', 'door_side']),
   ],
@@ -157,40 +144,36 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     Z('pass', '副驾驶座', 'Passenger seat', [0.98, 1.36], [0.14, 0.62], 0.88, 1.5, 'medium', 2, ['door_FR']),
     D([1.71, 1.95], [-0.7, 0.7], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
   ],
-  // (the Turtle, docs/V3/plan/rv.md R1: the floor by the sliding door, the bed across the back (by the tailgate too),
-  // the galley's worktop, the passenger's seat, the dash; the walls of the room. The tops under the shell's underside
-  // with the roof down, 2.04: the floor is drawn looking down from the top)
+  // (the Turtle, docs/V3/plan/rv.md R1, an empty shell as Nomad Drive's camper van since docs/V3/plan/finish.md §十九
+  // step 7: the floor by the sliding door, the decks at the back — over the rear axle and over the engine, by the
+  // tailgate too — the passenger's seat, the dash; the walls of the room. The tops under the shell's underside with the
+  // roof down, 2.04: the floor is drawn looking down from the top)
   turtle: [
-    // (in from the bed's cupboard knobs, the tail's roll over the bed, the wall over the worktop)
-    // (the doors of the bed's cupboard at −1.288; the lip of the galley's worktop at −0.585, 13 mm out from its
-    // front; the trim of the pillar by the sliding door at 1.005, 11 mm in from the wall's lining — 0.9 m longer and
-    // 0.3 m wider since docs/V3/plan/finish.md §18, the floor ahead of the galley open to the left wall, 'nook')
-    W('cabin', '车厢', 'Cabin', [-1.288, 0.86], [-0.585, 1.005], 0.42, 1.85, 'large', 0, ['door_side']),
-    { ...W('nook', '厨房前面', 'Ahead of the galley', [-0.08, 0.86], [-0.995, -0.585], 0.42, 1.85, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
-    { ...Z('bed', '床上', 'Bed', [-3.16, -1.34], [-0.95, 0.95], 1.065, 1.85, 'large', 1, ['door_side', 'trunk']), put: '放到床上' },
-    { ...Z('galley', '厨房台面', 'Galley worktop', [-1.1, -0.12], [-0.995, -0.62], 1.22, 1.85, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
+    // (the floor's rectangle its walls' own: the deck's front at −1.53, the seats' backs at 0.86, the sides at ±1.005 —
+    // 3 cm in from the lower lining at ±1.036, matching the sliding door's pillar trim and clear of the roof rail's tumblehome
+    // at y = 1.85 so tall furniture clears it; the decks' the tail's lining at −3.266 — the bed on its platform with its
+    // cupboard, the galley's worktop that were places of their own are gone)
+    W('cabin', '车厢', 'Cabin', [-1.53, 0.86], [-1.005, 1.005], 0.42, 1.85, 'large', 0, ['door_side']),
+    { ...W('nook', '车尾平台', 'Rear deck', [-3.266, -1.53], [-1.005, 1.005], 0.8, 1.85, 'large', 0.5, ['door_side', 'trunk']), put: '放到车尾平台上' },
     Z('pass', '副驾驶座', 'Passenger seat', [1.18, 1.56], [0.29, 0.81], 0.88, 1.5, 'medium', 3, ['door_FR']),
     D([1.99, 2.22], [-0.89, 0.89], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
     { ...Z('wall', '墙上', 'On the wall', [-3.25, 0.86], [-1.05, 1.05], 1.0, 1.9, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
   ],
-  // (the Old Elephant, docs/V3/plan/rv.md R2, its room opened up in docs/V3/plan/finish.md §十一 1: the floor from the
-  // galley's and the dinette's fronts to the right wall — the sofa that was built in there is gone — and from the bed
-  // to the fridge's cabinet; the corner behind the driver, open since the dinette moved back beside the galley; the
-  // bed across the back, the galley's worktop beside the sink (where its hobs stand), the cubby under the sink, the
-  // dinette's table, the fridge's niche behind the passenger's seat, the passenger's seat, the dash; the walls of the
-  // room under the lockers. tools/blender/frames/_elephant_inner.py; data/mounts/elephant.json `room`)
+  // (the Old Elephant, docs/V3/plan/rv.md R2, an empty shell since docs/V3/plan/finish.md §十九 step 7: its floor in
+  // three, as Nomad Drive's class A's is — the back of the room with the rear wheels' humps in it, the strip by the entry
+  // door as far as its stairwell, the front with the front wheels' humps — the deck over the engine at the back, the
+  // passenger's seat, the dash; the walls of the room. tools/blender/frames/_elephant_inner.py; data/mounts/elephant.json
+  // `room`)
   elephant: [
-    // (their rectangles the walls' own: the bed's platform's front at −3.386, the right wall at 1.163 (its window's surround: the lining bows 2 to 6 mm out behind it), a
-    // centimetre clear of the dinette's benches at −0.42, the fridge's cabinet's side at 1.66; the corner's the left
-    // wall, the cabinet's front at 0.37, the dinette's front bench at 0.16 and the seat boxes' backs — the corner 1.5 m
-    // deeper since docs/V3/plan/finish.md §18, everything from the bench back 1.5 m further back)
-    W('cabin', '车厢', 'Cabin', [-3.386, 1.66], [-0.41, 1.163], 0.62, 2.4, 'large', 0, ['door_side']),
-    { ...W('nook', '驾驶座后面', 'Behind the driver', [0.16, 2.48], [-1.163, 0.37], 0.62, 2.4, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
-    { ...Z('bed', '床上', 'Bed', [-5.5, -3.44], [-1.12, 1.12], 1.44, 2.4, 'large', 1, ['door_side']), put: '放到床上' },
-    { ...Z('galley', '厨房台面', 'Galley worktop', [-3.36, -1.72], [-1.13, -0.58], 1.54, 2.4, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
-    { ...Z('table', '餐桌', 'Dinette table', [-0.88, -0.33], [-1.13, -0.48], 1.34, 2.4, 'medium', 3, ['door_side']), put: '放到餐桌上' },
-    { ...Z('cubby', '水槽下面', 'Under the sink', [-1.97, -1.44], [-1.11, -0.56], 0.7, 1.42, 'medium', 4, ['door_side']), put: '放进橱柜' },
-    { ...Z('fridge', '冰箱位', 'Fridge niche', [1.685, 2.455], [0.38, 1.13], 0.92, 2.34, 'large', 5, ['door_side']), put: '放进冰箱位' },
+    // (their rectangles the walls' own: the engine deck's front at −4.176, the entry door's frame at −0.99 and −0.06,
+    // its stairwell's inner edge at 0.94, the walls at ±1.163 (the right one's window surround: the lining bows 2 to
+    // 6 mm out behind it), the seat boxes' backs at 2.48; the deck's the tail's lining at −5.57 — the galley's worktop
+    // and the cubby under its sink, the dinette's table, the fridge's niche and the bed that were places of their own
+    // are gone)
+    W('cabin', '车厢', 'Cabin', [-4.176, -0.99], [-1.163, 1.163], 0.62, 2.4, 'large', 0, ['door_side']),
+    { ...W('fore', '车厢前部', 'Front of the cabin', [-0.06, 2.48], [-1.163, 1.163], 0.62, 2.4, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
+    { ...W('lounge', '车门边', 'By the door', [-0.99, -0.06], [-1.163, 0.94], 0.62, 2.4, 'large', 0.6, ['door_side']), put: '放到车厢地上' },
+    { ...W('nook', '车尾平台', 'Rear deck', [-5.57, -4.176], [-1.163, 1.163], 1.28, 2.4, 'large', 0.7, ['door_side']), put: '放到车尾平台上' },
     Z('pass', '副驾驶座', 'Passenger seat', [2.82, 3.2], [0.34, 0.86], 1.23, 1.85, 'medium', 6, ['door_FR']),
     D([3.57, 3.95], [-1.0, 1.0], 1.5, 1.75, ['door_FL', 'door_FR', 'door_side']),
     { ...Z('wall', '墙上', 'On the wall', [-5.5, 2.45], [-1.16, 1.16], 1.62, 2.46, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },

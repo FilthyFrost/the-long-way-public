@@ -174,8 +174,7 @@ export function stockPartFor(frame: FrameDef, mount: MountDef): string | null {
   if (mount.cat === 'seat') {
     const bench = cands.find((p) => p.id === 'seat_bench');
     const single = cands.find((p) => p.id !== 'seat_bench');
-    const rearSeat = mount.id === 'seat_rear' || mount.id === 'seat_dinette';
-    return (rearSeat ? bench : single)?.id ?? cands[0].id;
+    return (mount.id === 'seat_rear' ? bench : single)?.id ?? cands[0].id;
   }
   if (mount.cat === 'rim') {
     const dual = cands.find((p) => p.rim?.dual);

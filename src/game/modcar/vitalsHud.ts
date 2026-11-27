@@ -89,7 +89,7 @@ function arc(cx: number, cy: number, r: number, a0: number, a1: number): string 
 const LIFE_A0 = 190;
 const LIFE_SPAN = 160;
 
-type Need = 'food' | 'water' | 'energy';
+type Need = 'food' | 'water';
 
 export class VitalsHud {
   private readonly el: HTMLDivElement;
@@ -153,7 +153,7 @@ export class VitalsHud {
         <span class="why"></span>
       </div>
       <div class="side">
-        <div class="tiles">${tile('food', '饱食')}${tile('water', '口渴')}${tile('energy', '精力')}</div>
+        <div class="tiles">${tile('food', '饱食')}${tile('water', '口渴')}</div>
         <div class="fx"></div>
       </div>`;
     root.appendChild(this.el);
@@ -166,7 +166,7 @@ export class VitalsHud {
     this.temp = this.el.querySelector('.t b')!;
     this.unit = this.el.querySelector('.t i')!;
     const q = (k: string): HTMLElement => this.el.querySelector(`[data-k="${k}"]`)!;
-    this.tiles = { food: q('food'), water: q('water'), energy: q('energy') };
+    this.tiles = { food: q('food'), water: q('water') };
     this.fxList = this.el.querySelector('.fx')!;
   }
 
@@ -232,19 +232,16 @@ export class VitalsHud {
       (el.firstElementChild!.firstElementChild as HTMLElement).style.width = `${Math.max(0, Math.min(100, value)).toFixed(0)}%`;
       el.classList.toggle('low', low);
     };
-    const energy = v.energy ?? 100;
     need('food', v.food, v.food < 20);
     need('water', v.water, v.water < 20);
-    need('energy', energy, sleepy(v));
-    // the states, each with its icon: ill, cold, hot, hurt, wet, sleepy, a good meal (and drunk)
+    // the states, each with its icon: ill, cold, hot, hurt, wet, a good meal (and drunk)
     const fx: [string, string, string][] = [];
     if (ill) fx.push(['sick', 'bad', has(v, 'sick2') ? EFFECT_ZH.sick2 : EFFECT_ZH.sick1]);
     if (feel === 'chilly' || feel === 'frozen') fx.push(['cold', feel === 'frozen' ? 'bad' : 'cold', feel === 'frozen' ? EFFECT_ZH.hypo : '有点冷']);
     if (feel === 'warm' || feel === 'heat') fx.push(['hot', feel === 'heat' ? 'bad' : 'hot', feel === 'heat' ? EFFECT_ZH.heat : '有点热']);
     if (has(v, 'hurt')) fx.push(['hurt', 'bad', EFFECT_ZH.hurt]);
     if (has(v, 'wet')) fx.push(['wet', 'cold', EFFECT_ZH.wet]);
-    if (sleepy(v)) fx.push(['sleepy', 'sleep', '困了']);
-    const good = buffs.length ? '吃好了' : has(v, 'energy') ? EFFECT_ZH.energy : has(v, 'awake') ? EFFECT_ZH.awake : has(v, 'warm2') ? EFFECT_ZH.warm2 : has(v, 'warm1') ? EFFECT_ZH.warm1 : '';
+    const good = buffs.length ? '吃好了' : has(v, 'energy') ? EFFECT_ZH.energy : has(v, 'warm2') ? EFFECT_ZH.warm2 : has(v, 'warm1') ? EFFECT_ZH.warm1 : '';
     if (good) fx.push(['meal', 'good', good]);
     if (has(v, 'drunk')) fx.push(['drunk', 'bad', EFFECT_ZH.drunk]);
     const key = fx.map((e) => e[2]).join(',');
@@ -252,24 +249,11 @@ export class VitalsHud {
       this.lastFx = key;
       this.fxList.innerHTML = fx.map(([icon, tone, text]) => `<span class="${tone}">${svg(FX_ICON[icon])}${text}</span>`).join('');
     }
-    // sleepy: the view dims for a moment every half minute or so (heavier the more tired)
-    if (sleepy(v)) {
-      if (this.dozeT < 0 && (this.dozeIn -= dt) <= 0) this.dozeT = 0;
-      if (this.dozeT >= 0) {
-        this.dozeT += dt;
-        const d = 1.4;
-        const k = this.dozeT < d ? Math.sin((this.dozeT / d) * Math.PI) : 0;
-        this.doze.style.opacity = (k * (0.55 + 0.4 * (1 - energy / 20))).toFixed(2);
-        if (this.dozeT >= d) {
-          this.dozeT = -1;
-          this.dozeIn = 18 + Math.random() * 20 * Math.max(0.3, energy / 20);
-        }
-      }
-    } else if (this.dozeT >= 0 || this.doze.style.opacity !== '0') {
-      this.dozeT = -1;
-      this.dozeIn = 12;
-      this.doze.style.opacity = '0';
-    }
+    // (sleep mechanic removed: doze overlay stays hidden)
+    if (this.doze.style.opacity !== '0') this.doze.style.opacity = '0';
+    void sleepy;
+    void this.dozeIn;
+    void this.dozeT;
     // over the view: tired, hurt, cold, hot
     this.vig.style.opacity = v.stamina < 35 ? ((35 - v.stamina) / 35 * 0.9).toFixed(2) : '0';
     this.hurtT = Math.max(0, this.hurtT - dt);

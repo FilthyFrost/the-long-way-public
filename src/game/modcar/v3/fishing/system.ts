@@ -70,7 +70,7 @@ import { TerrainPoint } from '../../../../core/world/terrain';
 import { aimOf, standOf, toLocal, toWorld, waterDepth, waterLevel, worldHeading, type Stand } from './water';
 
 const E: Action['keys'] = ['LMB'];
-const F: Action['keys'] = ['RMB'];
+const F: Action['keys'] = ['E'];
 
 /** how near the end of a water's jetty one has to be to fish its pond (m) */
 const NEAR = 110;

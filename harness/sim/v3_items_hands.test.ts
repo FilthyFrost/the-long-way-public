@@ -293,7 +293,7 @@ describe('the hands take things that stack and hold things', () => {
     frames(1);
     const g = (): string[] => seen.keys.filter((a) => a.keys.includes('Q') && !a.hold).map((a) => a.text);
     // (one word since docs/V3/plan/prompts.md §五; said the first three times a thing is in the hands)
-    expect(g()).toEqual(['放下']);
+    expect(g()).toEqual(['丢弃 / 长按投掷']);
     game.listOpen = true;
     frames(1);
     expect(g()).toEqual([]);

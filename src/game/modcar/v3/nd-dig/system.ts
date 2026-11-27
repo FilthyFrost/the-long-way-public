@@ -315,7 +315,8 @@ export class NdDig implements System<GameContext>, InteractSource {
       if (!l && d < NEAR && !seenKey.has(t.id) && !ctx.withheld?.(t.key)) {
         const it = newItem(t.key, { state: { keyOf: t.id } });
         const k = ctx.loose.addItem(it, t.kx, world.heightAt(t.kx, t.kz) + 0.05, t.kz, t.yaw);
-        k.resting = true;
+        // (on the ground as it is drawn)
+        ctx.loose.seat(k, world.heightAt(t.kx, t.kz), true);
         this.keys.set(t.id, k);
       } else if (l && d > FAR) {
         ctx.loose.remove(l);
@@ -526,7 +527,8 @@ export class NdDig implements System<GameContext>, InteractSource {
     const it = newItem(t.chest, { state: { chest: { from: t.id } } });
     const g = world.heightAt(t.x, t.z);
     const l = ctx.loose.addItem(it, t.x, g + 0.03, t.z, t.yaw);
-    l.resting = true;
+    // (on the ground as it is drawn, beside its hole)
+    ctx.loose.seat(l, g, true);
     ctx.loose.touch(l);
     const rs = this.rising.get(t.id);
     if (rs?.chest) {

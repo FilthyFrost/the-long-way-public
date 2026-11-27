@@ -3,10 +3,12 @@
  * furniture as rectangles one stays inside of (core/onboard/walker.ts), the doors one comes in and goes out by,
  * and the spot behind the cab's seats one stands on coming back from the driver's seat. Frame model space, as the
  * cargo zones (cargo.ts): +x forward, +y up, +z right, metres, the origin on the ground under the middle of the
- * wheelbase as the frame was first drawn. Measured on the frame's own build (tools/blender/frames/_rv_inner.py: the
- * dinette, the galley, the wardrobe and bath, the rear bench) — and, for the four campers lengthened since
- * docs/V3/plan/finish.md §18 (tools/blender/frames/_stretch.py: the Whale 1.2 m, the Old Elephant 1.5, the Camel 1.1, the
- * Turtle 0.9 and 0.3 m wider), as they stand now: what lay behind a cut moved back with it. Pure data, no three, no DOM.
+ * wheelbase as the frame was first drawn. Measured on the frame's own build (tools/blender/frames/_rv_inner.py and the
+ * rest) — and, for the four campers lengthened since docs/V3/plan/finish.md §18 (tools/blender/frames/_stretch.py: the
+ * Whale 1.2 m, the Old Elephant 1.5, the Camel 1.1, the Turtle 0.9 and 0.3 m wider), as they stand now: what lay behind
+ * a cut moved back with it. Since docs/V3/plan/finish.md §十九 step 7 every living space is an empty shell, as Nomad
+ * Drive's campers are: its floor, its walls; what one lives with — a bed to sleep in too — is what the player puts in
+ * (the Whale's bunk over the cab its one bed, as Nomad Drive's class C keeps its own). Pure data, no three, no DOM.
  */
 import type { WalkArea } from '../onboard/walker';
 import { zonesOf } from './cargo';
@@ -68,18 +70,13 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
   rv: {
     headroom: 1.9,
     areas: [
-      // the front of the box: from behind the cab's seats past the side door, the dinette's bench and table on the left;
-      // and ahead of the table, the floor the box was lengthened by behind the seats (§18: 0.75 m), wall to wall. Up to
-      // the side door's stairwell (its inner edge at 0.725), and either side of it to the right wall
-      { x0: -2.1, x1: -1.36, z0: -0.12, z1: 1.0, floor: 0.86, name: 'lounge' },
-      { x0: -1.36, x1: 0.85, z0: -0.12, z1: 0.72, floor: 0.86, name: 'lounge' },
-      { x0: -0.48, x1: 0.85, z0: 0.72, z1: 1.0, floor: 0.86, name: 'lounge' },
-      { x0: 0.1, x1: 0.85, z0: -1.0, z1: 1.0, floor: 0.86, name: 'fore' },
-      // beside the galley (left), to the right wall: the wardrobe and the bath's cubicle that stood there are gone, and
-      // the floor is flat over the rear wheels (docs/V3/plan/finish.md §十一 1) — a metre and a half wide
-      { x0: -2.7, x1: -1.55, z0: -0.48, z1: 1.0, floor: 0.86, name: 'aisle' },
-      // between the bed and the galley's end, wall to wall (0.45 m longer since §18: 1.3 m)
-      { x0: -4.02, x1: -2.7, z0: -1.0, z1: 1.0, floor: 0.86, name: 'rear' },
+      // its whole floor, from behind the cab's seats to the back wall (its lining at −5.095), wall to wall (theirs at
+      // ±1.1): the shelves, the galley, the dinette and the bed across the back that stood on it are gone (docs/V3/plan/
+      // finish.md §十九 step 7). Up to the side door's stairwell (its inner edge at 0.725), and either side of it to the
+      // right wall
+      { x0: -5.0, x1: 0.85, z0: -1.0, z1: 0.72, floor: 0.86, name: 'room' },
+      { x0: -5.0, x1: -1.36, z0: 0.72, z1: 1.0, floor: 0.86, name: 'room' },
+      { x0: -0.48, x1: 0.85, z0: 0.72, z1: 1.0, floor: 0.86, name: 'room' },
     ],
     // (the side door's opening spans x −1.32 … −0.52 — 0.8 m since docs/V3/plan/finish.md §十一 1, it was 0.56 — from
     // its sill at 0.43 up to 2.71; its leaf hinged at the front edge swings out beside it. Inside it a stairwell of two
@@ -98,26 +95,22 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
       },
     ],
     aft: [0.72, 0.1],
-    // (the over-cab bunk, and the bed across the back where the rear bench stood: their mattresses, tools/blender/
-    // frames/_rv_inner.py — the bunk first, as it was the only one)
-    beds: [
-      { x0: 0.99, x1: 1.93, z0: -1.03, z1: 1.03, top: 2.32 },
-      { x0: -5.05, x1: -4.12, z0: -1.05, z1: 1.05, top: 1.4 },
-    ],
+    // (the bunk over the cab, its mattress — tools/blender/frames/_rv_inner.py: kept, as Nomad Drive's class C keeps its
+    // bed there; any other bed is one the player puts in)
+    beds: [{ x0: 0.99, x1: 1.93, z0: -1.03, z1: 1.03, top: 2.32 }],
   },
-  // the Old Elephant (docs/V3/plan/rv.md R2; opened up in docs/V3/plan/finish.md §十一 1): its room from the bed's
-  // platform to the fridge's cabinet, from the galley's and the dinette's fronts (left) to the entry door's step and the
-  // right wall — the sofa that was built in there is gone — a metre and a third wide; and the corner behind the
-  // driver, between the fridge's cabinet (right) and the front wheel's hump by the left wall, 1.1 m. In by the entry
-  // door on the right; back from the driver's seat into that corner (tools/blender/frames/_elephant_inner.py). Since
-  // docs/V3/plan/finish.md §18 that corner runs 1.5 m further back to the dinette's front bench, wall to wall where the
-  // wheel's hump is not ('corner'), and everything from the bench back stands 1.5 m further back
+  // the Old Elephant (docs/V3/plan/rv.md R2), an empty shell since docs/V3/plan/finish.md §十九 step 7 (the dinette, the
+  // galley, the lockers, the fridge's cabinet and the bed on its platform are gone): its floor from the rear wheels'
+  // humps (their feet at −3.51) to the front wheels' (at 2.21), wall to wall (the walls at ±1.17; on the right as far as
+  // the entry door's stairwell); between the rear humps (their inboard walls at ±0.61) back to the engine deck's front
+  // (−4.18); between the front humps (±0.64) up to the seat boxes. In by the entry door on the right; back from the
+  // driver's seat between the front humps (tools/blender/frames/_elephant_inner.py)
   elephant: {
     headroom: 2.0,
     areas: [
-      { x0: -3.38, x1: 1.64, z0: -0.4, z1: 0.95, floor: 0.62, name: 'room' },
-      { x0: 0.14, x1: 2.46, z0: -0.77, z1: 0.33, floor: 0.62, name: 'front' },
-      { x0: 0.17, x1: 1.64, z0: -1.1, z1: 0.33, floor: 0.62, name: 'corner' },
+      { x0: -3.42, x1: 2.1, z0: -1.08, z1: 0.95, floor: 0.62, name: 'room' },
+      { x0: -4.11, x1: -3.42, z0: -0.56, z1: 0.56, floor: 0.62, name: 'back' },
+      { x0: 2.1, x1: 2.46, z0: -0.58, z1: 0.58, floor: 0.62, name: 'front' },
     ],
     // (the entry door's opening spans x −0.95 … −0.1 on the right, from its sill at 0.41 up; its leaf hinged at the front
     // edge. Inside it a stairwell of one tread 0.25 m deep, as Nomad Drive's class A has, the body's face at 1.195; under
@@ -135,8 +128,6 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
       },
     ],
     aft: [2.25, 0.0],
-    // (the bed across the back over the engine: its mattress)
-    beds: [{ x0: -5.52, x1: -3.42, z0: -1.13, z1: 1.13, top: 1.44 }],
   },
   // the Camel (docs/V3/plan/rv.md R3): its emptied floor, the rear wheels' humps kept out of it, and the cab's right beside
   // the driver's console out to the entry door's stairwell; in by the entry door, out by it or the emergency door's
@@ -167,16 +158,13 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
     ],
     aft: [1.6, 0.2],
   },
-  // the Turtle (docs/V3/plan/rv.md R1): the floor between the galley (left) and the sliding door (right), from the bed's
-  // cupboard to the front seats' backs; one stands up in it with the roof up (tools/blender/frames/_turtle_inner.py).
-  // Since docs/V3/plan/finish.md §18 it is 0.9 m longer and 0.3 m wider: the galley, the sliding door and the bed went
-  // back, and the floor ahead of the galley, behind the driver's seat, is open to the left wall ('front')
+  // the Turtle (docs/V3/plan/rv.md R1), an empty shell as Nomad Drive's camper van since docs/V3/plan/finish.md §十九
+  // step 7 (the bed on its platform, the bunk in the roof's opening and the galley are gone): its floor from the deck over
+  // the rear axle (its front at −1.53) to the front seats' backs, wall to wall (the walls at ±1.04); one stands up in it
+  // with the roof up (tools/blender/frames/_turtle_inner.py)
   turtle: {
     headroom: 2.0,
-    areas: [
-      { x0: -1.26, x1: 0.84, z0: -0.55, z1: 0.97, floor: 0.42, name: 'room' },
-      { x0: -0.08, x1: 0.84, z0: -0.97, z1: -0.55, floor: 0.42, name: 'front' },
-    ],
+    areas: [{ x0: -1.43, x1: 0.84, z0: -0.97, z1: 0.97, floor: 0.42, name: 'room' }],
     // (the sliding door's opening spans x −1.46 … −0.26 on the right from the floor up, its leaf hinged at the front edge;
     // the body's face at 1.067. Under it a step that slides out, as Nomad Drive's van has its running board: two rises of
     // 0.21 from the ground to the floor)
@@ -193,12 +181,6 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
     ],
     aft: [0.78, 0.0],
     roof: true,
-    // (the bed across the back, and the bunk over it in the roof's opening — docs/V3/plan/finish.md, decision 9: one
-    // sleeps up there under the shell's canvas; tools/blender/frames/_turtle_inner.py BUNK_*)
-    beds: [
-      { x0: -3.23, x1: -1.32, z0: -0.99, z1: 0.99, top: 1.065 },
-      { x0: -2.98, x1: -1.31, z0: -0.85, z1: 0.85, top: 1.955 },
-    ],
   },
   // the Snail (docs/V3/plan/finish.md §十一 1): its box behind the cab's back wall — no way through from the seats; in
   // and out by the rear door (the right leaf of its two: the opening from the middle to the right post). Its floor
@@ -223,9 +205,11 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
  * Which making of its inside a frame is at (0: as it was first made). A save says which one the things in a vehicle
  * were put in under (SavedVehicle.room); under an older one than this, they are put in again where there is room for
  * them now — a thing that stood where the Whale's wardrobe was, on the Old Elephant's built-in sofa, on the floor of the
- * trailer's small box (docs/V3/plan/finish.md §十一 1); everything in the four campers once they were lengthened (§18).
+ * trailer's small box (docs/V3/plan/finish.md §十一 1); everything in the four campers once they were lengthened (§18);
+ * everything in the Whale, the Old Elephant and the Turtle once their living spaces were emptied (§十九 step 7: what
+ * stood on a galley, a table, a bed or a shelf that is no more).
  */
-const ROOM_REV: Readonly<Record<string, number>> = { rv: 2, elephant: 2, camel: 1, turtle: 1, trailer: 1, snail: 1 };
+const ROOM_REV: Readonly<Record<string, number>> = { rv: 3, elephant: 3, camel: 1, turtle: 2, trailer: 1, snail: 1 };
 
 export function roomRev(frame: string): number {
   return ROOM_REV[frame] ?? 0;

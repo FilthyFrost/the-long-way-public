@@ -65,6 +65,8 @@ export interface GarageDevice {
   hit?(ray: THREE.Ray, reach: number): number | null;
   /** a look of its own the mark lights up (a thing drawn in an open container: v3/nd-store), when it is no thing lying about */
   readonly lights?: string;
+  /** specific 3D object outlined by Frame's white silhouette when aimed (e.g. a cooler lid, cabinet door, or pump) */
+  readonly outline?: THREE.Object3D;
 }
 
 /** what a garage may look at and touch each frame: its devices work on the things in it */

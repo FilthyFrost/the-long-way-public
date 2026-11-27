@@ -363,10 +363,12 @@ def json_extra(objs, panels, needles, wipers, tris, total, popups):
     out['popups'] = {name: dict(hinge_pos=game_vec(info['pivot']), hinge_axis=[0.0, 1.0, 0.0], open_deg=0.0, lift=[0.0, round(info['lift'], 4), 0.0],
                                 bellows=info['bellows'], bellows_pos=game_vec(info['bellows_at']), driver='roof',
                                 rest='down: the shell on its lip, the bellows folded flat under it') for name, info in popups.items()}
-    # where one can stand in the room (the floor between the galley and the sliding door, by the bed's cupboard) and
-    # the bed's top (game frame): for the walk area and the bed (core/modcar/aboard.ts)
-    out['room'] = dict(floor_y=IN.FLOOR_Z, x=[IN.BED_X0, IN.ROOM_FRONT_X], z=[-(IN.GALLEY_Y - 0.03), 0.86], bed=dict(x=[D['xr'] + 0.05, IN.BED_X0], z=[-0.86, 0.86], top=IN.BED_TOP),
-                       galley=dict(x=[IN.GALLEY_X0, IN.GALLEY_X1], z=[-0.87, -IN.GALLEY_Y], top=IN.WORKTOP_Z, sink_x=IN.SINK_X))
+    # where one can stand in the room (game frame), an empty shell since docs/V3/plan/finish.md section 19 step 7: the
+    # floor from the deck over the rear axle to the seats, wall to wall; the deck's top and the engine deck's behind it
+    # (core/modcar/aboard.ts, cargo.ts)
+    out['room'] = dict(floor_y=IN.FLOOR_Z, x=[IN.AXLE_DECK_X1, IN.ROOM_FRONT_X], z=[-0.86, 0.86],
+                       deck=dict(x=[IN.FIREWALL_X, IN.AXLE_DECK_X1], top=IN.AXLE_DECK_Z),
+                       engine_deck=dict(x=[D['xr'] + 0.03, IN.FIREWALL_X], top=IN.DECK_Z))
     return out
 
 

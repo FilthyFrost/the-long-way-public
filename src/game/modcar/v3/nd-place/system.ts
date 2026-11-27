@@ -27,6 +27,7 @@ import { itemDef } from '../../../../core/modcar/items';
 import { ND_FRIDGE } from '../../../../core/v3/nd/items';
 import { circleInRect, distToRect, firstBlocking, footprint, latticeShift, nearestQuarter, nextQuarter, outBack, outCubic, PLACE, pointInBlock, stepDistance, type Box3, type Rect } from '../../../../core/v3/nd/place';
 import type { Solid } from '../../../../core/world/solids';
+import type { MountDef } from '../../../../core/modcar/types';
 import { applyGhost, type GhostKind } from '../../../render/carMaterials';
 import { massOf, type StowAim } from '../../cargo';
 import type { Action } from '../../hudItems';
@@ -61,8 +62,12 @@ interface Aim {
   onSurface?: boolean;
   /** a slot of a system's it goes onto (a stove's burner: slots.ts), shown there turned as it is held */
   slot?: SlotAim | null;
+  /** a compatible empty vehicle mount snapped magnetically while placing a part (PlacementSlotBridge) */
+  partSlot?: { v: ModVehicle; mount: MountDef; sub: string | null; key: string } | null;
   /** a container's board it goes onto (v3/nd-store): the container takes it, as what it holds (loose.ts BoardAim.put) */
   put?: BoardAim['put'] | null;
+  /** the thing lying about it goes onto (a chest's lid, a table's top) */
+  under?: Loose | null;
 }
 
 /** the grid a thing is on: a vehicle's (in its model's frame, its lines through its first place for things' corner) or the world's */
@@ -232,8 +237,8 @@ export class NdPlace implements System<GameContext> {
       this.d = stepDistance(this.d, delta < 0 ? n : -n, this.range);
       return true;
     },
-    takesF: () => true,
-    step: (_h, dt, f) => this.frame(dt, f),
+    takesRmb: () => true,
+    step: (_h, dt, _e, rmb) => this.frame(dt, !!rmb),
     words: () => this.words(),
     gone: () => this.stop(),
   };
@@ -256,7 +261,7 @@ export class NdPlace implements System<GameContext> {
    */
   private words(): Action[] {
     const out: Action[] = [];
-    if (this.aim.ok) out.push({ keys: ['LMB'], text: this.aim.slot?.word || '放下' });
+    if (this.aim.ok) out.push({ keys: ['LMB'], text: this.aim.partSlot ? '安装' : this.aim.slot?.word || '放下' });
     out.push({ keys: ['Q', 'E'], text: '旋转' }, { keys: ['RMB'], hold: true, text: '自由转' }, { keys: ['Wheel'], text: '距离' }, { keys: ['R'], text: '取消' });
     return out;
   }
@@ -321,7 +326,11 @@ export class NdPlace implements System<GameContext> {
     const a = this.aim;
     const spot = a.stow ? (a.stow.spot ?? a.tryStow) : null;
     let k: number;
-    if (a.slot) {
+    if (a.partSlot && ctx.player.ghosts.poseOf(a.partSlot.key, this.tp2, this.tq)) {
+      // Magnetic slot snap while placing a car part: pull smoothly into the slot pose.
+      this.p.copy(centre).applyQuaternion(this.tq).add(this.tp2);
+      k = PLACE.planeK;
+    } else if (a.slot) {
       // (onto a slot — a stove's burner: its own origin on the slot's middle, turned about the slot's up as it is held)
       this.tq.copy(a.slot.q).multiply(this.tq2.setFromAxisAngle(UP, turnOnSlot(this.poseYaw(), a.slot.yaw)));
       this.p.copy(centre).applyQuaternion(this.tq).add(a.slot.pos);
@@ -493,8 +502,8 @@ export class NdPlace implements System<GameContext> {
     const a = this.aim;
     const fr = this.gf;
     const spot = a.stow ? (a.stow.spot ?? a.tryStow) : null;
-    // (not on a slot: a burner shows no squares, as Nomad Drive's cooking zones have none drawn)
-    const onIt = this.gridOn && !!this.thing && !a.slot && ((a.stow && spot && !a.stow.zone.wall) || (a.surface && a.onSurface));
+    // (not on a slot: a burner or magnetic vehicle mount shows no squares)
+    const onIt = this.gridOn && !!this.thing && !a.slot && !a.partSlot && ((a.stow && spot && !a.stow.zone.wall) || (a.surface && a.onSurface));
     if (!onIt) {
       this.grid?.hide();
       return;
@@ -553,11 +562,14 @@ export class NdPlace implements System<GameContext> {
     a.surface = false;
     a.onSurface = false;
     a.slot = null;
+    a.partSlot = null;
     a.put = null;
+    a.under = null;
     const o = ctx.core.origin;
     // (where the line of sight meets a vehicle first, once a frame: what it may go on or in, how far it may float)
     this.losHit(eye, dir, Math.max(PLACE.surfaceReach, this.range.max) + 0.5);
     if (this.slotAim(h)) return;
+    if (h.kind === 'part' && this.partSlotAim(eye, dir)) return;
     // a vehicle's place for things it lands in (not one behind the vehicle's own wall)
     const nearV: ModVehicle[] = [];
     for (const v of ctx.vehicles) if ((v.sim.px - (eye.x + o.x)) ** 2 + (v.sim.pz - (eye.z + o.z)) ** 2 <= 64) nearV.push(v);
@@ -695,6 +707,12 @@ export class NdPlace implements System<GameContext> {
           }
         }
       }
+      // (on a thing lying about: on its top, where the line of sight met it, riding with whatever that rides)
+      if (hit.under && hit.y >= top) {
+        top = hit.y;
+        on = hit.v;
+        a.under = hit.under;
+      }
       if (top > -Infinity && top <= hit.y + 0.3) {
         a.on = on;
         a.surface = true;
@@ -722,6 +740,13 @@ export class NdPlace implements System<GameContext> {
         on = v;
       }
     }
+    // (or the top of a thing lying about under it)
+    const lt = ctx.loose.topUnder(wx, wz, wy);
+    if (lt && lt.y > land) {
+      land = lt.y;
+      a.under = lt.l;
+      on = lt.l.riding?.on ? (ctx.vehicles.find((v) => v === lt.l.riding!.on) ?? null) : null;
+    }
     a.on = on;
     this.gf = this.frameAt(wx, wz, on);
     if (!(land > -Infinity) || wy - land > PLACE.dropMax) {
@@ -729,8 +754,9 @@ export class NdPlace implements System<GameContext> {
       a.why = '太远了';
       return;
     }
+    // (a floor, a bench, a thing's top — not the bare ground, which as it is drawn is a few centimetres off the land's own height)
     const ground = ctx.world ? ctx.world.heightAt(wx, wz) : land;
-    a.surface = !!on || land > ground + 0.05;
+    a.surface = !!on || (!!lt && lt.y >= land) || land > ground + 0.12;
     // its base where its lowest point touches what is under it
     const y = land - box.minY;
     const cx = (box.minX + box.maxX) / 2;
@@ -743,6 +769,25 @@ export class NdPlace implements System<GameContext> {
     a.y = y;
     a.why = this.blocked(box, a.x, a.y, a.z, on);
     a.ok = !a.why;
+  }
+
+  /** magnetic snap onto a compatible empty vehicle mount while placing a car part */
+  private partSlotAim(eye: THREE.Vector3, dir: THREE.Vector3): boolean {
+    const ctx = this.ctx!;
+    if (this.forced) return false;
+    const hit = ctx.player.ghosts.castShown(eye, dir, PLACE.surfaceReach, 0.14);
+    if (!hit) return false;
+    const slot = ctx.player.ghostSlot(hit.key);
+    if (!slot || !slot.empty || Math.abs(slot.v.sim.kmh) > 1.5 || slot.v.view.shutOver(slot.mount.id)) return false;
+    ctx.player.ghosts.selected = hit.key;
+    const a = this.aim;
+    a.partSlot = { v: slot.v, mount: slot.mount, sub: slot.sub, key: hit.key };
+    a.ok = true;
+    a.why = '';
+    a.surface = true;
+    a.onSurface = true;
+    this.gf = this.frameOf(slot.v);
+    return true;
   }
 
   /**
@@ -780,7 +825,7 @@ export class NdPlace implements System<GameContext> {
    * its surface stepped along as far as that: a vehicle's own surface stepped along took a whole ray over its every face
    * each 4 cm, 86 ms a frame at a motorhome's bumper (docs/V3/plan/prompts.md §一).
    */
-  private surfaceHit(eye: THREE.Vector3, dir: THREE.Vector3, far: number): { x: number; y: number; z: number; v: ModVehicle | null } | null {
+  private surfaceHit(eye: THREE.Vector3, dir: THREE.Vector3, far: number): { x: number; y: number; z: number; v: ModVehicle | null; under?: Loose | null } | null {
     const ctx = this.ctx!;
     const o = ctx.core.origin;
     const los = this.los;
@@ -798,8 +843,15 @@ export class NdPlace implements System<GameContext> {
         if (b.floor && y >= b.y1 - 0.02) continue;
         if (pointInBlock(x, y, z, b) && !(y >= b.y1 - 0.03)) return null;
       }
-      const top = ctx.loose.surfaceAt(x, z, y + step);
-      if (top !== null && y <= top + 0.005) return { x, y: top, z, v: null };
+      // (the ground, a floor; or the top of a thing lying about — a chest's lid, a table's top: things stack, as Nomad Drive's do)
+      let top = ctx.loose.surfaceAt(x, z, y + step);
+      let under: Loose | null = null;
+      const t = ctx.loose.topUnder(x, z, y + step);
+      if (t && t.y > top) {
+        top = t.y;
+        under = t.l;
+      }
+      if (y <= top + 0.005) return { x, y: top, z, v: under?.riding?.on ? (ctx.vehicles.find((v) => v === under!.riding!.on) ?? null) : null, under };
     }
     // what of a vehicle the line of sight met first: a face turned up is a surface to put it on, its side a wall
     if (los.dist <= far && los.up) return { x: los.x, y: los.y, z: los.z, v: los.v };
@@ -968,6 +1020,15 @@ export class NdPlace implements System<GameContext> {
     const pl = ctx.player;
     const i = pl.slots.indexOf(h);
     if (i < 0) return this.stop();
+    if (a.partSlot) {
+      if (!pl.installFromPlace(a.partSlot.v, a.partSlot.mount, a.partSlot.sub)) {
+        ctx.ui.items.showDone('装不上', 1.5);
+        return;
+      }
+      this.placed++;
+      this.stop();
+      return;
+    }
     if (a.slot) {
       // (onto the slot, turned as it is shown: the slot's system takes it out of the hands)
       if (!a.slot.put(turnOnSlot(this.poseYaw(), a.slot.yaw))) {
@@ -998,6 +1059,11 @@ export class NdPlace implements System<GameContext> {
       if (a.on) ctx.loose.ride(l, a.on);
       else if (a.onSurface) ctx.loose.rest(l);
       else ctx.loose.drop(l);
+      // (put on a thing lying about: it lies on it — taken away, this comes down — and a place's table is one's own from then on)
+      if (a.under && (a.on || a.onSurface)) {
+        l.under = a.under;
+        ctx.loose.touch(a.under);
+      }
     }
     this.placed++;
     this.pops.push({ l, t: 0 });

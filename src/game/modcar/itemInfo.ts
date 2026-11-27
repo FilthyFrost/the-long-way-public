@@ -88,6 +88,10 @@ export interface ItemCard {
   name: string;
   /** 0 = none shown */
   stars: number;
+  /** a part's level as Nomad Drive's card shows it, one to three stars (drawn in place of `stars`, which other screens keep) */
+  level?: number;
+  /** a part's condition (0 … 1), said as Nomad Drive's card says it under the name: the state's word and the percentage */
+  state?: number;
   badges: { text: string; tone: 'stock' | 'apoc' | 'meme' | 'note' | 'warn' }[];
   blurb: string;
   curve?: CardCurve;
@@ -252,6 +256,15 @@ export interface PartContext {
   mount?: string;
 }
 
+/**
+ * A part's grade (blurbs.ts: 1 a makeshift, 2 an ordinary factory part, 3 a good one, 4 a strong one, 5 the best of its
+ * kind) as Nomad Drive's part levels, one to three stars: the makeshift and the factory's one, a good one two, the
+ * strong and the best three. 0: no grade, no stars.
+ */
+export function partLevel(stars: number): number {
+  return stars <= 0 ? 0 : stars <= 2 ? 1 : stars === 3 ? 2 : 3;
+}
+
 export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   const def = partDef(inst.part);
   const [group, icon] = GROUP[def.cat] ?? ['车身', 'body'];
@@ -262,12 +275,15 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
     cat: `${group} · ${CAT_LABEL[def.cat].zh}`,
     name: def.name.zh,
     stars: blurb?.stars ?? 0,
+    level: partLevel(blurb?.stars ?? 0),
+    // (a wheel's is its tyre's: what wears, and what a tyre repair kit mends)
+    state: inst.sub.tire?.cond ?? inst.cond,
     badges: badgesOf(def),
     blurb: blurb?.zh ?? '',
     rows: [],
     bars: [],
     notes: [],
-    foot: { cond: inst.cond, mass: instanceMass(inst), fits: fitsOf(def) },
+    foot: { mass: instanceMass(inst), fits: fitsOf(def) },
   };
   if (ctx.mount) {
     card.badges.unshift({ text: `装在：${ctx.mount}`, tone: 'note' });
@@ -340,7 +356,7 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   }
   if (def.steering) {
     const s = def.steering;
-    row(s.bar ? '车把' : `${s.ratio} : 1`, s.bar ? '转向' : '转向比（越小越灵）');
+    row(s.bar ? '车把' : `${+s.ratio.toFixed(1)} : 1`, s.bar ? '转向' : '转向比（越小越灵）');
     row(`${s.playDeg}°`, '虚位（越小越跟手）');
   }
   if (def.seat) {
@@ -702,7 +718,6 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
   if (d.pack) card.rows.push({ value: `+${d.pack.slots} 格`, label: '快捷栏', tone: 'good' });
   if (d.lamp) card.rows.push({ value: `${d.lamp.range} m`, label: '照多远' });
   if (d.gear?.kind === 'hammer') card.bars.push({ label: '还能砸', value: inst.uses ?? 0, max: d.gear.uses ?? 1, text: `${inst.uses ?? 0} / ${d.gear.uses} 下`, tone: 'mid' });
-  if (d.gear?.kind === 'repair') card.bars.push({ label: '修理点数', value: inst.uses ?? 0, max: d.gear.points ?? 1, text: `${inst.uses ?? 0} / ${d.gear.points}`, tone: 'good' });
   if (d.portions !== undefined) card.bars.push({ label: '还剩', value: inst.uses ?? 0, max: d.portions, text: `${inst.uses ?? 0} / ${d.portions} 份`, tone: 'mid' });
   // a thing that goes off: how fresh, in words, and how long it still keeps where it is
   if (d.perish) {

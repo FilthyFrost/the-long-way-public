@@ -821,36 +821,27 @@
   }
  },
  "room": {
-  "bed": {
-   "top": 1.065,
+  "deck": {
+   "top": 0.8,
    "x": [
-    -3.25,
-    -1.3
-   ],
-   "z": [
-    -1.01,
-    1.01
+    -2.48,
+    -1.53
+   ]
+  },
+  "engine_deck": {
+   "top": 0.95,
+   "x": [
+    -3.27,
+    -2.48
    ]
   },
   "floor_y": 0.42,
-  "galley": {
-   "sink_x": -0.48,
-   "top": 1.22,
-   "x": [
-    -1.12,
-    -0.1
-   ],
-   "z": [
-    -1.02,
-    -0.61
-   ]
-  },
   "x": [
-   -1.3,
+   -1.53,
    0.9
   ],
   "z": [
-   -0.58,
+   -1.01,
    1.01
   ]
  },
@@ -871,7 +862,7 @@
   "BODY": 30677,
   "FUEL_CAP": 480,
   "GLASS": 1230,
-  "INTERIOR": 12229,
+  "INTERIOR": 9657,
   "KNUCKLE_hub_FL": 372,
   "KNUCKLE_hub_FR": 372,
   "KNUCKLE_hub_RL": 372,
@@ -894,7 +885,7 @@
   "UNDER": 4176,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 79299
+  "total": 76727
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {
